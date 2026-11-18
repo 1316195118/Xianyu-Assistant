@@ -17,13 +17,9 @@ services:
     restart: unless-stopped
     ports:
       - "${XIANYU_PORT:-8080}:8080"
+    # 其余环境变量（PORT/DB_PATH/CONFIG_DIR/BACKUP_DIR）已在镜像 Dockerfile 里设好，无需重复
     environment:
       TZ: Asia/Shanghai
-      PORT: "8080"
-      # 三个目录分别落在三个卷上，见下方 volumes
-      DB_PATH: /data/xianyu.db
-      CONFIG_DIR: /config
-      BACKUP_DIR: /backup
     volumes:
       - xianyu-data:/data
       - xianyu-config:/config
