@@ -2014,12 +2014,17 @@ html[data-theme="dark"] .empty-badge { background: var(--surface-2); }
 .action-primary.open svg { transform: rotate(180deg); }
 .action-icons { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .icon-btn {
-  width: 34px; height: 34px; display: grid; place-items: center;
+  /* 图标 + 文字：只给图标时用户要猜含义，这里统一带文字标签 */
+  min-width: 34px; height: 34px; padding: 0 9px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   border: 1px solid var(--border); background: var(--surface); color: var(--text-3);
   border-radius: 9px; cursor: pointer;
+  font-size: 12px; font-weight: 600; white-space: nowrap;
   transition: border-color var(--dur-1) ease, color var(--dur-1) ease,
               background var(--dur-1) ease, transform var(--dur-1) var(--ease);
 }
+.icon-btn svg { flex: 0 0 auto; }
+.icon-btn-t { line-height: 1; }
 .icon-btn:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
 .icon-btn-danger:hover { border-color: var(--up); color: var(--up); background: var(--up-soft); }
 .icon-btn:active { transform: scale(.93); }
@@ -2063,7 +2068,10 @@ html[data-theme="dark"] .empty-badge { background: var(--surface-2); }
   .chip { padding: 7px 12px; font-size: 13px; }
   .sort-group .btn { font-size: 13px; padding: 8px 10px; }
   .action-primary { padding: 9px 12px; font-size: 13px; }
-  .icon-btn { width: 40px; height: 40px; }
+  .icon-btn { min-width: 40px; height: 38px; padding: 0 10px; font-size: 12.5px; }
+  /* 五个操作按钮带文字后会变宽，允许换行，不让「查看详情」被挤没 */
+  .action-icons { flex-wrap: wrap; justify-content: flex-end; }
+  .rc-actions { flex-wrap: wrap; row-gap: 8px; }
 }
 
 html[data-theme="dark"] .action-primary,
@@ -4665,3 +4673,16 @@ html[data-theme="dark"] .price-hint { color: #9dbcff; }
 .gf-qr-msg.err { color: var(--down); }
 .gf-qr-tip { font-size: 11px; line-height: 1.6; margin-top: 8px; text-align: center; }
 .gf-qr-tip code { background: var(--surface-2); padding: 1px 4px; border-radius: 4px; font-size: 10.5px; }
+
+/* 明细卡片：在联单中但未完结的小标 */
+.group-dot {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 6px; border-radius: 999px;
+  background: var(--blue-soft); color: var(--blue);
+  font-size: 10.5px; font-weight: 700; white-space: nowrap;
+}
+html[data-theme="dark"] .group-dot { background: #1e3b66; color: #9dbcff; }
+
+/* 设置页二级弹窗内的说明文字 */
+.set-sheet-desc { font-size: 12.5px; line-height: 1.65; margin: 0 0 12px; }
+.set-sheet-desc:last-child { margin-bottom: 0; }

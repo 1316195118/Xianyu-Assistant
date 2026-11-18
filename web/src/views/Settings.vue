@@ -131,6 +131,9 @@ const excelBusy = ref(false)
 const exporting = ref('')   // '' | 'json' | 'csv'：导出期间的按钮忙碌态
 const fileInput = ref(null)
 const readonlyPwd = ref('')
+const helpOpen = ref(false)      // 识别与配对说明：默认收起
+const readonlyOpen = ref(false)  // 只读账号二级窗口
+const targetOpen = ref(false)    // 月度利润目标二级窗口
 
 async function saveReadonly() {
   if (readonlyPwd.value.length < 4) { emit('notify', '只读密码至少 4 位', true); return }
@@ -506,22 +509,18 @@ async function test() {
     </div>
 
     <!-- 月度利润目标 -->
-    <div class="card settings-card">
-      <div class="list-head">
-        <div>
-          <h3 class="section-title">月度利润目标<HelpTip text="给当前店铺设一个当月净利润目标，首页 Hero 会显示完成进度和本月剩余天数。按店铺、按月份分别保存，填 0 表示不设目标。" /></h3>
-        </div>
+    <div class="card settings-card settings-entry" role="button" tabindex="0"
+         aria-label="打开月度利润目标" @click="targetOpen = true"
+         @keyup.enter="targetOpen = true" @keyup.space.prevent="targetOpen = true">
+      <span class="se-icon" aria-hidden="true">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg>
+      </span>
+      <div class="se-text">
+        <h3 class="section-title">月度利润目标<HelpTip text="给当前店铺设一个当月净利润目标，首页 Hero 会显示完成进度和本月剩余天数。按店铺、按月份分别保存，填 0 表示不设目标。" /></h3>
       </div>
-      <div class="settings-body">
-        <div class="target-row">
-          <input class="input num" type="month" v-model="targetMonth" aria-label="目标月份" />
-          <input class="input num" type="number" min="0" step="100" v-model.number="targetValue" placeholder="目标净利润，如 5000" aria-label="目标金额" />
-          <button class="btn btn-primary" :disabled="targetSaving" @click="saveTarget">
-            <span v-if="targetSaving" class="spin"></span>保存
-          </button>
-        </div>
-        <div v-if="targetMsg" class="tip" :class="{ err: targetMsg.includes('失败') }">{{ targetMsg }}</div>
-      </div>
+      <span class="se-arrow" aria-hidden="true">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+      </span>
     </div>
 
     <!-- 识别引擎 -->
@@ -804,28 +803,28 @@ async function test() {
     </Transition>
 
     <!-- 只读账号 -->
-    <div class="card settings-card">
-      <div class="list-head">
-        <div>
-          <h3 class="section-title">只读账号<HelpTip text="用独立密码登录时只能查看数据，不能新增、修改或删除" /></h3>
-        </div>
-        <span class="badge" :class="meta.has_readonly ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ meta.has_readonly ? '已开启' : '未设置' }}</span>
+    <div class="card settings-card settings-entry" role="button" tabindex="0"
+         aria-label="打开只读账号设置" @click="readonlyOpen = true"
+         @keyup.enter="readonlyOpen = true" @keyup.space.prevent="readonlyOpen = true">
+      <span class="se-icon" aria-hidden="true">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.5"/></svg>
+      </span>
+      <div class="se-text">
+        <h3 class="section-title">只读账号<HelpTip text="用独立密码登录时只能查看数据，不能新增、修改或删除" /></h3>
       </div>
-      <div class="settings-body">
-        <div class="readonly-row">
-          <input class="input" type="password" v-model="readonlyPwd" placeholder="设置只读密码（至少 4 位）" autocomplete="new-password" />
-          <button class="btn btn-primary" @click="saveReadonly" :disabled="!readonlyPwd">保存</button>
-          <button v-if="meta.has_readonly" class="btn btn-quiet" @click="clearReadonly">清除</button>
-          <HelpTip text="主密码仍拥有完整权限；已有登录会话按管理员处理，不受影响。" />
-        </div>
-
-      </div>
+      <span class="badge" :class="meta.has_readonly ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ meta.has_readonly ? '已开启' : '未设置' }}</span>
+      <span class="se-arrow" aria-hidden="true">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+      </span>
     </div>
 
     <!-- 使用说明 -->
     <div class="card settings-card">
-      <div class="list-head"><h3 class="section-title">识别与配对说明</h3></div>
-      <div class="settings-body help-body">
+      <div class="list-head adv-head" @click="helpOpen = !helpOpen">
+        <h3 class="section-title">识别与配对说明</h3>
+        <span class="adv-arrow" :class="{ open: helpOpen }">{{ helpOpen ? '收起' : '展开' }}<svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
+      </div>
+      <div v-if="helpOpen" class="settings-body help-body">
         <div class="help-row"><b>买进单判定</b><span>截图出现「卖家昵称」→ 我是买家 → 识别为买进侧</span></div>
         <div class="help-row"><b>卖出单判定</b><span>截图出现「买家昵称」/「预计到手」→ 我是卖家 → 识别为卖出侧</span></div>
         <div class="help-row"><b>自动配对</b><span>按商品名把买进侧与卖出侧合并成一条记录；同名多件货依次配对，可用「两侧一起填」或编辑调整</span></div>
@@ -882,6 +881,51 @@ async function test() {
 
     <Transition name="modal">
       <VersionPanel v-if="versionOpen" @close="versionOpen = false" />
+
+    <!-- 月度利润目标：二级窗口 -->
+    <div v-if="targetOpen" class="modal-mask" @click.self="targetOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="月度利润目标">
+        <div class="modal-head">
+          <b>月度利润目标</b>
+          <button class="x" @click="targetOpen = false" aria-label="关闭">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted set-sheet-desc">设一个当月净利润目标，首页会显示完成进度和剩余天数。按店铺、按月份分别保存；填 0 表示不设目标。</p>
+          <div class="target-row">
+            <input class="input num" type="month" v-model="targetMonth" aria-label="目标月份" />
+            <input class="input num" type="number" min="0" step="100" v-model.number="targetValue" placeholder="目标净利润，如 5000" aria-label="目标金额" />
+          </div>
+          <div v-if="targetMsg" class="tip" :class="{ err: targetMsg.includes('失败') }">{{ targetMsg }}</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" @click="targetOpen = false">关闭</button>
+          <button class="btn btn-primary" :disabled="targetSaving" @click="saveTarget">
+            <span v-if="targetSaving" class="spin"></span>保存
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 只读账号：二级窗口 -->
+    <div v-if="readonlyOpen" class="modal-mask" @click.self="readonlyOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="只读账号">
+        <div class="modal-head">
+          <b>只读账号</b>
+          <button class="x" @click="readonlyOpen = false" aria-label="关闭">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted set-sheet-desc">设一个独立密码，用它的登录只能查看数据，不能新增、修改或删除。主密码仍拥有完整权限。</p>
+          <div class="readonly-row">
+            <input class="input" type="password" v-model="readonlyPwd" placeholder="设置只读密码（至少 4 位）" autocomplete="new-password" />
+          </div>
+          <p class="muted set-sheet-desc" v-if="meta.has_readonly">当前状态：已开启</p>
+        </div>
+        <div class="modal-foot">
+          <button v-if="meta.has_readonly" class="btn btn-ghost btn-danger" @click="clearReadonly">清除只读密码</button>
+          <button class="btn btn-primary" @click="saveReadonly" :disabled="!readonlyPwd">保存</button>
+        </div>
+      </div>
+    </div>
     </Transition>
   </div>
 </template>

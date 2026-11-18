@@ -55,7 +55,7 @@ const staleThreshold = computed(() => data.value?.stale_threshold || 60)
       </div>
     </div>
 
-    <div class="insight-title muted">利润 Top 5 商品 <span class="insight-scope">已完结 · 盈利 · 有买进成本</span></div>
+    <div class="insight-title muted">净利润 Top 5 商品</div>
     <div class="insight-top">
       <div v-for="(p, i) in tops" :key="p.product" class="insight-row insight-row-bar">
         <span class="insight-rank">{{ i + 1 }}</span>

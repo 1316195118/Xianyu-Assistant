@@ -504,7 +504,7 @@ async function del(r) {
 }
 async function batchDel() {
   if (!selected.value.length) return
-  const locked = items.value.filter(i => selected.value.includes(i.id) && isSettled(i))
+  const locked = items.value.filter(i => selected.value.includes(i.id) && groupSettled(i))
   if (locked.length) {
     emit('notify', `选中的记录里有 ${locked.length} 条属于已完结联单，请先在「联单」页重新开启后再删`, true)
     return
@@ -584,7 +584,10 @@ const groupMembership = computed(() => {
   return m
 })
 // 明细分类标签：已完结联单内的记录优先显示「完结单」，否则按交易类型显示买单 / 卖单
-const isSettled = (r) => !!(r && r.settled_at) || (groupsOf(r.id) || []).some(g => g.settled)
+// 「完结章」只在整张联单完结时出现。
+// 单条完结（旧数据里的 settled_at）不再出章：现在卖单只要填了单件成本就算核算完成，
+// 不再有「单独完结」这个动作。
+const groupSettled = (r) => (groupsOf(r.id) || []).some(g => g.settled)
 // 弃单：记录还在，但不占在库、不计成本与利润
 const isDiscarded = (r) => !!(r && r.discarded_at)
 // 没有成本单的卖单（独立卖单，没有买进侧）：不占资金也没有成本，
@@ -598,63 +601,15 @@ const inGroup = (r) => (groupsOf(r.id) || []).length > 0
 const settledTitleOf = (r) => (groupsOf(r.id) || []).filter(g => g.settled).map(g => g.title || '未命名联单')[0] || '未命名联单'
 // 单商品完结：不走联单，直接把这一条结案。
 // 完结后不进在库、不出现在联单候选，也能随时取消。
-const settling = ref(0)
 
 // 不能完结的原因（返回空串=可以完结）。
 // 以前是直接把按钮 disabled 掉，用户只看到灰按钮、不知道该怎么处理；
 // 现在按钮始终可点，点下去明确告诉去哪儿解除。
-function settleBlock(r) {
-  if (r.discarded_at) return '这条已标记为弃单，先点「取消弃单」再完结'
-  const gs = (groupsOf(r.id) || []).find((g) => g.settled)
-  if (gs) return `「${gs.title || '未命名联单'}」已经完结，请到「联单」页点「重新开启」，再来单独完结这一条`
-  const g = (groupsOf(r.id) || [])[0]
-  if (g) return `这条在联单「${g.title || '未命名联单'}」里，请到「联单」页整单完结；不想进联单就先把它移出联单`
-  return ''
-}
-// 按钮文案：联单已完结的显示「已完结」，点下去给出解除提示
-const settleLabel = (r) => r.settled_at ? '取消完结'
-  : ((groupsOf(r.id) || []).some((g) => g.settled) ? '已完结' : '完结')
-
 function discardBlock(r) {
   if (r.settled_at) return '这条已单独完结，先点「取消完结」再弃单'
   const g = (groupsOf(r.id) || [])[0]
   if (g) return `这条在联单「${g.title || '未命名联单'}」里，请先在「联单」页把它移出联单，再标记弃单`
   return ''
-}
-
-async function toggleSettle(r) {
-  if (settling.value) return
-  const blocked = settleBlock(r)
-  if (blocked) {
-    emit('notify', blocked, true)
-    return
-  }
-  const on = !r.settled_at
-  // 完结会把「这条单据的成本」从在库占用里减掉；卖单如果没录买价就没有可减的，得说清楚
-  const cost = (r.unit_cost > 0) ? r.unit_cost : ((r.buy_price || 0) + (r.buy_shipping || 0))
-  const settleMsg = cost > 0
-    ? `「${r.product || '未命名商品'}」将标记为已完结，同时从在库占用资金里扣掉 ${fmtMoney(cost)}，并不再出现在联单候选里。随时可以取消完结。`
-    : `「${r.product || '未命名商品'}」将标记为已完结，不再出现在联单候选里。这条没有买进成本，「在库占用资金」不会变化；要抵扣占用，请先取消完结、在编辑里补上买价再完结。`
-  const ok = await confirm(on ? {
-    title: '完结这一条？',
-    message: settleMsg,
-    confirmText: '完结'
-  } : {
-    title: '取消完结？',
-    message: `「${r.product || '未命名商品'}」将恢复为未完结，重新占用在库资金，也会重新出现在联单候选里。`,
-    confirmText: '取消完结'
-  })
-  if (!ok) return
-  settling.value = r.id
-  try {
-    await api.settleRecord(r.id, on)
-    emit('notify', on ? '已完结这一条' : '已取消完结')
-    await load()
-  } catch (e) {
-    emit('notify', e.message || (on ? '完结失败' : '取消失败'), true)
-  } finally {
-    settling.value = 0
-  }
 }
 
 // 弃单：这单作废，记录保留但不计任何钱
@@ -694,7 +649,7 @@ function editRecord(r) {
   emit('edit', r)
 }
 function blockIfSettled(r, action = '修改') {
-  if (!isSettled(r)) return false
+  if (!groupSettled(r)) return false
   emit('notify', `「${settledTitleOf(r)}」是已完结联单，${action}前请先在「联单」页把它重新开启`, true)
   return true
 }
@@ -706,11 +661,14 @@ const sealDate = (r, t) => {
   const g = (groupsOf(r && r.id) || []).find((x) => x.settled) || {}
   return String(g.settled_at || '').slice(0, 10).replace(/-/g, '.')
 }
-const typeLabel = (r) => isDiscarded(r) ? '弃单' : isSettled(r) ? '完结单' : (r.kind === 'purchase' ? '买单' : '卖单')
-const typeClass = (r) => isDiscarded(r) ? 'badge-discard' : isSettled(r) ? 'badge-settled' : (r.kind === 'purchase' ? 'badge-buy' : 'badge-sell')
+const typeLabel = (r) => isDiscarded(r) ? '弃单' : groupSettled(r) ? '完结单' : (r.has_sell ? '卖单' : '买单')
+const typeClass = (r) => isDiscarded(r) ? 'badge-discard' : groupSettled(r) ? 'badge-settled' : (r.has_sell ? 'badge-sell' : 'badge-buy')
 // 每行「买进价 / 到手价」按你的口径：
 // 第一格：卖出单看卖价、买进单看买价（它们都是这笔的「成交价」）
-const rowBuyPrice = (r) => r.kind === 'purchase' ? (r.buy_price || 0) : (r.sell_price || 0)
+// 第一格：纯买进单看买进价，其余（卖单/两侧都填/弃单）看卖出价。
+// 注意不能用 kind === 'purchase' 判断——弃单后 kind 会变成 discarded，
+// 弃掉的买进单会被误判成卖单、金额显示成 0。改用 has_sell 判断更稳。
+const rowBuyPrice = (r) => (r.has_sell ? (r.sell_price || 0) : (r.buy_price || 0))
 const rowNet = (r) => ((r.sell_price || 0) - (r.sell_shipping || 0) - (r.sell_fee || 0) - (r.sell_wuyou_fee || 0))
 // 中间格：卖单才是「到手价」；买单没有到手价，看的是总成本（买价 + 买运费）。
 // 以前买单这里放的是「买价 − 买运费」还标成到手价，既扣错方向也和汇总口径对不上。
@@ -750,7 +708,7 @@ watch(showCols, (v) => {
 }, { deep: true })
 async function applyBatchEdit() {
   if (!selected.value.length || !batchValue.value.trim()) return
-  const locked = items.value.filter(i => selected.value.includes(i.id) && isSettled(i))
+  const locked = items.value.filter(i => selected.value.includes(i.id) && groupSettled(i))
   if (locked.length) {
     emit('notify', `选中的记录里有 ${locked.length} 条属于已完结联单，请先在「联单」页重新开启后再改`, true)
     return
@@ -1160,7 +1118,7 @@ function onCardClick(r) {
                       <span class="seal-sub">{{ sealDate(r, r.discarded_at) }}</span>
                     </span>
                   </span>
-                  <span v-else-if="isSettled(r)" class="seal seal-row seal-settled" aria-hidden="true">
+                  <span v-else-if="groupSettled(r)" class="seal seal-row seal-settled" aria-hidden="true">
                     <span class="seal-inner">
                       <span class="seal-star">★ ★ ★</span>
                       <span class="seal-main">已完结</span>
@@ -1171,8 +1129,8 @@ function onCardClick(r) {
                   <div class="cell-meta">
                     <span class="cell-sub">{{ counterpartyOf(r) || '—' }}</span>
                     <span class="badge-stack">
-                      <span class="badge mini" :class="r.kind === 'purchase' ? 'badge-buy' : 'badge-sell'">{{ r.kind === 'purchase' ? '买单' : '卖单' }}</span>
-                      <span v-if="isSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
+                      <span class="badge mini" :class="r.has_sell ? 'badge-sell' : 'badge-buy'">{{ r.has_sell ? '卖单' : '买单' }}</span>
+                      <span v-if="groupSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
                       <span v-if="r.cost_free" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
                     </span>
                   </div>
@@ -1204,26 +1162,18 @@ function onCardClick(r) {
                     <svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2.5 11 13"/><path d="M21.5 2.5 15 21.5l-4-8.5-8.5-4z"/></svg>
                     {{ r.discarded_at ? '取消弃单' : '弃单' }}
                   </button>
-                  <!-- 完结只对卖单有意义：买单还没卖出去，完结一个在库的进货单只会让账变得看不懂 -->
-                  <button v-if="r.has_sell && (!noCostSale(r) || r.settled_at)" class="btn btn-sm btn-ghost btn-settle" :class="{ 'is-on': r.settled_at }"
-                          :disabled="!!settling"
-                          :title="r.settled_at ? '已完结，点此取消完结' : (inGroup(r) ? '这条在联单里，请到「联单」页整单完结' : '单独完结这一条，不进联单')"
-                          @click="toggleSettle(r)">
-                    <svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-                    {{ settleLabel(r) }}
-                  </button>
                   <button class="btn btn-sm btn-ghost btn-group-add"
-                          :disabled="isSettled(r) || !!r.discarded_at"
-                          :title="r.discarded_at ? '已弃单的记录不能加入联单' : (isSettled(r) ? '已完结的记录不能加入联单，请先取消完结或重新开启联单' : '把这条记录加入某个联单')"
+                          :disabled="groupSettled(r) || !!r.discarded_at"
+                          :title="r.discarded_at ? '已弃单的记录不能加入联单' : (groupSettled(r) ? '所在联单已完结，请先在「联单」页重新开启' : '把这条记录加入某个联单')"
                           @click="openGroupPicker(r.id)">
                     <svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
                     联单
                   </button>
-                  <button class="btn btn-sm btn-ghost" :disabled="isSettled(r)" :title="isSettled(r) ? '已完结的记录不可编辑，请先取消完结或重新开启联单' : ''" @click="editRecord(r)">
+                  <button class="btn btn-sm btn-ghost" :disabled="groupSettled(r)" :title="groupSettled(r) ? '所在联单已完结，请先在「联单」页重新开启' : ''" @click="editRecord(r)">
                     <svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
                     编辑
                   </button>
-                  <button class="btn btn-sm btn-ghost btn-danger" :disabled="isSettled(r)" :title="isSettled(r) ? '已完结联单内的记录不可删除，请先在「联单」页重新开启' : ''" @click="del(r)">
+                  <button class="btn btn-sm btn-ghost btn-danger" :disabled="groupSettled(r)" :title="groupSettled(r) ? '所在联单已完结，请先在「联单」页重新开启' : ''" @click="del(r)">
                     <svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg>
                     删除
                   </button>
@@ -1288,7 +1238,7 @@ function onCardClick(r) {
           @touchstart.capture.passive="onTouchStart(r, $event)" @touchmove.capture="onTouchMove"
           @touchend.capture.passive="onTouchEnd" @touchcancel.capture.passive="onTouchEnd">
           <div class="rec-swipe-actions" @touchstart.stop @click.stop>
-            <button class="rsa-btn" :disabled="isSettled(r)" @click="closeSwipe(); editRecord(r)" aria-label="编辑此记录" :title="isSettled(r) ? '已完结联单内不可编辑' : '编辑'">
+            <button class="rsa-btn" :disabled="groupSettled(r)" @click="closeSwipe(); editRecord(r)" aria-label="编辑此记录" :title="groupSettled(r) ? '所在联单已完结，不可编辑' : '编辑'">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
               <span>编辑</span>
             </button>
@@ -1314,8 +1264,10 @@ function onCardClick(r) {
             <!-- 手机端不在卡片上放缩略图：一是不占版面，二是不必为列表加载图片，
                  需要看时在详情里点「查看订单截图」 -->
             <span class="badge-stack">
-              <span class="badge mini" :class="r.kind === 'purchase' ? 'badge-buy' : 'badge-sell'">{{ r.kind === 'purchase' ? '买单' : '卖单' }}</span>
-              <span v-if="isSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
+              <span class="badge mini" :class="r.has_sell ? 'badge-sell' : 'badge-buy'">{{ r.has_sell ? '卖单' : '买单' }}</span>
+              <span v-if="groupSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
+              <!-- 在联单里但联单还没完结：明确标出来，用户一眼知道这单已归组、在等联单完结 -->
+              <span v-else-if="inGroup(r)" class="group-dot" :title="'已在联单「' + (groupsOf(r.id)[0].title || '未命名联单') + '」中，联单完结后一起结算'">联单中</span>
             </span>
           </div>
           <div v-if="groupsOf(r.id).length" class="rc-groups">
@@ -1356,23 +1308,22 @@ function onCardClick(r) {
                       @touchstart.stop @click="toggleDiscard(r)"
                       :aria-label="r.discarded_at ? '取消弃单' : '弃单'" :title="r.discarded_at ? '取消弃单' : '作废这一条（不占在库、不计成本）'">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2.5 11 13"/><path d="M21.5 2.5 15 21.5l-4-8.5-8.5-4z"/></svg>
+                <span class="icon-btn-t">{{ r.discarded_at ? '取消弃单' : '弃单' }}</span>
               </button>
-              <button v-if="!noCostSale(r) || r.settled_at" class="icon-btn" :class="{ 'icon-btn-on': r.settled_at }" :disabled="!!settling"
-                      @touchstart.stop @click="toggleSettle(r)"
-                      :aria-label="settleLabel(r)" :title="r.settled_at ? '取消完结' : '单独完结这一条'">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-              </button>
-              <button class="icon-btn" :disabled="isSettled(r) || !!r.discarded_at"
+              <button class="icon-btn" :disabled="groupSettled(r) || !!r.discarded_at"
                       @touchstart.stop @click="openGroupPicker(r.id)"
                       :aria-label="r.discarded_at ? '已弃单，不能加入联单' : '加入联单'"
-                      :title="r.discarded_at ? '已弃单，不能加入联单' : (isSettled(r) ? '已完结不可加入联单' : '加入联单')">
+                      :title="r.discarded_at ? '已弃单，不能加入联单' : (groupSettled(r) ? '所在联单已完结，请先在「联单」页重新开启' : '加入联单')">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+                <span class="icon-btn-t">联单</span>
               </button>
-              <button class="icon-btn" :disabled="isSettled(r)" @touchstart.stop @click="editRecord(r)" aria-label="编辑" :title="isSettled(r) ? '已完结不可编辑' : '编辑'">
+              <button class="icon-btn" :disabled="groupSettled(r)" @touchstart.stop @click="editRecord(r)" aria-label="编辑" :title="groupSettled(r) ? '所在联单已完结，不可编辑' : '编辑'">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+                <span class="icon-btn-t">编辑</span>
               </button>
-              <button class="icon-btn icon-btn-danger" :disabled="isSettled(r)" @touchstart.stop @click="del(r)" aria-label="删除" :title="isSettled(r) ? '已完结联单内不可删除' : '删除'">
+              <button class="icon-btn icon-btn-danger" :disabled="groupSettled(r)" @touchstart.stop @click="del(r)" aria-label="删除" :title="groupSettled(r) ? '所在联单已完结，不可删除' : '删除'">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>
+                <span class="icon-btn-t">删除</span>
               </button>
             </div>
           </div>
@@ -1383,7 +1334,7 @@ function onCardClick(r) {
               <span class="seal-sub">{{ sealDate(r, r.discarded_at) }}</span>
             </span>
           </span>
-          <span v-else-if="isSettled(r)" class="seal seal-settled" aria-hidden="true">
+          <span v-else-if="groupSettled(r)" class="seal seal-settled" aria-hidden="true">
             <span class="seal-inner">
               <span class="seal-star">★ ★ ★</span>
               <span class="seal-main">已完结</span>

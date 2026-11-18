@@ -126,6 +126,15 @@ def sync():
             print(f'版本号：{version}（第 {st["count"]} 次编译，说明已归档）')
         except Exception as e:  # noqa: BLE001  版本失败不应阻断构建
             print(f'  警告：版本号递增失败（不影响构建）：{e}')
+    else:
+        # 跳过递增时，仍要把「当前」版本号写进 meta。
+        # 否则前端读不到 xy-version，设置页的版本号会显示成「—」。
+        try:
+            import json as _json
+            with open(os.path.join(ROOT, 'version', 'state.json'), encoding='utf-8') as f:
+                version = (_json.load(f) or {}).get('version', '')
+        except Exception:  # noqa: BLE001
+            version = ''
     inject_meta(build, version)
     print(f'前端产物同步完成：{count} 个文件（清理旧 assets {removed} 个）-> {DEST}（构建 {build} / 版本 {version or "跳过"}）')
 
