@@ -373,12 +373,15 @@ const chart = computed(() => {
 
     <!-- 完结单核算：联单维度的三个数 -->
     <div v-if="!loading" class="settle-strip card">
-      <div class="ss-title">完结单核算<HelpTip text="按已完结的联单统计：完结成交额 = 联单内卖单到手价合计；完结成本 = 联单内买单（买价+买运费）合计；完结利润 = 两者之差。只统计点过「完结」的联单。" /></div>
+      <div class="ss-title">
+        完结单核算<HelpTip text="按已完结的联单统计：完结成交额 = 联单内卖单到手价合计；完结成本 = 联单内买单（买价+买运费）合计；完结利润 = 两者之差。只统计点过「完结」的联单。" />
+        <!-- 单数是次要信息，做成标题旁的小标签；三个金额并列更好对比，也不再出现 2×2 右下角空一格 -->
+        <span class="ss-count">{{ fmtNum(stats?.settled_sold || 0) }} 单</span>
+      </div>
       <div class="ss-nums">
         <div><span>完结成交额</span><b class="num">{{ fmtMoney(stats?.settled_sales || 0) }}</b></div>
         <div><span>完结成本</span><b class="num">{{ fmtMoney(stats?.settled_cost || 0) }}</b></div>
         <div><span>完结净利润</span><b class="num" :class="(stats?.settled_profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(stats?.settled_profit || 0) }}</b></div>
-        <div><span>完结单数</span><b class="num">{{ fmtNum(stats?.settled_sold || 0) }}</b></div>
       </div>
       <button class="btn btn-sm btn-quiet ss-report" @click="emit('goto-report')" title="生成可复制的周报 / 月报">生成报告</button>
     </div>

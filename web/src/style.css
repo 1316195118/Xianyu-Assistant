@@ -4637,12 +4637,14 @@ html[data-theme="dark"] .price-hint { color: #9dbcff; }
   .settle-strip .ss-report { grid-column: 2; grid-row: 1; margin-left: 0; }
   .settle-strip .ss-nums {
     grid-column: 1 / -1; grid-row: 2;
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 12px 10px; flex: none; margin-top: 2px;
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 10px 8px; flex: none; margin-top: 2px;
     padding-top: 12px; border-top: 1px dashed var(--border);
   }
-  .settle-strip .ss-nums > div { text-align: left; }
-  .settle-strip .ss-nums b { font-size: 16px; }
+  .settle-strip .ss-nums > div { text-align: left; min-width: 0; }
+  .settle-strip .ss-nums span { font-size: 10.5px; white-space: nowrap; }
+  /* 金额可能到 5 位数，字号略收并允许整体缩放，避免撑破三列 */
+  .settle-strip .ss-nums b { font-size: 15px; letter-spacing: -.2px; white-space: nowrap; }
 
   /* KPI 六卡统一高度：原来第一排被切换器/长脚注撑到 160px，后两排只有 120px，
      数字下面空一大块不整齐。固定 min-height 并把脚注压到底部对齐。 */
@@ -4742,3 +4744,11 @@ html[data-theme="dark"] .discard-dot { background: #4a1b0c; color: #f0997b; }
 /* 展开详情里的完整标题：允许换行、不截断 */
 .rc-detail-full { grid-column: 1 / -1; }
 .rc-detail-full b { word-break: break-word; white-space: normal; text-align: right; }
+
+/* 完结单核算：单数做成标题旁的小标签（次要信息不占数字格） */
+.ss-count {
+  display: inline-flex; align-items: center;
+  margin-left: 8px; padding: 1px 7px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text-2);
+  font-size: 11px; font-weight: 650; vertical-align: 1px;
+}
