@@ -4621,7 +4621,7 @@ html[data-theme="dark"] .price-hint { color: #9dbcff; }
     border: 1px solid var(--border);
     border-top: 2px solid var(--brand);
     box-shadow: var(--shadow-1);
-    padding: 13px 15px 12px;
+    padding: 12px 15px 11px;
   }
   .hero-card .hero-value { margin: 4px 0 6px; }
   .hero-card .hero-side { gap: 6px; padding-top: 8px; }
@@ -4658,15 +4658,16 @@ html[data-theme="dark"] .price-hint { color: #9dbcff; }
   .kpi-card {
     /* 六张卡统一 108px：第一排原来被「周/月/总」切换器和两行长脚注撑到 133px，
        导致整块高低不齐、也把首屏挤得看不到「完结单核算」全貌 */
-    min-height: 102px;
+    /* 106px = 「有切换器那张」的实际高度；设小了它会被内容撑高，六张就不齐 */
+    min-height: 106px;
     display: flex; flex-direction: column;
     padding: 10px 12px 9px;
   }
   .kpi-card .kpi-foot { margin-top: auto; padding-top: 5px; line-height: 1.35; }
   .kpi-card .kpi-value { font-size: 19px; margin: 6px 0 3px; }
-  /* 切换器做小，别把标签行撑高 */
-  .kpi-card .kpi-seg { flex: 0 0 auto; }
-  .kpi-card .kpi-seg button { min-height: 0; padding: 1px 6px; font-size: 10px; line-height: 1.5; }
+  /* 切换器做小并用负边距抵消，别把标签行撑高（否则第一张卡会比其它高 2px） */
+  .kpi-card .kpi-seg { flex: 0 0 auto; margin: -2px 0; }
+  .kpi-card .kpi-seg button { min-height: 0; padding: 0 6px; font-size: 10px; line-height: 1.6; }
   /* 「本月净利」在 Hero 已经显示过，这里不再重复占一行 */
   .kpi-card .kpi-month-extra { display: none; }
 

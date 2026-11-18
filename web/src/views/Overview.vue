@@ -16,7 +16,7 @@ const backupLast = ref('')
 const monthTarget = ref(0)   // 本月利润目标，0=未设置
 // 完结单核算默认收起：手机首屏放不下完整卡片，收起后只占一行，
 // 首屏不再出现「被导航栏切掉一半」的尴尬；点标题展开看三个金额。
-const ssOpen = ref(false)
+const ssOpen = ref(true)
 const backupWarn = computed(() => {
   if (!backupLast.value) return '还没有备份过，数据只存在这台机器上'
   const d = new Date(String(backupLast.value).replace(/-/g, '/'))
