@@ -40,6 +40,9 @@ const sum = ref(null)
 const loading = ref(false)
 const error = ref('')
 const selected = ref([])
+// 选择模式：手机端默认不显示勾选框（太占版面也不好看），长按任意卡片才进入，
+// 进入后所有卡片一起露出方框，可以连续多选。取消选择到 0 条时自动退出。
+const selectMode = ref(false)
 const expanded = ref(null)
 // 全屏看图：记录当前查看的图片地址（原图，viewer 里可自由缩放）
 const viewerSrc = ref('')
@@ -492,9 +495,14 @@ function toggleAll() {
   if (allChecked.value) selected.value = []
   else selected.value = items.value.map(i => i.id)
 }
+// 选中清空就退出选择模式（批量删除、切换筛选等都会清空）
+watch(() => selected.value.length, (n) => { if (!n) selectMode.value = false })
+
 function toggleOne(id) {
   const i = selected.value.indexOf(id)
   if (i >= 0) selected.value.splice(i, 1); else selected.value.push(id)
+  // 一条都不剩就退出选择模式，避免勾选框一直挂在卡片上
+  if (!selected.value.length) selectMode.value = false
 }
 
 async function del(r) {
@@ -780,6 +788,7 @@ function onTouchStart(r, e) {
   touchTimer = setTimeout(() => {
     if (touchMoved || swipingId.value) return
     suppressClick = true          // 拦截长按后紧随的 click，避免「选中 + 展开/编辑」同时发生
+    selectMode.value = true       // 长按进入选择模式：所有卡片一起露出勾选框
     toggleOne(r.id)
     try { navigator.vibrate?.(8) } catch (e) { /* ignore */ }
   }, 500)
@@ -959,7 +968,7 @@ function onCardClick(r) {
               @click="toggleCostFree">
         <span v-if="costFreeBusy" class="spin"></span>{{ allCostFree ? '取消无成本' : '无成本' }}
       </button>
-      <button class="btn btn-sm btn-quiet" @click="selected = []">取消选择</button>
+      <button class="btn btn-sm btn-quiet" @click="selected = []; selectMode = false">取消选择</button>
       <button class="btn btn-sm btn-danger" @click="batchDel">批量删除</button>
 
     </div>
@@ -1280,7 +1289,7 @@ function onCardClick(r) {
           <div class="rec-card" :data-rid="r.id" :class="{ 'is-selected': selected.includes(r.id), 'is-pressing': pressingId === r.id, 'is-discarded': isDiscarded(r), 'row-flash': flashId === r.id, 'row-leaving': leaving.includes(r.id) }"
             :style="(swipingId === r.id || swipeId === r.id) ? { transform: 'translateX(' + swipeX + 'px)' } : null">
           <div class="rc-head">
-            <label class="rc-check" @touchstart.stop><input type="checkbox" :checked="selected.includes(r.id)" @change="toggleOne(r.id)" /></label>
+            <label v-if="selectMode" class="rc-check" @touchstart.stop><input type="checkbox" :checked="selected.includes(r.id)" @change="toggleOne(r.id)" /></label>
             <div class="rc-title" @click="onCardClick(r)">
               <div class="rc-product">
                 <span class="badge mini rc-kind" :class="r.has_sell ? 'badge-sell' : 'badge-buy'">{{ r.has_sell ? '卖单' : '买单' }}</span>

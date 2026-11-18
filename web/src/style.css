@@ -1014,7 +1014,10 @@ html[data-theme="dark"] .chart-tip { background: var(--surface-2); }
   background: var(--blue-soft); border: 1px solid #c9d8ff; border-radius: 10px;
   font-size: 13px;
 }
-.bulk-bar span { flex: 1; }
+.bulk-bar span { flex: 0 0 auto; }
+/* 「已选 N 条」允许占剩余宽度但绝不竖排换行 */
+.bulk-bar .bb-text { flex: 1 1 auto; white-space: nowrap; }
+.bulk-bar .bb-ico { flex: 0 0 auto; }
 
 /* 表格 */
 /* 不能 overflow: hidden —— 表头的「列」下拉是绝对定位面板，
@@ -1683,7 +1686,12 @@ input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
 .sum-profit .m-value.neg { color: var(--down); }
 
 /* 批量条 */
-.bulk-bar { padding: 10px 14px; }
+.bulk-bar { padding: 10px 12px; flex-wrap: wrap; row-gap: 8px; gap: 8px; }
+  .bulk-bar .bb-text { flex: 1 1 auto; white-space: nowrap; font-size: 13px; }
+  .bulk-bar .bulk-edit { flex: 1 1 100%; display: flex; gap: 6px; }
+  .bulk-bar .bulk-edit .select { flex: 0 0 38%; }
+  .bulk-bar .bulk-edit .input { flex: 1 1 auto; min-width: 0; }
+  .bulk-bar > .btn { flex: 1 1 auto; }
 .bulk-bar .bb-ico {
   width: 20px; height: 20px; border-radius: 50%; flex: 0 0 auto;
   background: var(--blue); color: #fff; display: grid; place-items: center;
