@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { api } from '../api'
 import { fmtMoney, fmtNum, shortTime } from '../utils'
 import AnimatedNumber from '../components/AnimatedNumber.vue'
@@ -53,6 +53,43 @@ const recent = ref([])
 const trend = ref([])
 const loading = ref(true)
 const error = ref('')
+
+// 图形入场：首次渲染就带着动画（滚到这儿的人能直接看到），
+// 等「成本构成 / 月度趋势」这块第一次真正滚进视野时再放一次。
+// 重放用「换一个同内容但不同名的动画」而不是摘类名再加回去——
+// 后者依赖强制回流，Chrome 有时不认，缩放会一直停在终态，动画看起来没生效。
+const animTick = ref(0)
+const twoCol = ref(null)
+let replayed = false
+
+function replayCharts() {
+  if (replayed || !stats.value) return
+  replayed = true
+  animTick.value++     // 类名切换 -> 浏览器当成一组全新动画，从 0 重放
+}
+function inViewport(el) {
+  if (!el) return false
+  const r = el.getBoundingClientRect()
+  // 只露出顶边一条不算「看到了」，否则动画在首屏就放完，往下滚只剩静态图
+  return r.top < window.innerHeight * 0.7 && r.bottom > 0
+}
+// 数据到位之后再挂观察器：加载态那会儿这块是骨架屏，高度和真实布局差很多，
+// 提前挂会误判成「已经看见了」，动画就白白在首屏放掉。
+watch(() => !!stats.value, async (ok) => {
+  if (!ok) return
+  // 等 DOM 换成真实数据再量位置：加载态是骨架屏，页面比真实布局短，
+  // 这时候量出来的 top 偏小，会被误判成「已经在视野里」。
+  await nextTick()
+  if (inViewport(twoCol.value)) { replayCharts(); return }
+  if (!twoCol.value || typeof IntersectionObserver === 'undefined') { replayCharts(); return }
+  const io = new IntersectionObserver((es) => {
+    if (!es.some(e => e.isIntersecting)) return
+    replayCharts()
+    io.disconnect()
+  }, { threshold: 0.3 })
+  io.observe(twoCol.value)
+}, { immediate: true })
+
 
 const settledIds = ref(new Set())
 let loadSeq = 0
@@ -214,10 +251,17 @@ onMounted(() => {
 onUnmounted(() => window.removeEventListener('resize', syncNarrow))
 
 const hoverIdx = ref(-1)
+// 刻度要能表达 1.5k / 2.5k 这类值，直接 toFixed(0) 会把 2500 写成「3k」
 const axisLabel = (v) => {
   const a = Math.abs(v)
-  if (a >= 10000) return (v / 10000).toFixed(a >= 100000 ? 0 : 1) + '万'
-  if (a >= 1000) return (v / 1000).toFixed(0) + 'k'
+  if (a >= 10000) {
+    const w = v / 10000
+    return (Number.isInteger(w) ? w : w.toFixed(1)) + '万'
+  }
+  if (a >= 1000) {
+    const k = v / 1000
+    return (Number.isInteger(k) ? k : k.toFixed(1)) + 'k'
+  }
   return String(Math.round(v))
 }
 
@@ -236,8 +280,19 @@ const chart = computed(() => {
   const plotH = H - padT - padB
   const plotW = W - padL - padR
   const profits = ms.map(m => Number(m.profit) || 0)
-  const maxV = Math.max(1, ...ms.map(m => Math.max(m.sales, m.cost)), ...profits)
-  const minV = Math.min(0, ...profits)
+  // 值域收拢到「整」刻度：直接用数据极值会出现 934 这种零碎刻度，
+  // 读图时反而分心。步长取 1/2/2.5/5/10 的整数倍，正好 4 格。
+  const rawMax = Math.max(1, ...ms.map(m => Math.max(m.sales, m.cost)), ...profits)
+  const rawMin = Math.min(0, ...profits)
+  const niceStep = (x) => {
+    const mag = Math.pow(10, Math.floor(Math.log10(Math.abs(x) || 1)))
+    const f = Math.abs(x) / mag
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * mag
+  }
+  const tickStep = niceStep((rawMax - rawMin) / 4 || 1)
+  let minV = Math.floor(rawMin / tickStep) * tickStep
+  let maxV = minV + tickStep * 4
+  while (maxV < rawMax) { minV += tickStep; maxV += tickStep }
   const span = (maxV - minV) || 1
   const y = v => padT + (maxV - v) / span * plotH
   const zeroY = y(0)
@@ -295,10 +350,11 @@ const chart = computed(() => {
             {{ monthDelta?.mom == null ? '—' : (monthDelta.mom >= 0 ? '+' : '') + monthDelta.mom.toFixed(1) + '%' }}
           </b>
         </div>
-        <div class="hero-metric">
+        <!-- 没有去年的数据时整条隐藏：只留一个「—」看着像坏了 -->
+        <div v-if="monthDelta?.yoy != null" class="hero-metric">
           <span class="muted">同比去年</span>
-          <b class="num" :class="(monthDelta?.yoy || 0) >= 0 ? 'pos' : 'neg'">
-            {{ monthDelta?.yoy == null ? '—' : (monthDelta.yoy >= 0 ? '+' : '') + monthDelta.yoy.toFixed(1) + '%' }}
+          <b class="num" :class="monthDelta.yoy >= 0 ? 'pos' : 'neg'">
+            {{ (monthDelta.yoy >= 0 ? '+' : '') + monthDelta.yoy.toFixed(1) + '%' }}
           </b>
         </div>
       </div>
@@ -385,9 +441,9 @@ const chart = computed(() => {
         <svg class="ss-chev" :class="{ open: ssOpen }" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
       </div>
       <div v-show="ssOpen" class="ss-nums">
-        <div><span>完结成交额</span><b class="num">{{ fmtMoney(stats?.settled_sales || 0) }}</b></div>
-        <div><span>完结成本</span><b class="num">{{ fmtMoney(stats?.settled_cost || 0) }}</b></div>
-        <div><span>完结净利润</span><b class="num" :class="(stats?.settled_profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(stats?.settled_profit || 0) }}</b></div>
+        <div><span>完结成交额</span><b class="num"><AnimatedNumber :value="stats?.settled_sales || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></b></div>
+        <div><span>完结成本</span><b class="num"><AnimatedNumber :value="stats?.settled_cost || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></b></div>
+        <div><span>完结净利润</span><b class="num" :class="(stats?.settled_profit || 0) >= 0 ? 'pos' : 'neg'"><AnimatedNumber :value="stats?.settled_profit || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></b></div>
       </div>
       <button class="btn btn-sm btn-quiet ss-report" @click="emit('goto-report')" title="生成可复制的周报 / 月报">生成报告</button>
     </div>
@@ -398,13 +454,13 @@ const chart = computed(() => {
       <button class="btn btn-sm" @click="emit('goto-settings')">去备份</button>
     </div>
 
-    <div class="two-col">
+    <div ref="twoCol" class="two-col">
       <!-- 成本构成 + 占比环形图 -->
       <section class="card panel">
         <div class="panel-head"><h3>成本构成</h3><span class="muted">净利润与各项支出占比</span></div>
         <div class="cost-layout">
           <div class="donut-wrap">
-            <svg class="donut-svg" viewBox="0 0 120 120" aria-hidden="true">
+            <svg class="donut-svg" :class="animTick % 2 ? 'donut-in-b' : 'donut-in'" viewBox="0 0 120 120" aria-hidden="true">
               <circle cx="60" cy="60" r="48" class="donut-bg" />
               <circle v-for="(s, i) in donut.segs" :key="i" cx="60" cy="60" r="48"
                 class="donut-seg" :stroke="s.color" :stroke-dasharray="s.dash" :stroke-dashoffset="s.offset" />
@@ -438,7 +494,7 @@ const chart = computed(() => {
           </div>
         </div>
         <div v-if="chart" class="chart-wrap">
-          <svg :viewBox="`0 0 ${chart.W} ${chart.H}`" class="trend-svg" preserveAspectRatio="xMidYMid meet">
+          <svg :viewBox="`0 0 ${chart.W} ${chart.H}`" class="trend-svg" :class="animTick % 2 ? 'chart-in-b' : 'chart-in'" preserveAspectRatio="xMidYMid meet">
             <!-- 网格与 Y 轴刻度 -->
             <g v-for="(t, i) in chart.ticks" :key="'t' + i">
               <line :x1="chart.padL" :y1="t.y" :x2="chart.W - chart.padR" :y2="t.y"
@@ -446,14 +502,17 @@ const chart = computed(() => {
                 :stroke-dasharray="t.zero ? '' : '3 4'" stroke-width="1" />
               <text :x="chart.padL - 7" :y="t.y + 3.5" text-anchor="end" class="chart-tick">{{ t.label }}</text>
             </g>
-            <!-- 双柱 -->
+            <!-- 值域取整后 0 可能刚好不在刻度上，零线单独补一条，正负分区不至于看不清 -->
+            <line v-if="!chart.ticks.some(t => t.zero)" :x1="chart.padL" :y1="chart.zeroY"
+              :x2="chart.W - chart.padR" :y2="chart.zeroY" stroke="var(--chart-zero)" stroke-width="1" />
+            <!-- 双柱：入场时从零线往上长，逐组错峰 -->
             <g v-for="(b, i) in chart.bars" :key="'b' + i">
-              <rect class="chart-bar-sales" :x="b.x - chart.barW - 1" :y="b.salesY" :width="chart.barW" :height="b.salesH" rx="2" />
-              <rect class="chart-bar-cost" :x="b.x + 1" :y="b.costY" :width="chart.barW" :height="b.costH" rx="2" />
+              <rect class="chart-bar-sales" :x="b.x - chart.barW - 1" :y="b.salesY" :width="chart.barW" :height="b.salesH" rx="2" :style="{ animationDelay: (i * 34) + 'ms' }" />
+              <rect class="chart-bar-cost" :x="b.x + 1" :y="b.costY" :width="chart.barW" :height="b.costH" rx="2" :style="{ animationDelay: (i * 34 + 16) + 'ms' }" />
               <text :x="b.x" :y="chart.H - 8" text-anchor="middle" class="chart-label">{{ b.label }}</text>
             </g>
-            <!-- 利润折线：负值落在 0 线下方 -->
-            <path :d="chart.line" class="chart-profit-line" fill="none" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" />
+            <!-- 利润折线：pathLength=100 把长度归一化，描边动画不用测量真实长度 -->
+            <path :d="chart.line" class="chart-profit-line" pathLength="100" fill="none" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" />
             <circle v-for="(b, i) in chart.bars" :key="'p' + i" :cx="b.x" :cy="b.profitY" r="3"
               :class="b.profit >= 0 ? 'chart-dot-pos' : 'chart-dot-neg'" />
             <!-- hover 命中区 -->

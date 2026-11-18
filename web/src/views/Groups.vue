@@ -5,6 +5,7 @@ import { confirm } from '../confirm'
 import { undoAction } from '../feedback'
 import { fmtMoney, shortTime, todayStr } from '../utils'
 import HelpTip from '../components/HelpTip.vue'
+import AnimatedNumber from '../components/AnimatedNumber.vue'
 
 const props = defineProps({
   refreshKey: { type: Number, default: 0 },
@@ -600,7 +601,7 @@ async function toggleSettle(g) {
             <span>净利润</span>
             <span class="gc-profit-tag">利润率 {{ (g.stats.profit_rate || 0).toFixed(1) }}%</span>
           </div>
-          <div class="gc-profit num">{{ fmtMoney(g.stats.profit) }}</div>
+          <div class="gc-profit num"><AnimatedNumber :value="g.stats.profit || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></div>
           <!-- 销售额在下方 gc-metrics 第一格已有，这里不再重复（手机上尤其占地方） -->
           <div class="gc-profit-hint">共 {{ g.stats.buy_count + g.stats.sell_count }} 笔买卖</div>
         </div>

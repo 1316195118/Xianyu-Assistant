@@ -12,7 +12,20 @@ const flashDir = ref('')      // '' | 'up' | 'down'
 let raf = null
 let flashTimer = 0
 
+// 尊重无障碍设置：系统级「减少动效」或设置页强制减少动效时，数字直接跳到终值。
+// 用 CSS 的 .001ms 兜底只能干掉 CSS 动画，requestAnimationFrame 的滚动得在这里拦。
+function reducedMotion() {
+  if (typeof document !== 'undefined' && document.documentElement.getAttribute('data-motion') === 'reduce') return true
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 function animate(to, first) {
+  if (reducedMotion()) {
+    cancelAnimationFrame(raf)
+    display.value = to
+    return
+  }
   const from = display.value
   // 首次挂载不做闪光：页面刚打开就一片闪烁，反而分不清哪些是「新变化」。
   // 120ms 后移除类名，借 CSS 的过渡把底色淡回去（加类名瞬间上色）。

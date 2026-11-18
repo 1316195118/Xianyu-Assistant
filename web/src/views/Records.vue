@@ -844,6 +844,18 @@ function onTouchEnd() {
 }
 // 卡片点击：选择模式下整张卡就是勾选区域（不用再点那个小方框），
 // 普通模式下才是展开/收起详情。长按或滑动刚结束时忽略这次 click。
+// 「查看详情」是自己的按钮，不能走上面那条「点到 button 就放行」的分支，
+// 否则点击会被直接 return 掉，表现为按钮点了没反应。
+function toggleDetail(r) {
+  if (suppressClick) return
+  if (selectMode.value) {
+    toggleOne(r.id)
+    try { navigator.vibrate?.(5) } catch (e) { /* ignore */ }
+    return
+  }
+  expanded.value = expanded.value === r.id ? null : r.id
+}
+
 function onCardClick(r, e) {
   if (suppressClick) return
   if (swipeId.value) { closeSwipe(); return }
@@ -1414,7 +1426,7 @@ function onCardClick(r, e) {
                 <span class="icon-btn-t">删除</span>
               </button>
             </div>
-            <button class="action-primary action-primary-row" :class="{ open: expanded === r.id }" @touchstart.stop @click.stop="onCardClick(r, $event)">
+            <button class="action-primary action-primary-row" :class="{ open: expanded === r.id }" @touchstart.stop @click.stop="toggleDetail(r)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
               {{ expanded === r.id ? '收起详情' : '查看详情' }}
             </button>

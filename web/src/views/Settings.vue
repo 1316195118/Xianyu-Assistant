@@ -494,7 +494,7 @@ async function test() {
           <div class="seg theme-seg">
             <button :class="{ 'on-theme': motionMode === 'system' }" @click="pickMotion('system')">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
-              跟随系统
+              跟随系统动效
             </button>
             <button :class="{ 'on-theme': motionMode === 'reduce' }" @click="pickMotion('reduce')">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16"/><path d="M8 8l-4 4 4 4"/></svg>

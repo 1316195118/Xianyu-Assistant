@@ -4808,3 +4808,134 @@ html[data-theme="dark"] .discard-dot { background: #4a1b0c; color: #f0997b; }
 @media (max-width: 600px) {
   .settle-strip { margin-top: 0; }
 }
+
+/* ============================================================
+   设计系统 v2.3 · 动效层
+   目标：让「数据变了」和「图表出现了」这两件事被眼睛看见。
+   原则：只做位移/透明/缩放，不做位移以外的重排；全部可被
+   prefers-reduced-motion 与 data-motion="reduce" 一键关掉。
+   ============================================================ */
+
+/* 1) 明细 / 联单 / 设置首屏节奏：与概览页共用 fadeUp 与 --stagger */
+.page:not(.ov-page) > * { animation: fadeUp var(--dur-3) var(--ease) both; }
+.page:not(.ov-page) > :nth-child(1) { animation-delay: .02s; }
+.page:not(.ov-page) > :nth-child(2) { animation-delay: calc(.02s + var(--stagger) * 1); }
+.page:not(.ov-page) > :nth-child(3) { animation-delay: calc(.02s + var(--stagger) * 2); }
+.page:not(.ov-page) > :nth-child(4) { animation-delay: calc(.02s + var(--stagger) * 3); }
+.page:not(.ov-page) > :nth-child(5) { animation-delay: calc(.02s + var(--stagger) * 4); }
+.page:not(.ov-page) > :nth-child(n+6) { animation-delay: calc(.02s + var(--stagger) * 5); }
+
+/* 2) 内联圆章：落章时从大到正，像真的盖上去 */
+@keyframes sealStamp {
+  0%   { opacity: 0; transform: rotate(-26deg) scale(1.9); }
+  55%  { opacity: .62; }
+  100% { opacity: .55; transform: rotate(-10deg) scale(1); }
+}
+.seal-inline { animation: sealStamp .48s cubic-bezier(.2, .9, .3, 1.15) both; }
+
+/* 3) 占比条 / 目标进度条：从左往右长出来（只动 transform，不触发布局） */
+@keyframes barGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.insight-bar-fill, .ht-bar i { transform-origin: left center; }
+.insight-bar-fill { animation: barGrow .5s var(--ease) both; }
+.ht-bar i { animation: barGrow .62s var(--ease) .08s both; }
+
+/* 4) 月度趋势：柱子从零线升起、折线自左向右描出、圆点最后落位 */
+@keyframes barRise { from { transform: scaleY(.02); } to { transform: scaleY(1); } }
+@keyframes lineDraw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes dotIn { from { opacity: 0; transform: scale(.2); } to { opacity: 1; transform: none; } }
+.trend-svg .chart-bar-sales, .trend-svg .chart-bar-cost {
+  transform-box: fill-box; transform-origin: center bottom;
+}
+.trend-svg.chart-in .chart-bar-sales,
+.trend-svg.chart-in .chart-bar-cost { animation: barRise .52s var(--ease) both; }
+.trend-svg.chart-in .chart-profit-line {
+  stroke-dasharray: 100; animation: lineDraw .9s var(--ease) .18s both;
+}
+.trend-svg.chart-in .chart-dot-pos,
+.trend-svg.chart-in .chart-dot-neg { transform-box: fill-box; transform-origin: center; animation: dotIn .26s var(--ease) .72s both; }
+
+/* 5) 手机端按压反馈：卡片整体轻微回落，点到哪一块心里有数 */
+@media (hover: none) {
+  .rec-card:active, .group-card:active, .kpi-card:active, .sum-card:active, .settings-entry:active {
+    transform: scale(.994); transition-duration: .1s;
+  }
+}
+
+/* 6) 底部导航：选中项图标轻微放大，配合已有的上移形成「弹一下」 */
+.tabbar > button.active:not(.tab-fab) svg { transform: translateY(-2px) scale(1.06); }
+
+/* 7) 回顶按钮：常态半透明，避免压住列表里的金额，按下再实心 */
+.to-top { opacity: .86; }
+.to-top:hover, .to-top:active { opacity: 1; }
+@media (max-width: 600px) { .to-top { width: 36px; height: 36px; } }
+
+/* 8) 减少动效：新增的这几组全部关掉（图表的静态终态不受影响） */
+@media (prefers-reduced-motion: reduce) {
+  .page:not(.ov-page) > *, .seal-inline, .insight-bar-fill, .ht-bar i,
+  .trend-svg.chart-in .chart-bar-sales, .trend-svg.chart-in .chart-bar-cost,
+  .trend-svg.chart-in .chart-profit-line { animation: none !important; }
+}
+html[data-motion="reduce"] .page:not(.ov-page) > *,
+html[data-motion="reduce"] .seal-inline,
+html[data-motion="reduce"] .insight-bar-fill,
+html[data-motion="reduce"] .ht-bar i,
+html[data-motion="reduce"] .trend-svg.chart-in .chart-bar-sales,
+html[data-motion="reduce"] .trend-svg.chart-in .chart-bar-cost,
+html[data-motion="reduce"] .trend-svg.chart-in .chart-profit-line { animation: none !important; }
+
+/* ---------- 视觉审计后的细节修正 ---------- */
+/* 联单页「合并重复联单」：和主按钮一样宽，但原来没有边框，看着像一行裸文字。
+   补成规整的次级按钮，和「新建联单」形成明确的主次关系。 */
+.groups-hero .btn-ghost {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--text-2);
+}
+
+/* 手机端 Hero 三指标是纯 inline 文字流，span 与 b 之间原本靠 flex gap 分隔，
+   改成 inline 后 gap 失效，「本月成交11 单」会挤在一起，这里补回间距。 */
+@media (max-width: 600px) {
+  .hero-card .hero-metric > span { margin-right: 4px; }
+}
+
+/* 环形图入场：整体缩放淡入。不用 stroke-dasharray 过渡——
+   那是 SVG 表现属性，各浏览器是否对它跑 transition 不一致，容易出现「不亮也不动」。 */
+@keyframes donutIn {
+  from { opacity: 0; transform: rotate(-90deg) scale(.78); }
+  to   { opacity: 1; transform: rotate(-90deg) scale(1); }
+}
+.donut-svg.donut-in { animation: donutIn .6s var(--ease) both; }
+@media (prefers-reduced-motion: reduce) {
+  .donut-svg.donut-in { animation: none !important; }
+}
+html[data-motion="reduce"] .donut-svg.donut-in { animation: none !important; }
+
+/* 入场动画的「第二套」：内容与第一套完全一致，只是动画名不同。
+   重放时切换类名即可让浏览器重新起播，避免摘类名 + 强制回流在某些版本上不生效。 */
+@keyframes donutInB {
+  from { opacity: 0; transform: rotate(-90deg) scale(.78); }
+  to   { opacity: 1; transform: rotate(-90deg) scale(1); }
+}
+@keyframes barRiseB { from { transform: scaleY(.02); } to { transform: scaleY(1); } }
+@keyframes lineDrawB { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes dotInB { from { opacity: 0; transform: scale(.2); } to { opacity: 1; transform: none; } }
+
+.donut-svg.donut-in-b { animation: donutInB .6s var(--ease) both; }
+.trend-svg.chart-in-b .chart-bar-sales,
+.trend-svg.chart-in-b .chart-bar-cost { animation: barRiseB .52s var(--ease) both; }
+.trend-svg.chart-in-b .chart-profit-line { stroke-dasharray: 100; animation: lineDrawB .9s var(--ease) .18s both; }
+.trend-svg.chart-in-b .chart-dot-pos,
+.trend-svg.chart-in-b .chart-dot-neg { animation: dotInB .26s var(--ease) .72s both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .donut-svg.donut-in-b,
+  .trend-svg.chart-in-b .chart-bar-sales, .trend-svg.chart-in-b .chart-bar-cost,
+  .trend-svg.chart-in-b .chart-profit-line,
+  .trend-svg.chart-in-b .chart-dot-pos, .trend-svg.chart-in-b .chart-dot-neg { animation: none !important; }
+}
+html[data-motion="reduce"] .donut-svg.donut-in-b,
+html[data-motion="reduce"] .trend-svg.chart-in-b .chart-bar-sales,
+html[data-motion="reduce"] .trend-svg.chart-in-b .chart-bar-cost,
+html[data-motion="reduce"] .trend-svg.chart-in-b .chart-profit-line,
+html[data-motion="reduce"] .trend-svg.chart-in-b .chart-dot-pos,
+html[data-motion="reduce"] .trend-svg.chart-in-b .chart-dot-neg { animation: none !important; }

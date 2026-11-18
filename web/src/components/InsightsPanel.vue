@@ -64,7 +64,8 @@ const staleThreshold = computed(() => data.value?.stale_threshold || 60)
           <i v-if="p.settled" class="insight-done">已完结</i>
         </span>
         <b class="num" :class="p.profit >= 0 ? 'pos' : 'neg'">{{ fmtMoney(p.profit) }}</b>
-        <div class="insight-bar">
+        <!-- 只有一条时这条满宽的进度条会像卡片下边框，反而不像「对比」，索性不画 -->
+        <div v-if="tops.length > 1" class="insight-bar">
           <div class="insight-bar-fill" :class="p.profit >= 0 ? 'pos' : 'neg'" :style="{ width: Math.max(2, Math.abs(p.profit || 0) / maxProfit * 100) + '%' }"></div>
         </div>
       </div>
