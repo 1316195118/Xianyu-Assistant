@@ -14,6 +14,9 @@ const emit = defineEmits(['add', 'goto-records', 'goto-record', 'goto-product', 
 // 备份提醒：超过 7 天没备份（或从未备份）就在首页提一句
 const backupLast = ref('')
 const monthTarget = ref(0)   // 本月利润目标，0=未设置
+// 完结单核算默认收起：手机首屏放不下完整卡片，收起后只占一行，
+// 首屏不再出现「被导航栏切掉一半」的尴尬；点标题展开看三个金额。
+const ssOpen = ref(false)
 const backupWarn = computed(() => {
   if (!backupLast.value) return '还没有备份过，数据只存在这台机器上'
   const d = new Date(String(backupLast.value).replace(/-/g, '/'))
@@ -372,13 +375,16 @@ const chart = computed(() => {
     </div>
 
     <!-- 完结单核算：联单维度的三个数 -->
-    <div v-if="!loading" class="settle-strip card">
-      <div class="ss-title">
+    <div v-if="!loading" class="settle-strip card" :class="{ 'ss-open': ssOpen }">
+      <div class="ss-title" role="button" tabindex="0" @click="ssOpen = !ssOpen"
+           @keyup.enter="ssOpen = !ssOpen" @keyup.space.prevent="ssOpen = !ssOpen">
         完结单核算<HelpTip text="按已完结的联单统计：完结成交额 = 联单内卖单到手价合计；完结成本 = 联单内买单（买价+买运费）合计；完结利润 = 两者之差。只统计点过「完结」的联单。" />
         <!-- 单数是次要信息，做成标题旁的小标签；三个金额并列更好对比，也不再出现 2×2 右下角空一格 -->
         <span class="ss-count">{{ fmtNum(stats?.settled_sold || 0) }} 单</span>
+        <!-- 默认收起：首屏空间有限，收起来能完整放下；点标题展开看金额 -->
+        <svg class="ss-chev" :class="{ open: ssOpen }" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
       </div>
-      <div class="ss-nums">
+      <div v-show="ssOpen" class="ss-nums">
         <div><span>完结成交额</span><b class="num">{{ fmtMoney(stats?.settled_sales || 0) }}</b></div>
         <div><span>完结成本</span><b class="num">{{ fmtMoney(stats?.settled_cost || 0) }}</b></div>
         <div><span>完结净利润</span><b class="num" :class="(stats?.settled_profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(stats?.settled_profit || 0) }}</b></div>

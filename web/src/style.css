@@ -4636,16 +4636,16 @@ html[data-theme="dark"] .price-hint { color: #9dbcff; }
     display: grid;
     grid-template-columns: 1fr auto;
     align-items: center;
-    gap: 9px 8px;
-    padding: 11px 13px;
+    gap: 6px 8px;
+    padding: 7px 12px;
   }
   .settle-strip .ss-title { grid-column: 1; }
   .settle-strip .ss-report { grid-column: 2; grid-row: 1; margin-left: 0; }
   .settle-strip .ss-nums {
     grid-column: 1 / -1; grid-row: 2;
     display: grid; grid-template-columns: repeat(3, 1fr);
-    gap: 8px 8px; flex: none; margin-top: 0;
-    padding-top: 9px; border-top: 1px dashed var(--border);
+    gap: 6px 8px; flex: none; margin-top: 0;
+    padding-top: 7px; border-top: 1px dashed var(--border);
   }
   .settle-strip .ss-nums > div { text-align: left; min-width: 0; }
   .settle-strip .ss-nums span { font-size: 10.5px; white-space: nowrap; }
@@ -4658,9 +4658,9 @@ html[data-theme="dark"] .price-hint { color: #9dbcff; }
   .kpi-card {
     /* 六张卡统一 108px：第一排原来被「周/月/总」切换器和两行长脚注撑到 133px，
        导致整块高低不齐、也把首屏挤得看不到「完结单核算」全貌 */
-    min-height: 108px;
+    min-height: 102px;
     display: flex; flex-direction: column;
-    padding: 11px 12px 10px;
+    padding: 10px 12px 9px;
   }
   .kpi-card .kpi-foot { margin-top: auto; padding-top: 5px; line-height: 1.35; }
   .kpi-card .kpi-value { font-size: 19px; margin: 6px 0 3px; }
@@ -4765,3 +4765,11 @@ html[data-theme="dark"] .discard-dot { background: #4a1b0c; color: #f0997b; }
   background: var(--surface-2); color: var(--text-2);
   font-size: 11px; font-weight: 650; vertical-align: 1px;
 }
+
+/* 完结单核算：标题行可点击展开，收起时只占一行 */
+.ss-title { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+.ss-title .ss-count { margin-left: 0; }
+.ss-chev { flex: 0 0 auto; color: var(--text-3); transition: transform var(--dur-2) var(--ease); }
+.ss-chev.open { transform: rotate(180deg); }
+/* 收起态下，标题行与「生成报告」在同一行居中对齐 */
+.settle-strip:not(.ss-open) { align-items: center; }
