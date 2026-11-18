@@ -66,6 +66,8 @@ const (
 	gfKeyLast   = "goofish_last_sync"
 	gfKeyCheck  = "goofish_last_check"
 	gfKeyDead   = "goofish_expired"
+	// gfKeySyncErr：自动同步失败的可读原因，供页面一打开就提示 + SSE 主动推送
+	gfKeySyncErr = "goofish_sync_error"
 	// gfKeySSOTaobao：淘宝 / 天猫域的 SSO Cookie（一键快速登录的凭证），
 	// 用来在服务器端做静默换发（silent login），闲鱼会话过期后自动续期。
 	gfKeySSOTaobao = "goofish_sso_taobao"
@@ -74,6 +76,24 @@ const (
 	// gfKeyBackfill：立即同步时是否一并做账单回溯。默认开（老行为），存 "0"/"1"。
 	gfKeyBackfill = "goofish_backfill"
 )
+
+// gfMarkSyncError 记录自动同步失败原因，并通过 SSE 主动推送给该店铺在线页面。
+// 这样用户不用等手动同步失败才知道 Cookie 失效。
+func gfMarkSyncError(shop int64, reason string) {
+	_ = gfSet(gfKeyDead, shop, "1")
+	_ = gfSet(gfKeySyncErr, shop, reason)
+	if gfKeepAliveEnabled() {
+		setSetting(gfKeepAliveKey, "0")
+	}
+	realtimeHub.publish("GET", "/api/goofish/status", "system",
+		"闲鱼自动同步失败："+reason+"（请重新绑定）", shop)
+}
+
+// gfClearSyncError 绑定成功或同步成功后清除失效状态。
+func gfClearSyncError(shop int64) {
+	_ = gfSet(gfKeyDead, shop, "")
+	_ = gfSet(gfKeySyncErr, shop, "")
+}
 
 // gfKey 把配置键加上店铺后缀。shop<=0 时退回全局键（兼容旧版本留下的数据）。
 func gfKey(base string, shop int64) string {
@@ -141,21 +161,22 @@ func handleGoofishStatus(w http.ResponseWriter, r *http.Request) {
 	shop := shopID(r)
 	raw := gfGet(gfKeyCookie, shop)
 	writeJSON(w, map[string]interface{}{
-		"shop_id":    shop,
-		"shop_name":  shopNameOf(shop),
-		"logged_in":  strings.TrimSpace(raw) != "",
-		"nick":       gfGet(gfKeyNick, shop),
-		"uid":        gfGet(gfKeyUID, shop),
-		"masked":     gfMaskCookie(raw),
-		"saved_at":   gfGet(gfKeySaved, shop),
-		"last_sync":  gfGet(gfKeyLast, shop),
-		"last_check": gfGet(gfKeyCheck, shop),
-		"expired":    gfGet(gfKeyDead, shop) == "1",
-		"keepalive":  gfKeepAliveEnabled(),
+		"shop_id":     shop,
+		"shop_name":   shopNameOf(shop),
+		"logged_in":   strings.TrimSpace(raw) != "",
+		"nick":        gfGet(gfKeyNick, shop),
+		"uid":         gfGet(gfKeyUID, shop),
+		"masked":      gfMaskCookie(raw),
+		"saved_at":    gfGet(gfKeySaved, shop),
+		"last_sync":   gfGet(gfKeyLast, shop),
+		"last_check":  gfGet(gfKeyCheck, shop),
+		"expired":     gfGet(gfKeyDead, shop) == "1",
+		"sync_error":  gfGet(gfKeySyncErr, shop),
+		"keepalive":   gfKeepAliveEnabled(),
 		"auto_days":   gfAutoDays(shop),
 		"auto_window": gfAutoWindow(shop),
 		"backfill":    gfBackfillEnabled(shop),
-		"syncing":    gfIsSyncing(shop),
+		"syncing":     gfIsSyncing(shop),
 	})
 }
 
@@ -210,7 +231,7 @@ func handleGoofishRebind(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = gfSet(gfKeySaved, shop, time.Now().Format("2006-01-02 15:04:05"))
 	_ = gfSet(gfKeyCheck, shop, time.Now().Format("2006-01-02 15:04:05"))
-	_ = gfSet(gfKeyDead, shop, "")
+	gfClearSyncError(shop)
 	if !gfKeepAliveEnabled() {
 		setSetting(gfKeepAliveKey, "1")
 	}
@@ -278,7 +299,7 @@ func handleGoofishLogin(w http.ResponseWriter, r *http.Request) {
 	_ = gfSet(gfKeyUID, shop, acc.UID)
 	_ = gfSet(gfKeySaved, shop, time.Now().Format("2006-01-02 15:04:05"))
 	_ = gfSet(gfKeyCheck, shop, time.Now().Format("2006-01-02 15:04:05"))
-	_ = gfSet(gfKeyDead, shop, "")
+	gfClearSyncError(shop)
 	// 失效时保活会被自动关掉；重新绑定说明用户想要继续自动同步，把保活恢复
 	if !gfKeepAliveEnabled() {
 		setSetting(gfKeepAliveKey, "1")
@@ -395,7 +416,7 @@ func handleGoofishPreview(w http.ResponseWriter, r *http.Request) {
 	// 回写刷新后的 cookie，避免过期
 	_ = gfSet(gfKeyCookie, shop, c.cookieString())
 	_ = gfSet(gfKeyCheck, shop, time.Now().Format("2006-01-02 15:04:05"))
-	_ = gfSet(gfKeyDead, shop, "")
+	gfClearSyncError(shop)
 	gfPlans.put(shop, plan)
 
 	writeJSON(w, plan)
@@ -725,7 +746,7 @@ func gfPingShop(shop int64) (string, error) {
 	}
 	_ = gfSet(gfKeyCookie, shop, c.cookieString())
 	_ = gfSet(gfKeyCheck, shop, time.Now().Format("2006-01-02 15:04:05"))
-	_ = gfSet(gfKeyDead, shop, "")
+	gfClearSyncError(shop)
 
 	// 昵称：优先 cookie 里的 tracknick / _nk_，拿不到再走 PC 接口（失败不算失效）
 	nick := c.cookieVal("tracknick")
@@ -786,8 +807,8 @@ func handleGoofishAuto(w http.ResponseWriter, r *http.Request) {
 	}
 	shop := shopID(r)
 	var in struct {
-		Days     int  `json:"days"`
-		Window   int  `json:"window"`
+		Days     int   `json:"days"`
+		Window   int   `json:"window"`
 		Backfill *bool `json:"backfill"`
 	}
 	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&in)
@@ -876,10 +897,7 @@ func gfAutoSyncOne(shop int64) {
 	// 同步前静默换发：有淘宝 SSO Cookie 时每次同步前都换发一次，
 	// 保证 h5 会话新鲜；换发失败说明 SSO 也失效了，标记等待重新绑定。
 	if !gfRenewBeforeSync(shop) {
-		_ = gfSet(gfKeyDead, shop, "1")
-		if gfKeepAliveEnabled() {
-			setSetting(gfKeepAliveKey, "0")
-		}
+		gfMarkSyncError(shop, "淘宝 SSO 会话失效，无法自动续期")
 		return
 	}
 	plan, err := buildPlanWith(c, 0, 2, shop)
@@ -888,10 +906,7 @@ func gfAutoSyncOne(shop int64) {
 		sessionGone := strings.Contains(msg, "SESSION_EXPIRED") || strings.Contains(msg, "Session过期") ||
 			strings.Contains(msg, "FAIL_SYS_SESSION_EXPIRED") || strings.Contains(msg, "FAIL_SYS_TOKEN_EXOIRED")
 		if sessionGone {
-			_ = gfSet(gfKeyDead, shop, "1")
-			if gfKeepAliveEnabled() {
-				setSetting(gfKeepAliveKey, "0")
-			}
+			gfMarkSyncError(shop, "Cookie 已失效")
 		}
 		fmt.Printf("[闲鱼自动同步] 店铺 %d 拉取失败: %v\n", shop, err)
 		return
@@ -941,6 +956,7 @@ func gfAutoSyncOne(shop int64) {
 	}
 	refreshPurchaseIndex()
 	_ = gfSet(gfKeyLast, shop, time.Now().Format("2006-01-02 15:04:05"))
+	gfClearSyncError(shop)
 	if added > 0 || refreshed > 0 {
 		realtimeHub.publish("POST", "/api/goofish/auto", "",
 			fmt.Sprintf("自动同步：新增 %d 条、补正 %d 条", added, refreshed), shop)

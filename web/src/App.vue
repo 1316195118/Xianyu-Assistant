@@ -213,6 +213,14 @@ function startRealtime() {
   connectRealtime()
   offRealtime = onRealtime((ev) => {
     if (!ev || ev.kind !== 'change') return
+    // 闲鱼自动同步失败：Cookie 失效，主动弹醒目提示，不用等用户手动同步才发现
+    if (ev.path === '/api/goofish/status' && /失败|失效/.test(ev.summary || '')) {
+      notify(ev.summary || '闲鱼同步失效，请重新绑定', true,
+        { label: '去绑定', ttl: 15000, run: () => switchView('settings') },
+        { tone: 'error' })
+      bump()
+      return
+    }
     if (ev.actor && ev.actor === clientId) return
     bumpCoalesced()
     // 正在编辑时提醒冲突风险，但不打断输入

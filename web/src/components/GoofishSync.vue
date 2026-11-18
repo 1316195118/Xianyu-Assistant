@@ -118,7 +118,9 @@ async function loadStatus() {
     useBackfill.value = s.backfill !== false
     step.value = s.logged_in ? 'idle' : 'bind'
     pingMsg.value = ''
-    if (s.expired) pingMsg.value = '上次检测时登录态已失效，建议重新绑定' 
+    // 自动同步失败会存 sync_error，页面一打开就能看到具体原因（不用等手动同步）
+    if (s.sync_error) pingMsg.value = s.sync_error + '，请重新绑定'
+    else if (s.expired) pingMsg.value = '上次检测时登录态已失效，建议重新绑定' 
   } catch (e) {
     step.value = 'bind'
     err.value = e.message || '状态读取失败'

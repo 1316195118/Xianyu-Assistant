@@ -2,6 +2,21 @@
 
 _每次编译自动追加，最新在最上。说明来源：version/NEXT.md_
 
+## 1.1.3.4 · 2026-11-18 16:57:41
+
+自动同步失败主动提示（不必等手动同步才发现失效）
+
+1. 后端加 gfKeySyncErr@shop 存可读失效原因；/api/goofish/status 返回 sync_error 字段
+2. gfMarkSyncError：失效时标记 dead + 存原因 + 通过 SSE 广播（path=/api/goofish/status）
+3. 自动同步两处失效分支（SSO失效/会话过期）改用 gfMarkSyncError 主动推送
+4. 绑定/同步成功后 gfClearSyncError 清除（5 处成功路径）
+5. 前端 App.vue SSE 收到失效事件弹醒目 toast（红色+「去绑定」按钮，跳设置页）
+6. GoofishSync 打开时若已有 sync_error 直接显示原因
+
+前端构建：`a391abc23c`
+
+---
+
 ## 1.1.3.3 · 2026-11-18 16:15:32
 
 扫码登录诊断：修正参数与状态显示，标注实验性
