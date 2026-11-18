@@ -1164,10 +1164,22 @@ html[data-theme="dark"] .chart-tip { background: var(--surface-2); }
   .hero-card { flex-direction: column; gap: var(--sp-4); padding: 18px; }
   .hero-value { font-size: 32px; }
   .hero-side {
-    min-width: 0; padding-left: 0; padding-top: 12px; border-left: 0; border-top: 1px solid var(--border);
-    /* 三项指标横排成小格：原来竖排三行把 Hero 撑到 400px 高，
-       第一屏几乎只剩这一张卡；横排后能省出约 100px 给下面的 KPI 和建议。 */
-    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
+    min-width: 0; padding-left: 0; padding-top: 7px; border-left: 0; border-top: 1px solid var(--border);
+    /* 三项指标压成一行小字（中间用 · 分隔）：原来排成三列要占 ~55px，
+       首屏就差这几十像素看不到「完结单核算」的数字。 */
+    display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0;
+  }
+  .hero-metric {
+    /* 必须显式覆盖桌面的 justify-content: space-between 与 flex-shrink，
+       否则每个指标会被压成多行（42~61px），Hero 反而被撑高 */
+    display: inline-flex; align-items: baseline; justify-content: flex-start;
+    flex: 0 0 auto; white-space: nowrap; gap: 4px;
+    font-size: 11.5px; line-height: 1.5;
+  }
+  .hero-metric .muted { font-size: 11.5px; }
+  .hero-metric b { font-size: 12.5px; }
+  .hero-metric + .hero-metric::before {
+    content: "·"; margin: 0 7px; color: var(--text-3); font-weight: 400;
   }
   .hero-metric { min-width: 0; }
   .hero-metric span { font-size: 11px; }
@@ -4774,3 +4786,19 @@ html[data-theme="dark"] .discard-dot { background: #4a1b0c; color: #f0997b; }
 .ss-chev.open { transform: rotate(180deg); }
 /* 收起态下，标题行与「生成报告」在同一行居中对齐 */
 .settle-strip:not(.ss-open) { align-items: center; }
+
+/* ---------- 手机端 Hero 三指标压成一行（必须放最后，覆盖 1877 行的 flex-direction:column） ---------- */
+@media (max-width: 600px) {
+  /* 用纯 inline 文字流（不用 flex）：flex item 的 inline-flex 会被规范 blockify 成 flex，
+     导致每个指标仍各占一行。inline 就像普通文字一样自然连成一行。 */
+  .hero-card .hero-side { display: block; padding-top: 7px; }
+  .hero-card .hero-metric {
+    display: inline; flex-direction: row;
+    font-size: 11.5px; line-height: 1.6;
+  }
+  .hero-card .hero-metric > span { font-size: 11.5px; }
+  .hero-card .hero-metric b { font-size: 12.5px; margin: 0; }
+  .hero-card .hero-metric + .hero-metric::before {
+    content: "·"; margin: 0 7px; color: var(--text-3); font-weight: 400;
+  }
+}
