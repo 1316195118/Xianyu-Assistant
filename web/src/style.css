@@ -4802,3 +4802,9 @@ html[data-theme="dark"] .discard-dot { background: #4a1b0c; color: #f0997b; }
     content: "·"; margin: 0 7px; color: var(--text-3); font-weight: 400;
   }
 }
+
+/* 完结单核算：外层容器已有 16px 间距，卡片自身的 margin-top 再叠 14px 就变成 30px，
+   比 Hero 到 KPI 的 16px 明显更松。统一收掉，间距一致、首屏也多出 14px。 */
+@media (max-width: 600px) {
+  .settle-strip { margin-top: 0; }
+}
