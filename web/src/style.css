@@ -892,8 +892,13 @@ tbody tr:hover { background: #fbfcfe; }
   border: 1px solid #f2e6bd;
 }
 .hero-main { flex: 1; min-width: 0; }
-.hero-label { font-size: 13px; color: var(--text-2); font-weight: 600; }
-.hero-tag { display: inline-block; font-size: 10px; font-weight: 700; color: #1d7a4d; background: #e6f6ee; border: 1px solid #b6e3cc; padding: 1px 6px; border-radius: 5px; margin-left: 6px; vertical-align: 1px; }
+/* 标题行用 flex 居中：问号、月份标签、「算价」按钮高度不一，
+   靠 vertical-align 永远对不齐，改成 flex 后全部垂直居中 */
+.hero-label {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  font-size: 13px; color: var(--text-2); font-weight: 600;
+}
+.hero-tag { display: inline-flex; align-items: center; font-size: 10px; font-weight: 700; color: #1d7a4d; background: #e6f6ee; border: 1px solid #b6e3cc; padding: 1px 6px; border-radius: 5px; line-height: 1.5; }
 .hero-value { font-size: 38px; font-weight: 800; line-height: 1.25; margin: 6px 0 8px; letter-spacing: -1px; }
 .hero-sub { font-size: 13px; color: var(--text-2); }
 .hero-sub b { color: var(--text); font-weight: 700; }
@@ -4549,10 +4554,9 @@ html[data-theme="dark"] .backup-warn { border-color: rgba(255,114,89,.35); }
 /* Hero 标题行的「算价」入口 */
 .hero-calc {
   display: inline-flex; align-items: center; gap: 3px;
-  margin-left: 8px; padding: 2px 8px; border-radius: 6px;
+  padding: 2px 8px; border-radius: 6px; line-height: 1.5;
   border: 1px solid var(--border-strong); background: var(--surface-2);
   color: var(--text-2); font-size: 11px; font-weight: 650; cursor: pointer;
-  vertical-align: 1px;
 }
 .hero-calc:hover { color: var(--brand); border-color: var(--brand); }
 
@@ -4617,8 +4621,10 @@ html[data-theme="dark"] .price-hint { color: #9dbcff; }
     border: 1px solid var(--border);
     border-top: 2px solid var(--brand);
     box-shadow: var(--shadow-1);
-    padding: 16px 16px 14px;
+    padding: 13px 15px 12px;
   }
+  .hero-card .hero-value { margin: 4px 0 6px; }
+  .hero-card .hero-side { gap: 6px; padding-top: 8px; }
   html[data-theme="dark"] .hero-card {
     background: var(--surface);
     border-top-color: var(--brand);
@@ -4630,16 +4636,16 @@ html[data-theme="dark"] .price-hint { color: #9dbcff; }
     display: grid;
     grid-template-columns: 1fr auto;
     align-items: center;
-    gap: 12px 8px;
-    padding: 13px 14px;
+    gap: 9px 8px;
+    padding: 11px 13px;
   }
   .settle-strip .ss-title { grid-column: 1; }
   .settle-strip .ss-report { grid-column: 2; grid-row: 1; margin-left: 0; }
   .settle-strip .ss-nums {
     grid-column: 1 / -1; grid-row: 2;
     display: grid; grid-template-columns: repeat(3, 1fr);
-    gap: 10px 8px; flex: none; margin-top: 2px;
-    padding-top: 12px; border-top: 1px dashed var(--border);
+    gap: 8px 8px; flex: none; margin-top: 0;
+    padding-top: 9px; border-top: 1px dashed var(--border);
   }
   .settle-strip .ss-nums > div { text-align: left; min-width: 0; }
   .settle-strip .ss-nums span { font-size: 10.5px; white-space: nowrap; }
@@ -4648,14 +4654,21 @@ html[data-theme="dark"] .price-hint { color: #9dbcff; }
 
   /* KPI 六卡统一高度：原来第一排被切换器/长脚注撑到 160px，后两排只有 120px，
      数字下面空一大块不整齐。固定 min-height 并把脚注压到底部对齐。 */
-  .kpi-grid { gap: 9px; }
+  .kpi-grid { gap: 8px; }
   .kpi-card {
-    min-height: 112px;
+    /* 六张卡统一 108px：第一排原来被「周/月/总」切换器和两行长脚注撑到 133px，
+       导致整块高低不齐、也把首屏挤得看不到「完结单核算」全貌 */
+    min-height: 108px;
     display: flex; flex-direction: column;
-    padding: 12px 13px 11px;
+    padding: 11px 12px 10px;
   }
-  .kpi-card .kpi-foot { margin-top: auto; padding-top: 6px; }
-  .kpi-card .kpi-value { font-size: 19px; margin: 8px 0 4px; }
+  .kpi-card .kpi-foot { margin-top: auto; padding-top: 5px; line-height: 1.35; }
+  .kpi-card .kpi-value { font-size: 19px; margin: 6px 0 3px; }
+  /* 切换器做小，别把标签行撑高 */
+  .kpi-card .kpi-seg { flex: 0 0 auto; }
+  .kpi-card .kpi-seg button { min-height: 0; padding: 1px 6px; font-size: 10px; line-height: 1.5; }
+  /* 「本月净利」在 Hero 已经显示过，这里不再重复占一行 */
+  .kpi-card .kpi-month-extra { display: none; }
 
   /* 经营建议：窄屏让标题/描述独占整行，按钮换到下一行靠右，
      文字不再被按钮挤成窄条，两条建议看起来也一致。 */

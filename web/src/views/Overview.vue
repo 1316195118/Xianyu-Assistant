@@ -339,9 +339,9 @@ const chart = computed(() => {
         <div class="kpi-value num" :class="(stats?.total_profit || 0) >= 0 ? 'pos' : 'neg'"><AnimatedNumber :value="stats?.total_profit || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></div>
         <div class="kpi-foot">
           利润率 {{ (stats?.profit_margin || 0).toFixed(1) }}%
-          <template v-if="monthDelta">
+          <span v-if="monthDelta" class="kpi-month-extra">
             · 本月净利 <b class="num">{{ fmtMoney(monthDelta.latest.profit) }}</b>
-          </template>
+          </span>
         </div>
       </div>
       <div class="card kpi-card">
