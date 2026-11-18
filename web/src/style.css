@@ -2069,9 +2069,21 @@ html[data-theme="dark"] .empty-badge { background: var(--surface-2); }
   .sort-group .btn { font-size: 13px; padding: 8px 10px; }
   .action-primary { padding: 9px 12px; font-size: 13px; }
   .icon-btn { min-width: 40px; height: 38px; padding: 0 10px; font-size: 12.5px; }
-  /* 五个操作按钮带文字后会变宽，允许换行，不让「查看详情」被挤没 */
-  .action-icons { flex-wrap: wrap; justify-content: flex-end; }
-  .rc-actions { flex-wrap: wrap; row-gap: 8px; }
+  /* 卡片操作区：五个功能键等宽排一行（图标在上、文字在下），
+     「查看详情」单独占下面整行，点起来更分明、也不会把功能键压窄。 */
+  .rc-actions { flex-direction: column; align-items: stretch; row-gap: 8px; }
+  .rc-actions .action-icons {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+    flex: 1 1 100%; width: 100%;
+  }
+  .rc-actions .icon-btn {
+    flex-direction: column; gap: 3px; height: auto; min-height: 52px;
+    padding: 6px 2px; min-width: 0; width: 100%;
+  }
+  .rc-actions .icon-btn-t { font-size: 11px; font-weight: 600; }
+  .rc-actions .action-primary-row {
+    width: 100%; justify-content: center; flex: 0 0 auto;
+  }
 }
 
 html[data-theme="dark"] .action-primary,
@@ -3953,19 +3965,8 @@ html[data-motion="reduce"] .chip.on { animation: none !important; }
 .seal-settled { color: var(--stamp-settled); }
 .seal-discard { color: var(--stamp-discard); }
 
-/* 手机卡片：章放进标题行右侧、买卖标签左边，下沿正好停在金额区上面。
-   金额区（尤其「卖运费+手续费」那格）一点都不会被压到——之前 62~72px 的章
-   无论怎么挪都会盖住那格的边框，只有缩到 44px 并抬到标题行里才真正让开。 */
-.mobile-cards .seal {
-  right: 22px;
-  top: 30px;
-  width: 44px;
-  height: 44px;
-  opacity: .5;
-}
-.mobile-cards .seal .seal-main { font-size: 9px; }
-.mobile-cards .seal .seal-sub { font-size: 4.6px; }
-.mobile-cards .seal .seal-star { font-size: 3.6px; }
+/* 手机卡片不再使用绝对定位的圆章（会压住标题/金额），改用右上角小标签。
+   圆章只保留在电脑端表格行（.seal-row），那里空间足够。 */
 
 /* 电脑表格：同款缩小版，盖在商品格右侧 */
 .cell-main { position: relative; }
@@ -4686,3 +4687,30 @@ html[data-theme="dark"] .group-dot { background: #1e3b66; color: #9dbcff; }
 /* 设置页二级弹窗内的说明文字 */
 .set-sheet-desc { font-size: 12.5px; line-height: 1.65; margin: 0 0 12px; }
 .set-sheet-desc:last-child { margin-bottom: 0; }
+
+/* 明细卡片：已弃单标签（代替原来浮在卡片上的大圆章，不再遮挡内容） */
+.discard-dot {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 6px; border-radius: 999px;
+  background: var(--up-soft); color: var(--up);
+  font-size: 10.5px; font-weight: 700; white-space: nowrap;
+}
+html[data-theme="dark"] .discard-dot { background: #4a1b0c; color: #f0997b; }
+
+
+/* 明细卡片：圆章跟随布局排在右上角徽章区（不是浮层，绝不遮挡内容）。
+   只保留印章的视觉：双圈、轻微倾斜、半透明。 */
+.seal-inline {
+  position: static;
+  transform: rotate(-10deg);
+  width: 46px;
+  height: 46px;
+  margin-top: 2px;
+  opacity: .55;
+}
+.seal-inline .seal-main { font-size: 9px; }
+.seal-inline .seal-sub { font-size: 4.6px; }
+.seal-inline .seal-star { font-size: 3.6px; }
+.seal-group { color: var(--blue); }
+
+/* 已弃单/联单中标签已由圆章取代 */

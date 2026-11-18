@@ -434,6 +434,24 @@ function scrollToListTop() {
   try { window.scrollTo({ top: y, behavior: 'smooth' }) } catch (e) { window.scrollTo(0, y) }
 }
 function onSearchInput() { clearTimeout(timer); timer = setTimeout(() => reload(true), 300) }
+// 卡片上的「同商品」：按这个商品的归一化名精确筛出全部单据。
+// 走 productFilter（pn 参数）而不是搜索框 LIKE——同名不同写法（空格/大小写/标点）也能一起筛出来。
+function filterByProduct(r) {
+  const label = (r && r.product ? r.product : '').trim()
+  if (!label) return
+  const norm = (r.product_norm || r.norm || '').trim()
+  activeRange.value = 0
+  from.value = ''
+  to.value = ''
+  focusId.value = 0
+  settingQ = true
+  q.value = label
+  productFilter.value = { label, norm }
+  nextTick(() => { settingQ = false })
+  page.value = 1
+  load()
+  setTimeout(scrollToListTop, 80)
+}
 // 清空搜索必须同步把 productFilter 也清掉：
 // watch(q) 是下一个 tick 才跑，而 reload() 立刻就会读 params()，
 // 只清 q 的话请求里还带着 pn（商品跳转的精确过滤），列表看起来「点了没反应」。
@@ -668,6 +686,14 @@ const typeClass = (r) => isDiscarded(r) ? 'badge-discard' : groupSettled(r) ? 'b
 // 第一格：纯买进单看买进价，其余（卖单/两侧都填/弃单）看卖出价。
 // 注意不能用 kind === 'purchase' 判断——弃单后 kind 会变成 discarded，
 // 弃掉的买进单会被误判成卖单、金额显示成 0。改用 has_sell 判断更稳。
+// 单件成本的展示文案：手填的优先；没手填但联单有买进单，用分摊下来的成本；都没有就说没填。
+const unitCostText = (r) => {
+  const own = Number(r.unit_cost) || 0
+  if (own > 0) return fmtMoney(own)
+  const alloc = Number(r.alloc_cost) || 0
+  if (alloc > 0) return fmtMoney(alloc) + '(联单分摊)'
+  return '未填'
+}
 const rowBuyPrice = (r) => (r.has_sell ? (r.sell_price || 0) : (r.buy_price || 0))
 const rowNet = (r) => ((r.sell_price || 0) - (r.sell_shipping || 0) - (r.sell_fee || 0) - (r.sell_wuyou_fee || 0))
 // 中间格：卖单才是「到手价」；买单没有到手价，看的是总成本（买价 + 买运费）。
@@ -1194,6 +1220,8 @@ function onCardClick(r) {
                   <div class="detail-group">
                     <div class="dg-title">资金与费用</div>
                     <div class="dg-items">
+                      <div class="dg-item"><span>单件成本</span><b>{{ unitCostText(r) }}</b></div>
+                      <div class="dg-item"><span>本条成本</span><b>{{ fmtMoney(r.cost || 0) }}</b></div>
                       <div v-if="r.has_buy" class="dg-item"><span>买运费 / 标签</span><b>{{ fmtMoney(r.buy_shipping) }} {{ r.buy_ship_tag || '' }}</b></div>
                       <div v-if="r.has_sell" class="dg-item"><span>卖运费 / 标签</span><b>{{ fmtMoney(r.sell_shipping) }} {{ r.sell_ship_tag || '' }}</b></div>
                       <div v-if="r.has_sell" class="dg-item"><span>软件服务费</span><b>{{ feePending(r) ? '待结算' : fmtMoney(r.sell_fee || 0) }}</b></div>
@@ -1265,9 +1293,30 @@ function onCardClick(r) {
                  需要看时在详情里点「查看订单截图」 -->
             <span class="badge-stack">
               <span class="badge mini" :class="r.has_sell ? 'badge-sell' : 'badge-buy'">{{ r.has_sell ? '卖单' : '买单' }}</span>
-              <span v-if="groupSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
-              <!-- 在联单里但联单还没完结：明确标出来，用户一眼知道这单已归组、在等联单完结 -->
-              <span v-else-if="inGroup(r)" class="group-dot" :title="'已在联单「' + (groupsOf(r.id)[0].title || '未命名联单') + '」中，联单完结后一起结算'">联单中</span>
+              <!-- 三个圆章都跟随布局排在这里（不再 absolute 浮在卡片上），
+                   位置固定在右上角徽章区，不会压住标题、金额或按钮 -->
+              <span v-if="isDiscarded(r)" class="seal seal-inline seal-discard" :title="'弃单于 ' + sealDate(r, r.discarded_at)">
+                <span class="seal-inner">
+                  <span class="seal-star">★ ★ ★</span>
+                  <span class="seal-main">已弃单</span>
+                  <span class="seal-sub">{{ sealDate(r, r.discarded_at) }}</span>
+                </span>
+              </span>
+              <span v-else-if="groupSettled(r)" class="seal seal-inline seal-settled" :title="'联单完结于 ' + sealDate(r, r.settled_at)">
+                <span class="seal-inner">
+                  <span class="seal-star">★ ★ ★</span>
+                  <span class="seal-main">已完结</span>
+                  <span class="seal-sub">{{ sealDate(r, r.settled_at) }}</span>
+                </span>
+              </span>
+              <span v-else-if="inGroup(r)" class="seal seal-inline seal-group"
+                    :title="'已在联单「' + (groupsOf(r.id)[0].title || '未命名联单') + '」中，联单完结后一起结算'">
+                <span class="seal-inner">
+                  <span class="seal-star">★ ★ ★</span>
+                  <span class="seal-main">联单中</span>
+                  <span class="seal-sub">{{ sealDate(r, r.discarded_at) }}</span>
+                </span>
+              </span>
             </span>
           </div>
           <div v-if="groupsOf(r.id).length" class="rc-groups">
@@ -1298,12 +1347,15 @@ function onCardClick(r) {
               </template>
             </div>
           </div>
-          <div class="action-row rc-actions">
-            <button class="action-primary" :class="{ open: expanded === r.id }" @touchstart.stop @click="onCardClick(r)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-              {{ expanded === r.id ? '收起详情' : '查看详情' }}
-            </button>
+          <div class="rc-actions">
+            <!-- 功能键放上面一排（图标在上、文字在下，五个等宽）；「查看详情」放下面整行，
+                 避免它和功能键挤在一行把按钮压窄、也避免用户误点 -->
             <div class="action-icons">
+              <button class="icon-btn" @touchstart.stop @click="filterByProduct(r)"
+                      aria-label="看同商品" :title="'筛出「' + (r.product || '未命名商品') + '」的所有单据'">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
+                <span class="icon-btn-t">同商品</span>
+              </button>
               <button class="icon-btn icon-btn-discard" :class="{ 'icon-btn-discard-on': r.discarded_at }" :disabled="!!discarding"
                       @touchstart.stop @click="toggleDiscard(r)"
                       :aria-label="r.discarded_at ? '取消弃单' : '弃单'" :title="r.discarded_at ? '取消弃单' : '作废这一条（不占在库、不计成本）'">
@@ -1326,22 +1378,16 @@ function onCardClick(r) {
                 <span class="icon-btn-t">删除</span>
               </button>
             </div>
+            <button class="action-primary action-primary-row" :class="{ open: expanded === r.id }" @touchstart.stop @click="onCardClick(r)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+              {{ expanded === r.id ? '收起详情' : '查看详情' }}
+            </button>
           </div>
-          <span v-if="isDiscarded(r)" class="seal seal-discard" aria-hidden="true">
-            <span class="seal-inner">
-              <span class="seal-star">★ ★ ★</span>
-              <span class="seal-main">已弃单</span>
-              <span class="seal-sub">{{ sealDate(r, r.discarded_at) }}</span>
-            </span>
-          </span>
-          <span v-else-if="groupSettled(r)" class="seal seal-settled" aria-hidden="true">
-            <span class="seal-inner">
-              <span class="seal-star">★ ★ ★</span>
-              <span class="seal-main">已完结</span>
-              <span class="seal-sub">{{ sealDate(r, r.settled_at) }}</span>
-            </span>
-          </span>
           <div v-if="expanded === r.id" class="rc-detail">
+            <!-- 成本优先显示：这是用户最关心的核算项，不该藏在编辑弹窗里。
+                 手填的单件成本、联单分摊的成本、本条合计成本分三行写清楚。 -->
+            <div><span>单件成本</span><b>{{ unitCostText(r) }}</b></div>
+            <div><span>本条成本</span><b>{{ fmtMoney(r.cost || 0) }}</b></div>
             <!-- 只显示这条记录真有的那一侧：买单不列卖订单号/买家昵称，
                  卖单不列买订单号/卖家昵称，避免一屏「—」还容易看错边 -->
             <div v-if="r.has_buy"><span>买订单号</span><b class="mono">{{ r.buy_order_no || '—' }}</b></div>

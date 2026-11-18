@@ -71,6 +71,8 @@ type Item struct {
 	// 用户主动标记「这单没有货品成本」（代卖 / 寄卖 / 赠送）。
 	// 标记后不再进「未挂成本」，利润按销售额全额计，成本只剩运费与服务费。
 	CostFree bool `json:"cost_free"`
+	// 归一化商品名：明细页「同商品」用它精确筛出同名不同写法的全部单据
+	ProductNorm string `json:"product_norm"`
 }
 
 func (it *Item) derive() {
@@ -1453,7 +1455,7 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 
 // ---------- 工具 ----------
 
-const itemCols = `id, product, parent_id, quantity, unit_cost,
+const itemCols = `id, product, COALESCE(product_norm,'') AS product_norm, parent_id, quantity, unit_cost,
     buy_price, buy_shipping, buy_ship_tag, buy_order_no, buy_time, buy_counterparty,
     sell_price, sell_fee, sell_wuyou_fee, sell_net, sell_shipping, sell_ship_tag, sell_order_no, sell_time, sell_counterparty,
     note, COALESCE(attachment,'') AS attachment, COALESCE(consign_time,'') AS consign_time,
@@ -1465,7 +1467,7 @@ const itemCols = `id, product, parent_id, quantity, unit_cost,
 func scanItem(rows *sql.Rows) (Item, error) {
 	var it Item
 	err := rows.Scan(
-		&it.ID, &it.Product, &it.ParentID, &it.Quantity, &it.UnitCost,
+		&it.ID, &it.Product, &it.ProductNorm, &it.ParentID, &it.Quantity, &it.UnitCost,
 		&it.BuyPrice, &it.BuyShipping, &it.BuyShipTag, &it.BuyOrderNo, &it.BuyTime, &it.BuyCounterparty,
 		&it.SellPrice, &it.SellFee, &it.SellWuyouFee, &it.SellNet, &it.SellShipping, &it.SellShipTag, &it.SellOrderNo, &it.SellTime, &it.SellCounterparty,
 		&it.Note, &it.Attachment, &it.ConsignTime, &it.SettledAt, &it.DiscardedAt,
