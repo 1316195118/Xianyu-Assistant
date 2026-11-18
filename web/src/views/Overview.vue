@@ -1,0 +1,534 @@
+<script setup>
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { api } from '../api'
+import { fmtMoney, fmtNum, shortTime } from '../utils'
+import AnimatedNumber from '../components/AnimatedNumber.vue'
+import HelpTip from '../components/HelpTip.vue'
+import InsightsPanel from '../components/InsightsPanel.vue'
+import ProductProfit from '../components/ProductProfit.vue'
+import AdvicePanel from '../components/AdvicePanel.vue'
+
+const props = defineProps({ refreshKey: { type: Number, default: 0 } })
+const emit = defineEmits(['add', 'goto-records', 'goto-record', 'goto-product', 'goto-settings', 'goto-calc', 'goto-report'])
+
+// 备份提醒：超过 7 天没备份（或从未备份）就在首页提一句
+const backupLast = ref('')
+const monthTarget = ref(0)   // 本月利润目标，0=未设置
+const backupWarn = computed(() => {
+  if (!backupLast.value) return '还没有备份过，数据只存在这台机器上'
+  const d = new Date(String(backupLast.value).replace(/-/g, '/'))
+  if (isNaN(d.getTime())) return ''
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000)
+  if (days <= 7) return ''
+  return `上次备份是 ${days} 天前（${backupLast.value}），建议现在备份一次`
+})
+
+// 销售额一张卡三种口径，切换看：总 / 今日 / 无成本。
+// 不做成三张卡，是为了不让首页被 KPI 堆满。
+const salesTab = ref('total')
+const salesValue = computed(() => {
+  if (salesTab.value === 'week') return stats.value?.week_sales || 0
+  if (salesTab.value === 'month') return stats.value?.month_sales || 0
+  return stats.value?.total_sales || 0
+})
+// 库龄分档：一眼看出压得最久的那部分钱
+const ageTip = computed(() => {
+  const s = stats.value || {}
+  const f = (v) => fmtMoney(v || 0)
+  return `在库按进货天数分档：\n30 天内 ${f(s.stock_30)}\n30–60 天 ${f(s.stock_60)}\n60–90 天 ${f(s.stock_90)}\n90 天以上 ${f(s.stock_old)}`
+})
+const salesFoot = computed(() => {
+  if (salesTab.value === 'week') return '本周卖单成交价合计'
+  if (salesTab.value === 'month') return '本月卖单成交价合计'
+  return '所有登记卖单，按成交价计，未扣服务费'
+})
+
+const stats = ref(null)
+const period = ref('month')
+const periods = [{ v: 'month', t: '月' }, { v: 'quarter', t: '季' }, { v: 'week', t: '周' }]
+const recent = ref([])
+const trend = ref([])
+const loading = ref(true)
+const error = ref('')
+
+const settledIds = ref(new Set())
+let loadSeq = 0
+async function load() {
+  // 同明细页：并发刷新只认最后一次，过期的响应不再写回。
+  const seq = ++loadSeq
+  loading.value = true; error.value = ''
+  try {
+    const [s, l, t, gs] = await Promise.all([
+      api.stats(), api.list({ page: 1, page_size: 6, sort: 'created', order: 'desc' }), api.trend({ period: period.value }),
+      api.groupsBrief().catch(() => null)
+    ])
+    if (seq !== loadSeq) return
+    stats.value = s; recent.value = l.items; trend.value = t.months || []
+    const set = new Set()
+    for (const g of (gs?.items || [])) {
+      if (g.settled_at) for (const id of (g.item_ids || [])) set.add(id)
+    }
+    settledIds.value = set
+  } catch (e) { if (seq === loadSeq) error.value = e.message || '加载失败' }
+  finally { if (seq === loadSeq) loading.value = false }
+}
+onMounted(load)
+// 备份状态：只取「上次备份时间」，用来在首页提醒
+onMounted(async () => {
+  try { backupLast.value = (await api.getBackups()).last || '' } catch (e) { backupLast.value = '' }
+})
+// 月度目标：按当前数据月份读，切月/刷新时一起更新
+async function loadTarget() {
+  // 不用 month（它定义在后面，watch 创建时读会撞 TDZ）；目标本来就按当前月存。
+  const m = new Date().toISOString().slice(0, 7)
+  try {
+    const r = await api.getMonthlyTarget(m)
+    monthTarget.value = Number(r?.target) || 0
+  } catch (e) { monthTarget.value = 0 }
+}
+onMounted(loadTarget)
+watch(() => props.refreshKey, loadTarget)
+watch(() => props.refreshKey, load)
+watch(period, () => load())
+
+// 最近记录沿用明细口径：买单 / 卖单（已完结联单内额外显示「完结单」徽标）；
+// 买进价按单据类型取卖价或买价，第二行卖单看「到手价」、买单看「总成本」，不对比利润
+const isSettled = (r) => settledIds.value.has(r.id)
+const rowBuyPrice = (r) => r.kind === 'purchase' ? (r.buy_price || 0) : (r.sell_price || 0)
+// 卖单：到手价 = 卖价 − 运费 − 服务费 − 无忧卖；买单没有到手价，看总成本（买价 + 买运费）
+const rowSubLabel = (r) => (r.has_sell ? '到手' : '成本')
+const rowSubValue = (r) => (r.has_sell
+  ? ((r.sell_price || 0) - (r.sell_shipping || 0) - (r.sell_fee || 0) - (r.sell_wuyou_fee || 0))
+  : (r.cost || 0))
+
+// 成本构成：四项之和 = stats.total_cost（完全成本口径）
+// 销售额按成交总额（未扣费）计，服务费只作为成本项扣一次，利润不重复扣减。
+const costParts = computed(() => {
+  const s = stats.value || {}
+  const wuyou = s.total_wuyou_fee || 0
+  const feeOnly = Math.max(0, (s.total_fee || 0) - wuyou)
+  return [
+    { label: '货品成本', value: s.total_goods || 0, cls: 'c-goods', group: '已售成本构成' },
+    { label: '运费支出', value: s.total_shipping || 0, cls: 'c-ship', group: '已售成本构成', hint: '已计入成本的那部分运费' },
+    { label: '软件服务费', value: feeOnly, cls: 'c-fee', group: '已售成本构成' },
+    { label: '无忧卖服务费', value: wuyou, cls: 'c-wuyou', group: '已售成本构成', hint: '无忧卖类目软件服务费' }
+  ]
+})
+const costMax = computed(() => Math.max(1, ...costParts.value.map(p => p.value)))
+const profitMargin = computed(() => stats.value?.profit_margin || 0)
+
+// 占比环形图：净利润 + 四项成本，一眼看结构占比
+const donut = computed(() => {
+  const s = stats.value || {}
+  const cp = costParts.value
+  const get = (label) => cp.find(p => p.label === label)?.value || 0
+  const profit = s.total_profit || 0
+  // raw 用于图例展示（保留正负号），value 取绝对值参与环形占比：
+  // 亏损时也会以「净亏损」红段呈现，而不是被截成 0 只剩成本环
+  const parts = [
+    { label: profit >= 0 ? '净利润' : '净亏损', raw: profit, value: Math.abs(profit), cls: profit >= 0 ? 'c-profit' : 'c-loss', color: profit >= 0 ? 'var(--up)' : 'var(--down)' },
+    { label: '货品成本', raw: get('货品成本'), value: Math.abs(get('货品成本')), cls: 'c-goods', color: 'var(--donut-goods)' },
+    { label: '运费支出', raw: get('运费支出'), value: Math.abs(get('运费支出')), cls: 'c-ship', color: 'var(--chart-cost)' },
+    { label: '软件服务费', raw: get('软件服务费'), value: Math.abs(get('软件服务费')), cls: 'c-fee', color: 'var(--donut-fee)' },
+    { label: '无忧卖', raw: get('无忧卖服务费'), value: Math.abs(get('无忧卖服务费')), cls: 'c-wuyou', color: 'var(--donut-wuyou)' }
+  ]
+  const total = parts.reduce((a, p) => a + p.value, 0) || 1
+  const C = 2 * Math.PI * 48
+  let acc = 0
+  const segs = parts.map(p => {
+    const len = p.value / total * C
+    const seg = { color: p.color, dash: `${len} ${C - len}`, offset: -acc }
+    acc += len
+    return seg
+  })
+  const legend = parts.map(p => {
+    const pct = p.value / total * 100
+    return {
+      label: p.label, cls: p.cls, value: p.raw,
+      pct: pct > 0 && pct < 1 ? '<1' : String(Math.round(pct))
+    }
+  })
+  return { profit, segs, legend }
+})
+
+// Hero 右侧小指标改按「完结单」口径，与 Hero 大数字（完成单净利润）自洽
+// 本月经营数据（Hero 用）
+const month = computed(() => (monthDelta.value ? monthDelta.value.latest : null))
+const monthLabel = computed(() => {
+  const m = month.value?.month || ''
+  const p = m.split('-')
+  return p.length === 2 ? `${p[0]} 年 ${parseInt(p[1], 10)} 月` : '本月'
+})
+const targetPct = computed(() => {
+  if (!monthTarget.value || monthTarget.value <= 0) return 0
+  return Math.max(0, Math.min(100, ((month.value?.profit || 0) / monthTarget.value) * 100))
+})
+const daysLeft = computed(() => {
+  const m = month.value?.month || ''
+  if (!m) return 0
+  const [y, mo] = m.split('-').map(Number)
+  const last = new Date(y, mo, 0).getDate()
+  const today = new Date()
+  return (today.getMonth() + 1 === mo && today.getFullYear() === y)
+    ? Math.max(0, last - today.getDate() + 1) : 0
+})
+const settledMargin = computed(() => {
+  const s = stats.value || {}
+  return s.settled_sales > 0 ? (s.settled_profit / s.settled_sales * 100) : 0
+})
+const settledAvg = computed(() => {
+  const s = stats.value || {}
+  return s.settled_sold > 0 ? (s.settled_profit / s.settled_sold) : 0
+})
+
+// 累计净利润 KPI 卡的本月净利润 + 环比/同比（取自月度趋势）
+const monthDelta = computed(() => {
+  const ms = (trend.value || []).filter(m => m && m.month)
+  if (!ms.length) return null
+  const latest = ms[ms.length - 1]
+  const prev = ms.length >= 2 ? ms[ms.length - 2] : null
+  const p = latest.month.split('-')
+  const ym = (parseInt(p[0], 10) - 1) + '-' + p[1]
+  const yearAgo = ms.find(x => x.month === ym) || null
+  const pct = (cur, base) => {
+    if (base === 0) return cur === 0 ? 0 : (cur > 0 ? 100 : -100)
+    return (cur - base) / Math.abs(base) * 100
+  }
+  return {
+    latest,
+    mom: prev ? pct(latest.profit, prev.profit) : null,
+    yoy: yearAgo ? pct(latest.profit, yearAgo.profit) : null
+  }
+})
+
+// 窄屏只显示最近 6 个月，并收窄 viewBox，避免 SVG 缩放把 10px 标签压到不可读
+const narrow = ref(false)
+function syncNarrow() { narrow.value = window.innerWidth < 640 }
+onMounted(() => {
+  syncNarrow()
+  window.addEventListener('resize', syncNarrow, { passive: true })
+})
+onUnmounted(() => window.removeEventListener('resize', syncNarrow))
+
+const hoverIdx = ref(-1)
+const axisLabel = (v) => {
+  const a = Math.abs(v)
+  if (a >= 10000) return (v / 10000).toFixed(a >= 100000 ? 0 : 1) + '万'
+  if (a >= 1000) return (v / 1000).toFixed(0) + 'k'
+  return String(Math.round(v))
+}
+
+// 趋势图：销售额/成本双柱 + 利润折线。
+// Y 轴建立含负区间的映射，净利润为负时折线落在 0 基线下方（跌绿），不再贴底。
+const chart = computed(() => {
+  const all = trend.value.filter(m => m.month)
+  const ms = all.slice(-(narrow.value ? 6 : 12))
+  if (!ms.length) return null
+  const W = narrow.value ? 360 : 640
+  const H = narrow.value ? 184 : 196
+  const padL = narrow.value ? 38 : 46
+  const padR = 8
+  const padT = 14
+  const padB = 26
+  const plotH = H - padT - padB
+  const plotW = W - padL - padR
+  const profits = ms.map(m => Number(m.profit) || 0)
+  const maxV = Math.max(1, ...ms.map(m => Math.max(m.sales, m.cost)), ...profits)
+  const minV = Math.min(0, ...profits)
+  const span = (maxV - minV) || 1
+  const y = v => padT + (maxV - v) / span * plotH
+  const zeroY = y(0)
+  const slot = plotW / ms.length
+  const barW = Math.min(narrow.value ? 12 : 20, slot * 0.28)
+  const bars = ms.map((m, i) => {
+    const cx = padL + slot * i + slot / 2
+    return {
+      x: cx, label: m.month.slice(5) + '月',
+      salesY: y(m.sales), salesH: Math.max(1, zeroY - y(m.sales)),
+      costY: y(m.cost), costH: Math.max(1, zeroY - y(m.cost)),
+      profitY: y(Number(m.profit) || 0),
+      sales: m.sales, cost: m.cost, profit: Number(m.profit) || 0
+    }
+  })
+  const line = bars.map((b, i) => `${i ? 'L' : 'M'}${b.x.toFixed(1)},${b.profitY.toFixed(1)}`).join(' ')
+  const ticks = Array.from({ length: 5 }, (_, i) => {
+    const v = maxV - span * i / 4
+    return { v, y: y(v), label: axisLabel(v), zero: Math.abs(v) < 0.005 }
+  })
+  return { W, H, padL, padR, padT, padB, plotH, plotW, slot, barW, bars, line, zeroY, ticks }
+})
+</script>
+
+<template>
+  <div class="page ov-page">
+    <div v-if="error" class="alert-err">{{ error }} <button class="btn btn-sm" @click="load">重试</button></div>
+
+    <!-- Hero：本月经营。完结单核算已经在下面单独一条，这里放"这个月做得怎么样" -->
+    <section class="card hero-card">
+      <div class="hero-main">
+        <div class="hero-label">
+          本月净利润
+          <HelpTip class="hero-formula-tip" width="320" text="净利润 = 本月销售额 − 已售成本。已售成本只算已卖出部分的货品成本 + 运费 + 服务费；没卖出的进货算在「在库成本」里。联单里的成本按卖单成交价占比分摊；代卖 / 寄卖这类本来就没成本的，在明细里标「无成本」。" />
+          <span class="hero-tag">{{ monthLabel }}</span>
+          <button class="hero-calc" @click="emit('goto-calc')" title="定价速算：按成本算售价，或按售价算利润">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2.5" width="16" height="19" rx="2.5"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="12" x2="9" y2="12"/><line x1="12" y1="12" x2="13" y2="12"/><line x1="16" y1="12" x2="17" y2="12"/><line x1="8" y1="17" x2="9" y2="17"/><line x1="12" y1="17" x2="13" y2="17"/><line x1="16" y1="17" x2="17" y2="17"/></svg>
+            算价
+          </button>
+        </div>
+        <div class="hero-value num" :class="(month?.profit || 0) >= 0 ? 'pos' : 'neg'">
+          <AnimatedNumber :value="month?.profit || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber>
+        </div>
+        <div class="hero-sub">
+          本月销售额 <b class="num">{{ fmtMoney(month?.sales || 0) }}</b>
+          <span class="hero-sep">−</span>
+          已售成本 <b class="num">{{ fmtMoney(month?.cost || 0) }}</b>
+        </div>
+      </div>
+      <div class="hero-side">
+        <div class="hero-metric"><span class="muted">本月成交</span><b class="num">{{ fmtNum(month?.count || 0) }} 单</b></div>
+        <div class="hero-metric">
+          <span class="muted">环比上月利润</span>
+          <b class="num" :class="(monthDelta?.mom || 0) >= 0 ? 'pos' : 'neg'">
+            {{ monthDelta?.mom == null ? '—' : (monthDelta.mom >= 0 ? '+' : '') + monthDelta.mom.toFixed(1) + '%' }}
+          </b>
+        </div>
+        <div class="hero-metric">
+          <span class="muted">同比去年</span>
+          <b class="num" :class="(monthDelta?.yoy || 0) >= 0 ? 'pos' : 'neg'">
+            {{ monthDelta?.yoy == null ? '—' : (monthDelta.yoy >= 0 ? '+' : '') + monthDelta.yoy.toFixed(1) + '%' }}
+          </b>
+        </div>
+      </div>
+      <div v-if="monthTarget > 0" class="hero-target">
+        <div class="ht-line">
+          <span>本月目标 {{ fmtMoney(monthTarget) }}<template v-if="daysLeft"> · 剩 {{ daysLeft }} 天</template></span>
+          <b class="num">{{ targetPct.toFixed(0) }}%</b>
+        </div>
+        <div class="ht-bar"><i :style="{ width: targetPct + '%' }"></i></div>
+        <div class="ht-foot">已完成 {{ fmtMoney(Math.max(0, month?.profit || 0)) }} / {{ fmtMoney(monthTarget) }}</div>
+      </div>
+    </section>
+
+    <details class="formula-note">
+      <summary>利润口径说明 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></summary>
+      <div>净利润 = 销售额 − 已售成本。<b>已售成本只算已经卖出去的那部分</b>：货品成本按卖单带走的单件成本（买价 + 买运费按件分摊）计，加上卖运费、软件服务费、无忧卖服务费；没卖出去的进货落在「在库成本」里，不参与利润计算。「在库成本」= 所有买单 − 已进联单的买单，进了联单就不再占资金，不需要再点完结。「完结单核算」按联单口径单独统计：完结成交额取联单内卖单的到货价，完结成本取联单内买单的买价 + 买运费，两者之差就是完结净利润。明细卡片上的「到手价」= 成交价 − 卖运费 − 服务费 − 无忧卖，是真正落袋的钱，只作显示、不参与上面的计算，否则服务费会被扣两次。利润率 = 净利润 ÷ 销售额；卖单自己没填成本的，如果所在联单里有买进单，会按各卖单成交价占比把联单买单的买价 + 买运费分摊下来（只用于核算，不改单据）；既没填成本、又不在含买进单的联单里的，才按 0 计，可以去明细筛「未挂成本」补上；如果这单本来就没有货品成本（代卖 / 寄卖 / 赠送），在明细里标「无成本」即可，利润按销售额全额计。</div>
+    </details>
+
+    <!-- 四项核心指标 -->
+    <div v-if="loading" class="kpi-grid">
+      <div v-for="i in 4" :key="'k' + i" class="card kpi-card">
+        <span class="skeleton kpi-skel-label"></span><span class="skeleton kpi-skel-value"></span>
+      </div>
+    </div>
+    <div v-else class="kpi-grid kpi-grid-3">
+      <!-- 经营：卖了多少、赚了多少 -->
+      <div class="card kpi-card">
+        <div class="kpi-label kpi-label-row">
+          <span>销售额</span>
+          <div class="kpi-seg">
+            <button :class="{ on: salesTab === 'week' }" @click="salesTab = 'week'">周</button>
+            <button :class="{ on: salesTab === 'month' }" @click="salesTab = 'month'">月</button>
+            <button :class="{ on: salesTab === 'total' }" @click="salesTab = 'total'">总</button>
+          </div>
+        </div>
+        <div class="kpi-value num"><AnimatedNumber :value="salesValue" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></div>
+        <div class="kpi-foot kpi-note">{{ salesFoot }}</div>
+      </div>
+      <div class="card kpi-card kpi-hl">
+        <div class="kpi-label">累计净利润 <span class="kpi-tag">已成交</span></div>
+        <div class="kpi-value num" :class="(stats?.total_profit || 0) >= 0 ? 'pos' : 'neg'"><AnimatedNumber :value="stats?.total_profit || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></div>
+        <div class="kpi-foot">
+          利润率 {{ (stats?.profit_margin || 0).toFixed(1) }}%
+          <template v-if="monthDelta">
+            · 本月净利 <b class="num">{{ fmtMoney(monthDelta.latest.profit) }}</b>
+          </template>
+        </div>
+      </div>
+      <div class="card kpi-card">
+        <div class="kpi-label">已售成本 <span class="kpi-tag">已成交</span><HelpTip text="只算已经卖出去的那部分：货品成本按卖单带走的单件成本（买价+买运费分摊）计。还没卖出去的进货进「在库成本」，不参与利润计算。" /></div>
+        <div class="kpi-value num"><AnimatedNumber :value="stats?.total_cost || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></div>
+        <div class="kpi-foot kpi-note">卖单货品成本 + 卖运费 + 服务费</div>
+      </div>
+
+      <!-- 库存：压了多少钱、卖了多少单 -->
+      <div class="card kpi-card">
+        <div class="kpi-label">在库成本 <span class="kpi-tag">占用资金</span></div>
+        <div class="kpi-value num" style="color:var(--blue)"><AnimatedNumber :value="stats?.holding_cost || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></div>
+        <div class="kpi-foot">
+          {{ fmtNum(stats?.pending_count || 0) }} 件待售
+          <HelpTip :text="ageTip" />
+        </div>
+      </div>
+      <div class="card kpi-card">
+        <div class="kpi-label">总投入<HelpTip text="历史上所有进货的总额。总投入 = 已售成本 + 在库成本，用来看「一共投进去多少钱」。" /></div>
+        <div class="kpi-value num"><AnimatedNumber :value="stats?.total_invest || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></div>
+        <div class="kpi-foot kpi-note">所有买单（买价 + 买运费）合计</div>
+      </div>
+      <div class="card kpi-card">
+        <div class="kpi-label">总销量 <span class="kpi-tag">成交单数</span></div>
+        <div class="kpi-value num"><AnimatedNumber :value="stats?.sold_count || 0" v-slot="{ value }">{{ fmtNum(value) }}</AnimatedNumber></div>
+        <div class="kpi-foot">平均每单利润 {{ fmtMoney(stats?.avg_profit || 0) }}</div>
+      </div>
+    </div>
+
+    <!-- 完结单核算：联单维度的三个数 -->
+    <div v-if="!loading" class="settle-strip card">
+      <div class="ss-title">完结单核算<HelpTip text="按已完结的联单统计：完结成交额 = 联单内卖单到手价合计；完结成本 = 联单内买单（买价+买运费）合计；完结利润 = 两者之差。只统计点过「完结」的联单。" /></div>
+      <div class="ss-nums">
+        <div><span>完结成交额</span><b class="num">{{ fmtMoney(stats?.settled_sales || 0) }}</b></div>
+        <div><span>完结成本</span><b class="num">{{ fmtMoney(stats?.settled_cost || 0) }}</b></div>
+        <div><span>完结净利润</span><b class="num" :class="(stats?.settled_profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(stats?.settled_profit || 0) }}</b></div>
+        <div><span>完结单数</span><b class="num">{{ fmtNum(stats?.settled_sold || 0) }}</b></div>
+      </div>
+      <button class="btn btn-sm btn-quiet ss-report" @click="emit('goto-report')" title="生成可复制的周报 / 月报">生成报告</button>
+    </div>
+
+    <!-- 备份提醒 -->
+    <div v-if="backupWarn" class="backup-warn">
+      <span>{{ backupWarn }}</span>
+      <button class="btn btn-sm" @click="emit('goto-settings')">去备份</button>
+    </div>
+
+    <div class="two-col">
+      <!-- 成本构成 + 占比环形图 -->
+      <section class="card panel">
+        <div class="panel-head"><h3>成本构成</h3><span class="muted">净利润与各项支出占比</span></div>
+        <div class="cost-layout">
+          <div class="donut-wrap">
+            <svg class="donut-svg" viewBox="0 0 120 120" aria-hidden="true">
+              <circle cx="60" cy="60" r="48" class="donut-bg" />
+              <circle v-for="(s, i) in donut.segs" :key="i" cx="60" cy="60" r="48"
+                class="donut-seg" :stroke="s.color" :stroke-dasharray="s.dash" :stroke-dashoffset="s.offset" />
+            </svg>
+            <div class="donut-center">
+              <div class="donut-center-label">累计净利</div>
+              <div class="donut-center-val num" :class="(donut.profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(donut.profit) }}</div>
+              <div class="donut-center-sub">利润率 {{ profitMargin.toFixed(1) }}%</div>
+            </div>
+          </div>
+          <div class="cost-list">
+            <div class="cost-row" v-for="s in donut.legend" :key="s.label">
+              <div class="cost-name"><span class="cost-dot" :class="s.cls"></span><span>{{ s.label }}</span></div>
+              <div class="cost-num num">{{ fmtMoney(s.value) }}</div>
+              <div class="cost-pct">{{ s.pct }}%</div>
+            </div>
+          </div>
+        </div>
+        <div class="panel-foot muted">
+          <span>已售成本 = 卖单货品成本 + 卖运费 + 软件服务费 + 无忧卖服务费；</span>
+          <span class="pf-sales">只算已卖出的，没卖的进货在「在库成本」。</span>
+        </div>
+      </section>
+
+      <!-- 月度趋势 -->
+      <section class="card panel">
+        <div class="panel-head">
+          <h3>月度趋势</h3>
+          <div class="period-chips">
+            <button v-for="p in periods" :key="p.v" class="chip mini" :class="{ on: period === p.v }" @click="period = p.v">{{ p.t }}</button>
+          </div>
+        </div>
+        <div v-if="chart" class="chart-wrap">
+          <svg :viewBox="`0 0 ${chart.W} ${chart.H}`" class="trend-svg" preserveAspectRatio="xMidYMid meet">
+            <!-- 网格与 Y 轴刻度 -->
+            <g v-for="(t, i) in chart.ticks" :key="'t' + i">
+              <line :x1="chart.padL" :y1="t.y" :x2="chart.W - chart.padR" :y2="t.y"
+                :stroke="t.zero ? 'var(--chart-zero)' : 'var(--chart-grid)'"
+                :stroke-dasharray="t.zero ? '' : '3 4'" stroke-width="1" />
+              <text :x="chart.padL - 7" :y="t.y + 3.5" text-anchor="end" class="chart-tick">{{ t.label }}</text>
+            </g>
+            <!-- 双柱 -->
+            <g v-for="(b, i) in chart.bars" :key="'b' + i">
+              <rect class="chart-bar-sales" :x="b.x - chart.barW - 1" :y="b.salesY" :width="chart.barW" :height="b.salesH" rx="2" />
+              <rect class="chart-bar-cost" :x="b.x + 1" :y="b.costY" :width="chart.barW" :height="b.costH" rx="2" />
+              <text :x="b.x" :y="chart.H - 8" text-anchor="middle" class="chart-label">{{ b.label }}</text>
+            </g>
+            <!-- 利润折线：负值落在 0 线下方 -->
+            <path :d="chart.line" class="chart-profit-line" fill="none" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" />
+            <circle v-for="(b, i) in chart.bars" :key="'p' + i" :cx="b.x" :cy="b.profitY" r="3"
+              :class="b.profit >= 0 ? 'chart-dot-pos' : 'chart-dot-neg'" />
+            <!-- hover 命中区 -->
+            <rect v-for="(b, i) in chart.bars" :key="'h' + i" class="chart-hit" pointer-events="all"
+              :x="b.x - chart.slot / 2" :y="chart.padT" :width="chart.slot" :height="chart.plotH"
+              fill="transparent"
+              @mouseenter="hoverIdx = i" @mouseleave="hoverIdx = -1"
+              @touchstart.passive="hoverIdx = hoverIdx === i ? -1 : i" />
+            <line v-if="hoverIdx >= 0" :x1="chart.bars[hoverIdx].x" :y1="chart.padT"
+              :x2="chart.bars[hoverIdx].x" :y2="chart.H - chart.padB"
+              stroke="var(--chart-zero)" stroke-width="1" stroke-dasharray="3 3" />
+          </svg>
+
+          <div v-if="hoverIdx >= 0" class="chart-tip"
+            :style="{ left: Math.min(86, Math.max(14, chart.bars[hoverIdx].x / chart.W * 100)) + '%' }">
+            <div class="ct-month">{{ chart.bars[hoverIdx].label }}</div>
+            <div class="ct-row"><i class="sw-sales"></i>销售额 <b class="num">{{ fmtMoney(chart.bars[hoverIdx].sales) }}</b></div>
+            <div class="ct-row"><i class="sw-cost"></i>成本 <b class="num">{{ fmtMoney(chart.bars[hoverIdx].cost) }}</b></div>
+            <div class="ct-row"><i :class="chart.bars[hoverIdx].profit >= 0 ? 'sw-profit' : 'sw-profit-neg'"></i>利润
+              <b class="num" :class="chart.bars[hoverIdx].profit >= 0 ? 'pos' : 'neg'">{{ fmtMoney(chart.bars[hoverIdx].profit) }}</b>
+            </div>
+          </div>
+
+          <div class="chart-legend">
+            <span><i class="sw-sales"></i>销售额</span>
+            <span><i class="sw-cost"></i>成本</span>
+            <span><i class="sw-profit"></i>利润</span>
+          </div>
+        </div>
+        <div v-else-if="loading" class="chart-skeleton">
+          <span v-for="i in 7" :key="'cs' + i" class="skeleton" :style="{ height: (30 + i * 12) + 'px' }"></span>
+        </div>
+        <div v-else class="empty chart-empty">
+          <div class="empty-badge"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg></div>
+          <div class="empty-title">暂无月度趋势</div>
+          <div class="empty-sub">录入带交易时间的记录后，这里会显示最近 12 个月的走势</div>
+        </div>
+      </section>
+    </div>
+
+    <AdvicePanel :refreshKey="refreshKey"
+                 @goto-product="(p) => emit('goto-product', p)"
+                 @goto-records="(p) => emit('goto-records', p)" />
+
+    <InsightsPanel :refreshKey="refreshKey" />
+
+    <ProductProfit :refreshKey="refreshKey" @open-product="(p) => emit('goto-product', p)" />
+
+    <!-- 最近记录 -->
+    <section class="card panel">
+      <div class="panel-head">
+        <h3>最近记录</h3>
+        <span class="link" @click="emit('goto-records')">查看全部明细 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+      </div>
+      <div v-if="recent.length" class="recent-list">
+        <div v-for="r in recent" :key="r.id" class="recent-row">
+          <span class="badge-stack">
+            <span class="badge mini" :class="r.kind === 'purchase' ? 'badge-buy' : 'badge-sell'">{{ r.kind === 'purchase' ? '买单' : '卖单' }}</span>
+            <span v-if="isSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
+          </span>
+          <div class="recent-main">
+            <button type="button" class="recent-title cell-ellipsis recent-link" @click="emit('goto-record', r.id)"
+                    title="在明细里定位这条记录">{{ r.product || '未命名商品' }}</button>
+            <div class="recent-meta muted">添加 {{ shortTime(r.created_at) }} <span v-if="r.buy_order_no || r.sell_order_no">· {{ r.sell_order_no || r.buy_order_no }}</span></div>
+          </div>
+          <div class="recent-money">
+            <div class="num strong">{{ fmtMoney(rowBuyPrice(r)) }}</div>
+            <div class="muted recent-sub">{{ rowSubLabel(r) }} {{ fmtMoney(rowSubValue(r)) }}</div>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="!loading" class="empty">
+        <div class="empty-badge"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg></div>
+        <div class="empty-title">还没有商品记录</div>
+        <div class="empty-sub">上传一张买进或卖出截图开始记账</div>
+        <button class="btn btn-primary" @click="emit('add')">上传截图录入</button>
+      </div>
+      <div v-else class="skel-list" aria-label="正在加载">
+        <div v-for="i in 4" :key="i" class="skel-row">
+          <span class="skeleton skel-block"></span>
+          <div class="skel-lines"><span class="skeleton skel-line w70"></span><span class="skeleton skel-line w40"></span></div>
+          <span class="skeleton skel-money"></span>
+        </div>
+      </div>
+    </section>
+  </div>
+</template>

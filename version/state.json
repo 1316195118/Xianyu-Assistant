@@ -1,0 +1,7 @@
+{
+  "count": 133,
+  "version": "1.1.3.3",
+  "updated_at": "2026-11-18 16:15:32",
+  "build": "19a95d07b5",
+  "note": "扫码登录诊断：修正参数与状态显示，标注实验性\n\n真实浏览器 21 次轮询全 NEW，服务器生成后立刻 EXPIRED（qrCodeStatus:EXPIRED）。\n根因：闲鱼 umidToken/deviceId/hsiz 设备指纹与生成环境强绑定，纯服务器端重放过不了校验。\n改动：\n1. query.do 补齐真实参数（hsiz=ck、deviceId、navUserAgent、isIframe、documentReferer 等）\n2. generate.do 传入自生成 hsiz 与完整 bizParams\n3. 会话注入已保存的闲鱼/淘宝登录态 Cookie\n4. 修复 EXPIRED 被错误当成 new 导致前端一直空等的 bug——现在明确提示「二维码失效」\n5. 扫码按钮标注「实验性」，并提示失败时用一键绑定工具 goofish_bind.bat\n可靠的重绑路径仍是：真实浏览器一键绑定（已实测成功）+ 同步前静默换发自动续期（3个月+）"
+}

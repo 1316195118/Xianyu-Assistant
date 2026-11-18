@@ -1,0 +1,43 @@
+# 闲鱼售卖统计 —— docker compose 部署
+#
+#   拉取并启动：docker compose up -d
+#   查看日志：  docker compose logs -f
+#   停止：      docker compose down
+#
+# 数据分三个独立目录，都以命名卷保存，删容器不丢数据：
+#   data/   —— 数据库 xianyu.db（订单、账单、设置）
+#   config/ —— 其他运行期文件（附件截图等）
+#   backup/ —— 自动/手动备份
+services:
+  xianyu-stat:
+    # 公网入口（Cloudflare 临时隧道，HTTPS 有效证书，Docker 可直接拉取）
+    # 也可以用环境变量覆盖：XIANYU_IMAGE=你的地址/xianyu-stat:1.0.8.0 docker compose up -d
+    image: ${XIANYU_IMAGE:-protocols-ear-perfect-third.trycloudflare.com/xianyu-stat:1.0.8.0}
+    container_name: xianyu-stat
+    restart: unless-stopped
+    ports:
+      - "${XIANYU_PORT:-8080}:8080"
+    environment:
+      TZ: Asia/Shanghai
+      PORT: "8080"
+      # 三个目录分别落在三个卷上，见下方 volumes
+      DB_PATH: /data/xianyu.db
+      CONFIG_DIR: /config
+      BACKUP_DIR: /backup
+    volumes:
+      - xianyu-data:/data
+      - xianyu-config:/config
+      - xianyu-backup:/backup
+    healthcheck:
+      # 用 alpine 自带的 busybox wget 探活；绝对不能拿二进制自身当探针，
+      # 那会额外拉起一个实例（抢端口/写同一份数据）。
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  xianyu-data:
+  xianyu-config:
+  xianyu-backup:

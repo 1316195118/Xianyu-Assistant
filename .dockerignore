@@ -1,0 +1,46 @@
+# ===== 数据文件：绝不能进镜像 =====
+# 数据库里有闲鱼登录 Cookie、订单、账单，附件目录里是买家订单截图。
+# 镜像要分发给别人，这些一律排除。
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+xianyu.db
+attachments/
+backups/
+data/
+gf_flows/
+
+# ===== 本机专用产物 =====
+# Windows 版二进制只用于本机双击运行；镜像里要的是 linux-amd64 那个。
+xianyu-stat.exe
+*.exe
+*.bat
+
+# ===== 源码与构建中间物 =====
+# 镜像只 COPY 已编译好的 linux 二进制，源码不需要进上下文，能显著加快构建。
+server/
+web/
+static/licenses/
+web/node_modules/
+web/dist/
+tools/
+version/
+*.md
+!THIRD_PARTY_NOTICES.md
+
+# ===== 环境与私有配置 =====
+.env
+*.env
+.env.*
+*.log
+logs/
+
+# ===== 版本控制与工具目录 =====
+.git/
+.gitignore
+.workbuddy-ai/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

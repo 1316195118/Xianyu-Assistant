@@ -1,0 +1,62 @@
+# ========== 数据库（含 Cookie / 凭证 / 用户数据，绝不能上传）==========
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# ========== 浏览器 profile（含登录态 Cookie，绝不能上传）==========
+tools/gf-profile/
+tools/profiles/
+profiles/
+
+# ========== 编译产物（大文件，朋友自己构建）==========
+xianyu-stat.exe
+xianyu-stat-linux-amd64
+xianyu-stat-linux-arm64
+server/xianyu-stat.exe
+*.exe
+*.dll
+*.so
+*.dylib
+
+# ========== 依赖 ==========
+node_modules/
+web/dist/
+web/node_modules/
+dist/
+
+# ========== 本地配置 / 密钥 ==========
+config.json
+.env
+.env.*
+*.pem
+*.key
+*_rsa
+*_rsa.pub
+
+# ========== 作者专有：PVE 部署脚本（含内网 IP / 部署路径）==========
+# 朋友用自己的部署方式，这些脚本对他们无用且暴露作者环境
+tools/deploy_pve.sh
+tools/rollback_pve.sh
+tools/sync_backup_remote.sh
+tools/pve_ssh.py
+deploy/
+
+# ========== WorkBuddy 项目数据 ==========
+.workbuddy-ai/
+.workbuddy/
+
+# ========== 临时 / 截图 / 缓存 ==========
+*.log
+*.tmp
+*.bak
+*.swp
+.DS_Store
+Thumbs.db
+界面预览-*.png
+version/NEXT.md
+
+# ========== 测试产物 ==========
+coverage.out
+*.test
