@@ -502,7 +502,10 @@ function toggleOne(id) {
   const i = selected.value.indexOf(id)
   if (i >= 0) selected.value.splice(i, 1); else selected.value.push(id)
   // 一条都不剩就退出选择模式，避免勾选框一直挂在卡片上
-  if (!selected.value.length) selectMode.value = false
+  if (!selected.value.length) {
+    selectMode.value = false
+    emit('notify', '已退出多选', false, null, { tone: 'info' })
+  }
 }
 
 async function del(r) {
@@ -695,6 +698,8 @@ const typeClass = (r) => isDiscarded(r) ? 'badge-discard' : groupSettled(r) ? 'b
 // 注意不能用 kind === 'purchase' 判断——弃单后 kind 会变成 discarded，
 // 弃掉的买进单会被误判成卖单、金额显示成 0。改用 has_sell 判断更稳。
 // 单件成本的展示文案：手填的优先；没手填但联单有买进单，用分摊下来的成本；都没有就说没填。
+// 时间/昵称都为空的记录（纯买单常见）不渲染副标题行，否则会剩一个孤零零的「—」
+const hasMeta = (r) => !!(r && (r.deal_time || (r.has_sell ? r.sell_counterparty : r.buy_counterparty)))
 const unitCostText = (r) => {
   const own = Number(r.unit_cost) || 0
   if (own > 0) return fmtMoney(own)
@@ -788,9 +793,17 @@ function onTouchStart(r, e) {
   touchTimer = setTimeout(() => {
     if (touchMoved || swipingId.value) return
     suppressClick = true          // 拦截长按后紧随的 click，避免「选中 + 展开/编辑」同时发生
-    selectMode.value = true       // 长按进入选择模式：所有卡片一起露出勾选框
-    toggleOne(r.id)
+    if (!selectMode.value) {
+      selectMode.value = true     // 长按进入选择模式：所有卡片一起露出勾选框
+      emit('notify', '已进入多选：点卡片即可选择，再点一下取消', false, null, { tone: 'info' })
+    }
+    if (!selected.value.includes(r.id)) selected.value.push(r.id)
+    else selected.value = selected.value.filter((x) => x !== r.id)
     try { navigator.vibrate?.(8) } catch (e) { /* ignore */ }
+    // 兜底：正常情况由 touchend 解除防误触标记；万一 touchend 丢了（部分内核/手势被系统截走），
+    // 这里也定时解除，避免之后所有点击都被吞掉。
+    clearTimeout(touchTimer)
+    setTimeout(() => { suppressClick = false }, 600)
   }, 500)
 }
 function onTouchMove(e) {
@@ -829,10 +842,19 @@ function onTouchEnd() {
   }
   if (suppressClick) setTimeout(() => { suppressClick = false }, 400)
 }
-// 卡片标题/查看详情点击展开：长按或滑动刚结束时忽略这次 click
-function onCardClick(r) {
+// 卡片点击：选择模式下整张卡就是勾选区域（不用再点那个小方框），
+// 普通模式下才是展开/收起详情。长按或滑动刚结束时忽略这次 click。
+function onCardClick(r, e) {
   if (suppressClick) return
   if (swipeId.value) { closeSwipe(); return }
+  // 点按钮、勾选框、联单 chip、截图等交互元素时让它们自己处理
+  const t = e && e.target
+  if (t && t.closest && t.closest('button, input, label, a, .group-chip')) return
+  if (selectMode.value) {
+    toggleOne(r.id)
+    try { navigator.vibrate?.(5) } catch (e) { /* ignore */ }
+    return
+  }
   expanded.value = expanded.value === r.id ? null : r.id
 }
 </script>
@@ -968,7 +990,7 @@ function onCardClick(r) {
               @click="toggleCostFree">
         <span v-if="costFreeBusy" class="spin"></span>{{ allCostFree ? '取消无成本' : '无成本' }}
       </button>
-      <button class="btn btn-sm btn-quiet" @click="selected = []; selectMode = false">取消选择</button>
+      <button class="btn btn-sm btn-quiet" @click="selected = []; selectMode = false; emit('notify', '已退出多选', false, null, { tone: 'info' })">取消选择</button>
       <button class="btn btn-sm btn-danger" @click="batchDel">批量删除</button>
 
     </div>
@@ -1287,16 +1309,17 @@ function onCardClick(r) {
             </button>
           </div>
           <div class="rec-card" :data-rid="r.id" :class="{ 'is-selected': selected.includes(r.id), 'is-pressing': pressingId === r.id, 'is-discarded': isDiscarded(r), 'row-flash': flashId === r.id, 'row-leaving': leaving.includes(r.id) }"
-            :style="(swipingId === r.id || swipeId === r.id) ? { transform: 'translateX(' + swipeX + 'px)' } : null">
+            :style="(swipingId === r.id || swipeId === r.id) ? { transform: 'translateX(' + swipeX + 'px)' } : null"
+            @click="onCardClick(r, $event)">
           <div class="rc-head">
-            <label v-if="selectMode" class="rc-check" @touchstart.stop><input type="checkbox" :checked="selected.includes(r.id)" @change="toggleOne(r.id)" /></label>
-            <div class="rc-title" @click="onCardClick(r)">
+            <label v-if="selectMode" class="rc-check" @touchstart.stop @click.stop><input type="checkbox" :checked="selected.includes(r.id)" @change="toggleOne(r.id)" /></label>
+            <div class="rc-title">
               <div class="rc-product">
                 <span class="badge mini rc-kind" :class="r.has_sell ? 'badge-sell' : 'badge-buy'">{{ r.has_sell ? '卖单' : '买单' }}</span>
                 {{ r.product || '未命名商品' }}
               </div>
-              <div class="rc-meta muted">
-                <span class="rc-time">{{ shortTime(r.deal_time) }}</span>
+              <div v-if="hasMeta(r)" class="rc-meta muted">
+                <span v-if="r.deal_time" class="rc-time">{{ shortTime(r.deal_time) }}</span>
                 <template v-if="counterpartyOf(r)">
                   <span class="rc-sep">·</span>
                   <span class="rc-name">{{ counterpartyOf(r) }}</span>
@@ -1391,12 +1414,14 @@ function onCardClick(r) {
                 <span class="icon-btn-t">删除</span>
               </button>
             </div>
-            <button class="action-primary action-primary-row" :class="{ open: expanded === r.id }" @touchstart.stop @click="onCardClick(r)">
+            <button class="action-primary action-primary-row" :class="{ open: expanded === r.id }" @touchstart.stop @click.stop="onCardClick(r, $event)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
               {{ expanded === r.id ? '收起详情' : '查看详情' }}
             </button>
           </div>
           <div v-if="expanded === r.id" class="rc-detail">
+            <!-- 卡片上的标题是单行截断的，这里给出完整标题，避免长名字看不全 -->
+            <div class="rc-detail-full"><span>完整标题</span><b>{{ r.product || '未命名商品' }}</b></div>
             <!-- 成本优先显示：这是用户最关心的核算项，不该藏在编辑弹窗里。
                  手填的单件成本、联单分摊的成本、本条合计成本分三行写清楚。 -->
             <div><span>单件成本</span><b>{{ unitCostText(r) }}</b></div>

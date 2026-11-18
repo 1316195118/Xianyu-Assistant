@@ -4730,3 +4730,15 @@ html[data-theme="dark"] .discard-dot { background: #4a1b0c; color: #f0997b; }
   font-weight: 700;
 }
 .cell-product .rc-kind { vertical-align: 1px; }
+
+/* 明细卡片标题：最多一行，超出用省略号（完整内容在展开详情里看） */
+.rc-product {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
+}
+/* 展开详情里的完整标题：允许换行、不截断 */
+.rc-detail-full { grid-column: 1 / -1; }
+.rc-detail-full b { word-break: break-word; white-space: normal; text-align: right; }

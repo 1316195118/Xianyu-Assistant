@@ -504,9 +504,10 @@ function onBatchDone(n) {
 }
 function onSaved(info) {
   closeModal()
-  // 在明细页保存时，把这条记录标记出来：列表会整体重拉，不标一下根本找不到刚加的那条。
-  // 在概览页保存就不跳转了——用户没在看清明，硬切页面反而打断。
-  if (view.value === 'records' && info?.id) highlightId.value = info.id
+  // 只在「新增」时定位刚加的那条（否则列表重拉后找不到它）。
+  // 「编辑」不定位：把 highlightId 设为这条会让列表被过滤成只剩一条并滚走，
+  // 用户改完一条想接着改相邻的，却发现整个列表没了——所以编辑后原样留在当前位置。
+  if (view.value === 'records' && info?.id && !info?.editing) highlightId.value = info.id
   bump()
   if (info?.merged) notify(`已自动合并到同名商品「${info.product}」`)
   else if (info?.autoGroup) notify(`已保存，并自动生成联单「${info.product}」`)
