@@ -4714,3 +4714,11 @@ html[data-theme="dark"] .discard-dot { background: #4a1b0c; color: #f0997b; }
 .seal-group { color: var(--blue); }
 
 /* 已弃单/联单中标签已由圆章取代 */
+
+/* 买卖单徽章：放到商品标题前面，行内对齐、不撑高行高 */
+.rc-kind {
+  display: inline-flex; align-items: center;
+  margin-right: 6px; vertical-align: 1px;
+  font-weight: 700;
+}
+.cell-product .rc-kind { vertical-align: 1px; }

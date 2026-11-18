@@ -1151,11 +1151,13 @@ function onCardClick(r) {
                       <span class="seal-sub">{{ sealDate(r, r.settled_at) }}</span>
                     </span>
                   </span>
-                  <div class="cell-product cell-ellipsis" :title="r.product">{{ r.product || '未命名商品' }}</div>
+                  <div class="cell-product cell-ellipsis" :title="r.product">
+                    <span class="badge mini rc-kind" :class="r.has_sell ? 'badge-sell' : 'badge-buy'">{{ r.has_sell ? '卖单' : '买单' }}</span>
+                    {{ r.product || '未命名商品' }}
+                  </div>
                   <div class="cell-meta">
                     <span class="cell-sub">{{ counterpartyOf(r) || '—' }}</span>
                     <span class="badge-stack">
-                      <span class="badge mini" :class="r.has_sell ? 'badge-sell' : 'badge-buy'">{{ r.has_sell ? '卖单' : '买单' }}</span>
                       <span v-if="groupSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
                       <span v-if="r.cost_free" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
                     </span>
@@ -1280,7 +1282,10 @@ function onCardClick(r) {
           <div class="rc-head">
             <label class="rc-check" @touchstart.stop><input type="checkbox" :checked="selected.includes(r.id)" @change="toggleOne(r.id)" /></label>
             <div class="rc-title" @click="onCardClick(r)">
-              <div class="rc-product">{{ r.product || '未命名商品' }}</div>
+              <div class="rc-product">
+                <span class="badge mini rc-kind" :class="r.has_sell ? 'badge-sell' : 'badge-buy'">{{ r.has_sell ? '卖单' : '买单' }}</span>
+                {{ r.product || '未命名商品' }}
+              </div>
               <div class="rc-meta muted">
                 <span class="rc-time">{{ shortTime(r.deal_time) }}</span>
                 <template v-if="counterpartyOf(r)">
@@ -1292,7 +1297,6 @@ function onCardClick(r) {
             <!-- 手机端不在卡片上放缩略图：一是不占版面，二是不必为列表加载图片，
                  需要看时在详情里点「查看订单截图」 -->
             <span class="badge-stack">
-              <span class="badge mini" :class="r.has_sell ? 'badge-sell' : 'badge-buy'">{{ r.has_sell ? '卖单' : '买单' }}</span>
               <!-- 三个圆章都跟随布局排在这里（不再 absolute 浮在卡片上），
                    位置固定在右上角徽章区，不会压住标题、金额或按钮 -->
               <span v-if="isDiscarded(r)" class="seal seal-inline seal-discard" :title="'弃单于 ' + sealDate(r, r.discarded_at)">
