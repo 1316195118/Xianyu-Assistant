@@ -24,7 +24,7 @@ import (
 type rtEvent struct {
 	ID      int64  `json:"id"`
 	ShopID  int64  `json:"shop_id,omitempty"` // 变更所属店铺
-	Kind    string `json:"kind"` // change | presence | hello
+	Kind    string `json:"kind"`              // change | presence | hello
 	Method  string `json:"method,omitempty"`
 	Path    string `json:"path,omitempty"`
 	Actor   string `json:"actor,omitempty"`
@@ -32,6 +32,8 @@ type rtEvent struct {
 	Online  int    `json:"online"`
 	Rev     int64  `json:"rev"`
 	Time    string `json:"time"`
+	// Progress 仅 kind=progress 用：0-100 的同步阶段进度
+	Progress int `json:"progress,omitempty"`
 }
 
 type rtClient struct {
@@ -156,6 +158,23 @@ func (h *rtHub) publish(method, path, actor, summary string, shopID int64) rtEve
 	}
 	h.mu.Unlock()
 	return ev
+}
+
+// publishProgress 广播同步阶段进度（不参与 rev 变更计数、不进补发队列）。
+func (h *rtHub) publishProgress(shopID int64, pct int, text string) {
+	h.mu.Lock()
+	h.seq++
+	ev := rtEvent{
+		ID: h.seq, ShopID: shopID, Kind: "progress",
+		Path: "/api/goofish/progress", Summary: text, Progress: pct,
+		Time: time.Now().Format("15:04:05"),
+	}
+	for c := range h.clients {
+		if c.shopID == shopID {
+			pushEvent(c, ev)
+		}
+	}
+	h.mu.Unlock()
 }
 
 // since 返回 id 之后、本店铺发生的变更，用于断线重连补发。

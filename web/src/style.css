@@ -5143,3 +5143,54 @@ html[data-theme="dark"] .todo-hint { color: #fbbf24; background: rgba(245, 158, 
   .todo-hint { flex-wrap: wrap; }
   .todo-hint span { flex: 1 1 100%; }
 }
+
+/* ============================================================
+   动效批次：详情展开 / 图表交互 / 同步进度 / 下拉刷新 / 主题扩散
+   ============================================================ */
+/* 1) 详情展开：行高不强行过渡（表格里成本高），内容淡入 + 轻微下滑，逐组错峰 */
+@keyframes detailIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes detailGroupIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+.detail-panel, .rc-detail { animation: detailIn .26s var(--ease) both; }
+.detail-panel .detail-group { animation: detailGroupIn .3s var(--ease) both; }
+.detail-panel .detail-group:nth-child(2) { animation-delay: .05s; }
+.detail-panel .detail-group:nth-child(3) { animation-delay: .09s; }
+.detail-panel .detail-group:nth-child(4) { animation-delay: .13s; }
+.detail-panel .detail-group:nth-child(5) { animation-delay: .17s; }
+
+/* 2) 图表：环形图分段高亮、折线点悬停放大、周期切换过渡 */
+.donut-seg { cursor: pointer; transition: opacity .18s ease, stroke-dasharray .65s var(--ease), stroke-dashoffset .65s var(--ease); }
+.donut-seg.dim { opacity: .22; }
+.chart-dot { transition: r .15s var(--ease), opacity .15s ease; }
+@keyframes chartSwap { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+.chart-swap { animation: chartSwap .3s var(--ease) both; }
+
+/* 3) 同步进度条 */
+.gf-progress { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin: 12px 0 7px; }
+.gf-progress i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--brand), #ffd15c); transition: width .35s var(--ease); }
+
+/* 4) 下拉刷新指示器 */
+.pull-hint {
+  position: fixed; top: 0; left: 50%; z-index: 70;
+  width: 36px; height: 36px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--surface); color: var(--text-2);
+  border: 1px solid var(--border-strong); box-shadow: var(--shadow-2);
+  opacity: 0; transform: translate(-50%, -46px); pointer-events: none;
+  transition: opacity .15s ease, transform .18s var(--ease);
+}
+.pull-hint.show { opacity: 1; transform: translate(-50%, calc(var(--pull, 0px) - 44px)); transition: none; }
+
+/* 5) 主题切换：新画面从点击处圆形展开 */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+
+@media (prefers-reduced-motion: reduce) {
+  .detail-panel, .rc-detail, .detail-panel .detail-group, .chart-swap { animation: none !important; }
+  .chart-dot, .donut-seg, .gf-progress i { transition: none !important; }
+}
+html[data-motion="reduce"] .detail-panel,
+html[data-motion="reduce"] .rc-detail,
+html[data-motion="reduce"] .detail-panel .detail-group,
+html[data-motion="reduce"] .chart-swap { animation: none !important; }
+html[data-motion="reduce"] .chart-dot,
+html[data-motion="reduce"] .donut-seg,
+html[data-motion="reduce"] .gf-progress i { transition: none !important; }

@@ -397,17 +397,17 @@ func (c *gfClient) account() (*gfAccount, error) {
 
 // gfOrder 一条订单（列表口径）
 type gfOrder struct {
-	OrderNo    string
-	Product    string
-	Side       string // buy | sell
-	Status     string
-	StatusEnum string
-	Time       string
+	OrderNo     string
+	Product     string
+	Side        string // buy | sell
+	Status      string
+	StatusEnum  string
+	Time        string
 	ConsignTime string // 发货时间（仅卖单，闲鱼 consignTime，精确到秒）
-	Peer       string
-	ListPrice  float64 // 标价 / 实付款
-	PostFee    float64 // 商品邮费（POST_FEE）——预留：买运费来源。列表接口没有此字段，只有打开 gfFetchBuyPostFee 开关时才逐单调详情补齐。
-	Backfill   bool    // 来自「收入明细」账单补建（列表接口只回最近 40 单，更早的靠这里补）
+	Peer        string
+	ListPrice   float64 // 标价 / 实付款
+	PostFee     float64 // 商品邮费（POST_FEE）——预留：买运费来源。列表接口没有此字段，只有打开 gfFetchBuyPostFee 开关时才逐单调详情补齐。
+	Backfill    bool    // 来自「收入明细」账单补建（列表接口只回最近 40 单，更早的靠这里补）
 }
 
 // boughtOrders 我买到的。翻页参数是 pageNumber（不是 pageNum，实测 pageNum 会被忽略），
@@ -518,15 +518,15 @@ func (c *gfClient) soldOrders(maxPages int) ([]gfOrder, error) {
 				status = gfStr(gfPath(raw, "columnVOList"))
 			}
 			out = append(out, gfOrder{
-				OrderNo:    no,
-				Product:    gfStr(gfPath(raw, "itemVO", "title")),
-				Side:       "sell",
-				Status:     status,
-				StatusEnum: "",
+				OrderNo:     no,
+				Product:     gfStr(gfPath(raw, "itemVO", "title")),
+				Side:        "sell",
+				Status:      status,
+				StatusEnum:  "",
 				Time:        gfStr(gfPath(cd, "createTime")),
 				ConsignTime: gfStr(gfPath(cd, "consignTime")),
 				Peer:        gfStr(gfPath(raw, "buyerInfoVO", "userNick")),
-				ListPrice:  gfFloat(gfPath(raw, "priceVO", "auctionPrice")),
+				ListPrice:   gfFloat(gfPath(raw, "priceVO", "auctionPrice")),
 			})
 		}
 		if added == 0 {
@@ -748,24 +748,24 @@ func gfRows(d map[string]interface{}) []map[string]interface{} {
 
 // gfPlanRow 一条待导入订单（已按账单还原口径）
 type gfPlanRow struct {
-	OrderNo    string  `json:"order_no"`
-	Side       string  `json:"side"`
-	Product    string  `json:"product"`
-	Status     string  `json:"status"`
-	Time       string  `json:"time"`
-	ConsignTime string `json:"consign_time"` // 发货时间（卖单才有）
-	Peer       string  `json:"peer"`
-	ListPrice  float64 `json:"list_price"`  // 标价
-	Price      float64 `json:"price"`       // 成交价（有账单用实收，否则用标价）
-	Fee        float64 `json:"fee"`         // 软件服务费 + 基础软件服务费
-	Wuyou      float64 `json:"wuyou"`       // 无忧卖服务费
-	Net        float64 `json:"net"`         // 到手
-	Billed     bool    `json:"billed"`      // 是否已拿到账单（费用是否已扣）
-	PostFee    float64 `json:"post_fee"`    // 商品邮费，导入时作为买运费写入（预留，默认 0）
-	Exists     bool    `json:"exists"`      // 系统里已有同单号
-	Managed    bool    `json:"managed"`     // 已有记录是「闲鱼同步」建的（可安全按账单覆盖）；手动录入的为 false
-	SkipReason string  `json:"skip_reason"` // 非空则不导入
-	Backfill   bool    `json:"backfill"`    // 来自「收入明细」账单补建（列表接口只回最近 40 单）
+	OrderNo     string  `json:"order_no"`
+	Side        string  `json:"side"`
+	Product     string  `json:"product"`
+	Status      string  `json:"status"`
+	Time        string  `json:"time"`
+	ConsignTime string  `json:"consign_time"` // 发货时间（卖单才有）
+	Peer        string  `json:"peer"`
+	ListPrice   float64 `json:"list_price"`  // 标价
+	Price       float64 `json:"price"`       // 成交价（有账单用实收，否则用标价）
+	Fee         float64 `json:"fee"`         // 软件服务费 + 基础软件服务费
+	Wuyou       float64 `json:"wuyou"`       // 无忧卖服务费
+	Net         float64 `json:"net"`         // 到手
+	Billed      bool    `json:"billed"`      // 是否已拿到账单（费用是否已扣）
+	PostFee     float64 `json:"post_fee"`    // 商品邮费，导入时作为买运费写入（预留，默认 0）
+	Exists      bool    `json:"exists"`      // 系统里已有同单号
+	Managed     bool    `json:"managed"`     // 已有记录是「闲鱼同步」建的（可安全按账单覆盖）；手动录入的为 false
+	SkipReason  string  `json:"skip_reason"` // 非空则不导入
+	Backfill    bool    `json:"backfill"`    // 来自「收入明细」账单补建（列表接口只回最近 40 单）
 }
 
 type gfPlan struct {
@@ -899,7 +899,18 @@ func buildPlan(c *gfClient, months int, shop int64) (*gfPlan, error) {
 // buildPlanWith backfillMonths>0 时，除了列表接口，还会按账单期往前翻收入明细，
 // 把「已经成交但列表接口拿不到」的历史订单补进来。
 // shop 必须传当前店铺：查重只在店铺内部做，别家的老数据不该挡住本店导入。
+func gfProgress(shop int64, pct int, text string) {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	realtimeHub.publishProgress(shop, pct, text)
+}
+
 func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan, error) {
+	gfProgress(shop, 10, "正在拉取订单列表…")
 	buy, err := c.boughtOrders(60)
 	if err != nil && len(buy) == 0 {
 		return nil, fmt.Errorf("拉取「我买到的」失败：%v", err)
@@ -916,6 +927,7 @@ func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan
 		buy, sell = gfFilterRecent(buy, sell, gfAutoWindow(shop))
 	}
 
+	gfProgress(shop, 28, "订单列表已取回，正在按账单回溯…")
 	// ---------- 历史补建：按账单期往前翻，补上列表接口 40 单以外的已成交订单 ----------
 	var backfillBills map[string]*gfBill
 	if backfillMonths > 0 {
@@ -969,6 +981,7 @@ func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan
 		}
 	}
 
+	gfProgress(shop, 50, "正在核对收入 / 支出账单…")
 	// ---------- 账单：先看本地缓存，只补「还没出账」的月份 ----------
 	orderNos := make([]string, 0, len(buy)+len(sell))
 	orderTime := make(map[string]string, len(buy)+len(sell))
@@ -1055,6 +1068,7 @@ func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan
 	}
 	bills = merged
 
+	gfProgress(shop, 82, "账单已核对，正在整理预览…")
 	plan := &gfPlan{ID: strconv.FormatInt(time.Now().UnixNano(), 36), MadeAt: time.Now(), Months: months}
 	plan.Warnings = warn
 	seen := map[string]bool{}
@@ -1131,6 +1145,7 @@ func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan
 			plan.Stat.Unbilled++
 		}
 	}
+	gfProgress(shop, 92, "预览已生成")
 	// 有账单的、能导的排前面
 	sort.SliceStable(plan.Rows, func(i, j int) bool {
 		a, b := plan.Rows[i], plan.Rows[j]

@@ -54,6 +54,12 @@ export function connectRealtime() {
   es.addEventListener('presence', (e) => {
     try { applyMeta(JSON.parse(e.data)) } catch (err) { /* ignore */ }
   })
+  // 同步阶段进度（kind=progress）：只给打开着同步窗口的页面用，不触发任何刷新
+  es.addEventListener('progress', (e) => {
+    let d = null
+    try { d = JSON.parse(e.data) } catch (err) { return }
+    emit(d)
+  })
   es.addEventListener('change', (e) => {
     let d = null
     try { d = JSON.parse(e.data) } catch (err) { return }

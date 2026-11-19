@@ -2,7 +2,7 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { api, downloadFile } from '../api'
 import { confirm } from '../confirm'
-import { themeMode, motionMode } from '../theme'
+import { themeMode, motionMode, setThemeInstant } from '../theme'
 import RecyclePanel from '../components/RecyclePanel.vue'
 import VersionPanel from '../components/VersionPanel.vue'
 import ShopManage from '../components/ShopManage.vue'
@@ -46,12 +46,26 @@ const motionEffective = computed(() =>
   motionMode.value === 'reduce' || (motionMode.value === 'system' && sysReduce.value) ? 'reduce' : 'full')
 
 // 三个主题按钮：选中的原地不动作出说明，选别的就正常切换
-function pickTheme(v) {
+function pickTheme(v, e) {
   if (themeMode.value === v) {
     emit('notify', `当前已经是「${themeLabel.value}」`, false, null, { tone: 'info' })
     return
   }
-  themeMode.value = v
+  // 从点击位置圆形扩散到全屏；不支持 View Transitions 或用户关了动效时直接切
+  const doc = document
+  const reduce = motionEffective.value === 'reduce' ||
+    (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)
+  if (!doc.startViewTransition || reduce) { themeMode.value = v; return }
+  const x = e && typeof e.clientX === 'number' ? e.clientX : innerWidth / 2
+  const y = e && typeof e.clientY === 'number' ? e.clientY : innerHeight / 2
+  const r = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y))
+  const vt = doc.startViewTransition(() => setThemeInstant(v))
+  vt.ready.then(() => {
+    doc.documentElement.animate(
+      { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] },
+      { duration: 420, easing: 'cubic-bezier(.2,.8,.2,1)', pseudoElement: '::view-transition-new(root)' }
+    )
+  }).catch(() => {})
 }
 function pickMotion(v) {
   const before = motionEffective.value
@@ -616,7 +630,7 @@ async function test() {
           <p class="muted set-sheet-desc">主题与动效偏好保存在本机，可跟随系统或手动固定。</p>
           <div class="set-field-label">主题</div>
           <div class="seg theme-seg">
-            <button v-for="o in themeOptions" :key="o.v" :class="{ 'on-theme': themeMode === o.v }" @click="pickTheme(o.v)">
+            <button v-for="o in themeOptions" :key="o.v" :class="{ 'on-theme': themeMode === o.v }" @click="pickTheme(o.v, $event)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="o.icon" /></svg>
               {{ o.t }}
             </button>

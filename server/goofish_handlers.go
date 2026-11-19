@@ -417,6 +417,7 @@ func handleGoofishPreview(w http.ResponseWriter, r *http.Request) {
 		BackfillMonths int `json:"backfill_months"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
+	gfProgress(shop, 5, "正在刷新登录态…")
 	// 同步前静默换发（有淘宝 SSO Cookie 时）；换发失败直接说明需要重新绑定
 	if !gfRenewBeforeSync(shop) {
 		_ = gfSet(gfKeyDead, shop, "1")

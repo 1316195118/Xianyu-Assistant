@@ -177,7 +177,7 @@ const donut = computed(() => {
   let acc = 0
   const segs = parts.map(p => {
     const len = p.value / total * C
-    const seg = { color: p.color, dash: `${len} ${C - len}`, offset: -acc }
+    const seg = { color: p.color, dash: `${len} ${C - len}`, offset: -acc, label: p.label, raw: p.raw, pct: p.value / total * 100 }
     acc += len
     return seg
   })
@@ -189,6 +189,18 @@ const donut = computed(() => {
     }
   })
   return { profit, segs, legend }
+})
+
+// 环形图悬停 / 点选某一段：其余变淡，中心数字切换成这一项
+const donutActive = ref(-1)
+const donutCenter = computed(() => {
+  const d = donut.value
+  const i = donutActive.value
+  if (i >= 0 && d.segs[i]) {
+    const s = d.segs[i]
+    return { label: s.label, value: fmtMoney(s.raw), sub: (s.pct > 0 && s.pct < 1 ? '<1' : Math.round(s.pct)) + '%', neg: s.raw < 0 }
+  }
+  return { label: '累计净利', value: fmtMoney(d.profit), sub: '利润率 ' + profitMargin.value.toFixed(1) + '%', neg: d.profit < 0 }
 })
 
 // Hero 右侧小指标改按「完结单」口径，与 Hero 大数字（完成单净利润）自洽
@@ -463,12 +475,15 @@ const chart = computed(() => {
             <svg class="donut-svg" :class="animTick % 2 ? 'donut-in-b' : 'donut-in'" viewBox="0 0 120 120" aria-hidden="true">
               <circle cx="60" cy="60" r="48" class="donut-bg" />
               <circle v-for="(s, i) in donut.segs" :key="i" cx="60" cy="60" r="48"
-                class="donut-seg" :stroke="s.color" :stroke-dasharray="s.dash" :stroke-dashoffset="s.offset" />
+                class="donut-seg" :class="{ dim: donutActive >= 0 && donutActive !== i }"
+                :stroke="s.color" :stroke-dasharray="s.dash" :stroke-dashoffset="s.offset"
+                @mouseenter="donutActive = i" @mouseleave="donutActive = -1"
+                @click="donutActive = donutActive === i ? -1 : i" />
             </svg>
             <div class="donut-center">
-              <div class="donut-center-label">累计净利</div>
-              <div class="donut-center-val num" :class="(donut.profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(donut.profit) }}</div>
-              <div class="donut-center-sub">利润率 {{ profitMargin.toFixed(1) }}%</div>
+              <div class="donut-center-label">{{ donutCenter.label }}</div>
+              <div class="donut-center-val num" :class="donutCenter.neg ? 'neg' : (donutActive < 0 ? 'pos' : '')">{{ donutCenter.value }}</div>
+              <div class="donut-center-sub">{{ donutCenter.sub }}</div>
             </div>
           </div>
           <div class="cost-list">
@@ -494,7 +509,7 @@ const chart = computed(() => {
           </div>
         </div>
         <div v-if="chart" class="chart-wrap">
-          <svg :viewBox="`0 0 ${chart.W} ${chart.H}`" class="trend-svg" :class="animTick % 2 ? 'chart-in-b' : 'chart-in'" preserveAspectRatio="xMidYMid meet">
+          <svg :key="period" :viewBox="`0 0 ${chart.W} ${chart.H}`" class="trend-svg chart-swap" :class="animTick % 2 ? 'chart-in-b' : 'chart-in'" preserveAspectRatio="xMidYMid meet">
             <!-- 网格与 Y 轴刻度 -->
             <g v-for="(t, i) in chart.ticks" :key="'t' + i">
               <line :x1="chart.padL" :y1="t.y" :x2="chart.W - chart.padR" :y2="t.y"
@@ -513,7 +528,8 @@ const chart = computed(() => {
             </g>
             <!-- 利润折线：pathLength=100 把长度归一化，描边动画不用测量真实长度 -->
             <path :d="chart.line" class="chart-profit-line" pathLength="100" fill="none" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" />
-            <circle v-for="(b, i) in chart.bars" :key="'p' + i" :cx="b.x" :cy="b.profitY" r="3"
+            <circle v-for="(b, i) in chart.bars" :key="'p' + i" :cx="b.x" :cy="b.profitY"
+              :r="hoverIdx === i ? 5.5 : 3" class="chart-dot"
               :class="b.profit >= 0 ? 'chart-dot-pos' : 'chart-dot-neg'" />
             <!-- hover 命中区 -->
             <rect v-for="(b, i) in chart.bars" :key="'h' + i" class="chart-hit" pointer-events="all"

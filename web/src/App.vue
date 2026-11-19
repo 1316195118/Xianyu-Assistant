@@ -289,6 +289,10 @@ onMounted(() => {
   window.addEventListener('xy-update', onUpdate)
   window.addEventListener('beforeinstallprompt', onBeforeInstall)
   window.addEventListener('scroll', onScroll, { passive: true })
+  window.addEventListener('touchstart', onPullStart, { passive: true })
+  window.addEventListener('touchmove', onPullMove, { passive: false })
+  window.addEventListener('touchend', onPullEnd, { passive: true })
+  window.addEventListener('touchcancel', onPullEnd, { passive: true })
   onScroll()
 })
 onUnmounted(() => {
@@ -302,6 +306,10 @@ onUnmounted(() => {
   window.removeEventListener('xy-update', onUpdate)
   window.removeEventListener('beforeinstallprompt', onBeforeInstall)
   window.removeEventListener('scroll', onScroll)
+  window.removeEventListener('touchstart', onPullStart)
+  window.removeEventListener('touchmove', onPullMove)
+  window.removeEventListener('touchend', onPullEnd)
+  window.removeEventListener('touchcancel', onPullEnd)
   document.body.classList.remove('overlay-open')
 })
 function onLoginSuccess() { needLogin.value = false; bump() }
@@ -347,6 +355,40 @@ function onScroll() {
 function toTop() {
   showToTop.value = false
   try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch (e) { window.scrollTo(0, 0) }
+}
+
+// 手机下拉刷新：只在页面顶部、没有弹窗时生效，跟手位移 + 松手回弹
+const pullDist = ref(0)
+const pullBusy = ref(false)
+let pullStart = null
+function pullBlocked() {
+  if (overlayOpen.value) return true
+  return !!document.querySelector('.modal-mask, .ali-mask, .confirm-panel')
+}
+function onPullStart(e) {
+  if (pullBusy.value || pullBlocked() || window.scrollY > 0 || e.touches.length !== 1) return
+  pullStart = e.touches[0].clientY
+}
+function onPullMove(e) {
+  if (pullStart == null) return
+  const d = e.touches[0].clientY - pullStart
+  if (d <= 0) { pullDist.value = 0; return }
+  if (e.cancelable) e.preventDefault()
+  pullDist.value = Math.min(96, d * 0.5)
+}
+function onPullEnd() {
+  if (pullStart == null) return
+  pullStart = null
+  if (pullDist.value >= 56) {
+    pullBusy.value = true
+    pullDist.value = 56
+    bump()
+    loadTodoCount()
+    loadGfStatus()
+    setTimeout(() => { pullBusy.value = false; pullDist.value = 0 }, 800)
+  } else {
+    pullDist.value = 0
+  }
 }
 
 // ---------- PWA 安装提示 ----------
@@ -687,6 +729,12 @@ function goSettingsFromModal() {
         <Settings v-else :key="'st-' + activeShopId" :refreshKey="refreshKey" @notify="notify" @refresh="bump" />
       </div>
     </main>
+
+    <!-- 下拉刷新指示器 -->
+    <div class="pull-hint" :class="{ show: pullDist > 0, busy: pullBusy }" :style="{ '--pull': pullDist + 'px' }" aria-hidden="true">
+      <span v-if="pullBusy" class="spin"></span>
+      <svg v-else class="pull-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M6 13l6 6 6-6"/></svg>
+    </div>
 
     <Transition name="to-top">
       <button v-if="showToTop" class="to-top" @click="toTop" aria-label="回到顶部" title="回到顶部">

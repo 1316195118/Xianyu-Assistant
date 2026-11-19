@@ -5,6 +5,7 @@ import { shops, activeId, loadShops } from '../shopStore'
 import HelpTip from './HelpTip.vue'
 import { maskCloser } from '../maskClose'
 import { gfStatus, gfRebindRequest } from '../gfState'
+import { onRealtime } from '../realtime'
 import QRCode from 'qrcode'
 // 遮罩点击守卫：在输入框里拖选文字划出弹窗松手时，不会误关弹窗
 const mask = maskCloser(() => emit('close'))
@@ -55,12 +56,14 @@ function stopQR() {
   qrOpen.value = false
   qrImg.value = ''
 }
-onUnmounted(stopQR)
+onUnmounted(() => { stopQR(); if (offProgress) offProgress() })
 
 // step: bind（未绑定）/ idle（已绑定）/ loading / review / done
 const step = ref('idle')
 // 重新绑定：保留当前账号，只是换一份凭证，不用先解绑
 const rebinding = ref(false)
+const progress = ref({ on: false, pct: 0, text: '' })
+let offProgress = null
 const status = ref({ logged_in: false, nick: '', saved_at: '', last_sync: '', masked: '', keepalive: true, expired: false, auto_days: 0, auto_window: 30, backfill: true, syncing: false })
 const cookieInput = ref('')
 const showHelp = ref(false)
@@ -253,6 +256,7 @@ async function pull() {
   busy.value = true
   err.value = ''
   step.value = 'loading'
+  progress.value = { on: true, pct: 2, text: '准备中…' }
   try {
     const months = useBackfill.value ? backfillMonths.value : 0
     const p = await api.goofishPreview(0, months)
@@ -262,8 +266,10 @@ async function pull() {
       if (!r.skip_reason && !r.exists) next[r.order_no + '|' + r.side] = true
     }
     picked.value = next
+    progress.value = { on: true, pct: 100, text: '完成' }
     step.value = 'review'
   } catch (e) {
+    progress.value = { on: false, pct: 0, text: '' }
     err.value = e.message || '拉取失败'
     step.value = 'idle'
     // 令牌失效 / 被风控 / 网络不通，都在这里弹出来，避免只看到一句红字
@@ -323,6 +329,11 @@ watch(gfRebindRequest, (v) => {
   startRebind()
 })
 onMounted(async () => {
+  offProgress = onRealtime((ev) => {
+    if (!ev || ev.kind !== 'progress') return
+    if (ev.shop_id && activeId.value && ev.shop_id !== activeId.value) return
+    progress.value = { on: true, pct: Number(ev.progress) || 0, text: ev.summary || '' }
+  })
   if (gfRebindRequest.value) {
     gfRebindRequest.value = false
     startRebind()
@@ -495,8 +506,9 @@ onMounted(async () => {
           <template v-else-if="step === 'loading'">
             <div class="gf-loading">
               <span class="spin big"></span>
-              <div class="gf-loading-text">正在拉取订单与账单…</div>
-              <div class="muted gf-acc-sub">订单列表 + 每月收入/支出账单，通常 10 秒左右</div>
+              <div class="gf-loading-text">{{ progress.text || '正在拉取订单与账单…' }}</div>
+              <div class="gf-progress"><i :style="{ width: Math.max(2, progress.pct) + '%' }"></i></div>
+              <div class="muted gf-acc-sub">订单列表 → 账单核对 → 生成预览，通常 10 秒左右（{{ Math.round(progress.pct) }}%）</div>
             </div>
           </template>
 

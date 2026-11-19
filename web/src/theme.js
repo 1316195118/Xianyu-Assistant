@@ -54,9 +54,17 @@ export function applyTheme(animate = true) {
   syncMetaColor(mode)
 }
 
+// 主题扩散动画期间不要再叠加 320ms 的颜色过渡，否则两层动画打架
+let suppressThemeAnim = false
+export function setThemeInstant(v) {
+  suppressThemeAnim = true
+  themeMode.value = v
+  suppressThemeAnim = false
+}
+
 watch(themeMode, (v) => {
   try { localStorage.setItem(KEY, v) } catch (e) { /* ignore */ }
-  applyTheme()
+  applyTheme(!suppressThemeAnim)
 })
 
 if (mq && mq.addEventListener) {
