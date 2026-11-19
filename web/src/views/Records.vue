@@ -1213,15 +1213,15 @@ function onCardClick(r, e) {
           <thead>
             <tr>
               <th class="col-check"><input type="checkbox" :checked="allChecked" @change="toggleAll" /></th>
-              <th>商品 / 订单</th>
+              <th class="col-prod">商品</th>
               <th class="col-group" title="这条记录属于哪张联单；点一下直达">联单</th>
               <th class="col-shot">截图</th>
-              <th class="th-right col-price" title="卖单取卖出成交价，买单取买进价">成交价</th>
-              <th class="th-right col-ship" title="买运费 + 卖运费">运费</th>
-              <th class="th-right col-price" title="卖单为到手价（卖价−运费−服务费）；买单为总成本（买价+运费）">到手价 / 成本</th>
-              <th class="th-right col-fee" title="软件服务费 + 无忧卖服务费">服务费</th>
-              <th class="th-right col-profit" title="成交价 − 货品成本 − 卖运费 − 服务费（买单没有利润，显示 —）">利润</th>
-              <th class="col-time">交易时间</th>
+              <th class="th-right col-num" title="卖单取卖出成交价，买单取买进价">成交价</th>
+              <th class="th-right col-num col-ship" title="买运费 + 卖运费">运费</th>
+              <th class="th-right col-num" title="卖单：到手价（卖价−运费−服务费）；买单：总成本（买价+运费）">到手价</th>
+              <th class="th-right col-num col-fee" title="软件服务费 + 无忧卖服务费">服务费</th>
+              <th class="th-right col-num col-profit" title="成交价 − 货品成本 − 卖运费 − 服务费（买单没有利润，显示 —）">利润</th>
+              <th class="col-time" title="交易时间">时间</th>
               <th class="th-right">操作</th>
             </tr>
           </thead>
@@ -1255,8 +1255,6 @@ function onCardClick(r, e) {
                     <span v-if="r.source === '代采'" class="consign-tag daicai-tag" :title="'代采单' + (r.owner ? ' · 替 ' + r.owner + ' 买' : '')">代采单</span>
                     <span v-if="r.owner && r.source !== '寄卖' && r.source !== '代采'" class="owner-chip" :title="'归属：' + r.owner">{{ r.owner }}</span>
                     <span v-if="groupSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
-                    <span v-else-if="autoSettled(r)" class="auto-settled-chip" title="成本已明确，自动计入已结算（不用包联单）">已结算</span>
-                    <span v-if="r.cost_free && r.source !== '寄卖' && r.source !== '代采'" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
                   </div>
                 </td>
                 <td class="col-group">
@@ -1270,6 +1268,11 @@ function onCardClick(r, e) {
                     </span>
                   </div>
                   <span v-else class="td-muted">—</span>
+                  <!-- 结算状态跟联单放在一起：都属于「这单归到哪、算没算完」 -->
+                  <div v-if="autoSettled(r) || (r.cost_free && r.source !== '寄卖' && r.source !== '代采')" class="group-tags">
+                    <span v-if="autoSettled(r)" class="auto-settled-chip" title="成本已明确，自动计入已结算（不用包联单）">已结算</span>
+                    <span v-if="r.cost_free && r.source !== '寄卖' && r.source !== '代采'" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
+                  </div>
                 </td>
                 <td class="col-shot">
                   <button v-if="r.attachment" type="button" class="td-thumb" @click.stop="openImage(r)"
@@ -1278,21 +1281,21 @@ function onCardClick(r, e) {
                   </button>
                   <span v-else class="td-thumb-empty">—</span>
                 </td>
-                <td class="td-right num td-buy col-price">
+                <td class="td-right num td-buy col-num">
                   <!-- 待账单浮在金额左侧的空位上（垂直居中），数字位置固定不动 -->
-                  <b v-if="billPending(r)" class="fee-pending fee-pending-side"
+                  <b v-if="billPending(r)" class="fee-pending fee-pending-line"
                      title="闲鱼订单列表给的是商品金额；账单一般延后几天生成，出账后再点「立即同步」会按实收金额自动更正">待账单</b>
                   <span class="price-num">{{ fmtMoney(rowBuyPrice(r)) }}</span>
                 </td>
-                <td class="td-right num td-muted col-ship">{{ fmtMoney(r.buy_shipping + r.sell_shipping) }}</td>
-                <td class="td-right num col-price" :class="[r.has_sell ? 'net-col' : 'td-buy', { 'is-neg': r.has_sell && rowNet(r) < 0 }]">{{ fmtMoney(rowMidValue(r)) }}</td>
-                <td class="td-right num td-muted col-fee">{{ r.has_sell ? fmtMoney((r.sell_fee || 0) + (r.sell_wuyou_fee || 0)) : '—' }}</td>
-                <td class="td-right num col-profit td-profit"
+                <td class="td-right num td-muted col-num col-ship">{{ fmtMoney(r.buy_shipping + r.sell_shipping) }}</td>
+                <td class="td-right num col-num" :class="[r.has_sell ? 'net-col' : 'td-buy', { 'is-neg': r.has_sell && rowNet(r) < 0 }]">{{ fmtMoney(rowMidValue(r)) }}</td>
+                <td class="td-right num td-muted col-num col-fee">{{ r.has_sell ? fmtMoney((r.sell_fee || 0) + (r.sell_wuyou_fee || 0)) : '—' }}</td>
+                <td class="td-right num col-num col-profit td-profit"
                     :class="r.has_sell ? ((r.profit || 0) >= 0 ? 'pos' : 'neg') : 'td-muted'"
                     :title="!r.has_sell ? '买单还没卖出去，没有利润' : (r.discarded_at ? '已弃单，不计入统计' : '成交价 − 货品成本 − 卖运费 − 服务费')">
                   {{ r.has_sell ? fmtMoney(r.profit || 0) : '—' }}
                 </td>
-                <td class="muted nowrap cell-time col-time">{{ shortTime(r.deal_time) }}</td>
+                <td class="muted cell-time col-time">{{ shortTime(r.deal_time) }}</td>
                 <td class="td-right nowrap cell-actions rc-actions-desktop" @click.stop>
                   <button class="btn btn-sm btn-ghost btn-discard" :class="{ 'is-on': r.discarded_at }"
                           :disabled="!!discarding"

@@ -589,10 +589,9 @@ function onBatchDone(n) {
 }
 function onSaved(info) {
   closeModal()
-  // 只在「新增」时定位刚加的那条（否则列表重拉后找不到它）。
-  // 「编辑」不定位：把 highlightId 设为这条会让列表被过滤成只剩一条并滚走，
-  // 用户改完一条想接着改相邻的，却发现整个列表没了——所以编辑后原样留在当前位置。
-  if (view.value === 'records' && info?.id && !info?.editing) highlightId.value = info.id
+  // 保存后一律不定位：以前「新增」会把列表过滤成只剩刚存的那一条（顶上一个
+  // 「已定位到指定记录」的横条），用户看不到别的单，还得手动点「显示全部」。
+  // 现在只刷新列表，保持原来的筛选和位置。需要精确定位时走「最近记录」跳转。
   bump()
   if (info?.merged) notify(`已自动合并到同名商品「${info.product}」`)
   else if (info?.autoGroup) notify(`已保存，并自动生成联单「${info.product}」`)

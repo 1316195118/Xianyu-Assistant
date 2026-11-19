@@ -5598,10 +5598,35 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
 
 /* 金额列：统一右对齐 + 不换行，带「待账单」的行数字也不会被顶歪；
    两列给同样宽度，成交价和到手价的数字在同一条竖线上 */
-.rec-table th.col-price { width: 136px; white-space: nowrap; }
-.rec-table td.col-price { white-space: nowrap; padding-left: 50px; }
+/* 数值列等宽：右对齐时「两个数字之间的距离 = 下一列的宽度」，
+   只有等宽才有均匀节奏。92px = 最长金额 66px + 左右内边距 20 + 余量 6，不压字。 */
+.rec-table th.col-num, .rec-table td.col-num { width: 92px; white-space: nowrap; }
+.rec-table th.col-group { width: 104px; }
+.rec-table th.col-time { width: 92px; }
+/* 时间列收窄后日期/时间各占一行，避免被挤爆 */
+.rec-table td.cell-time { white-space: normal; line-height: 1.25; }
+/* 待账单独立一行、居中；金额单独一行右对齐 */
+.fee-pending-line { display: block; width: fit-content; margin: 0 auto 2px; }
 
 /* 联单列：表头与芯片一起居中，否则表头靠左、内容靠中，看着不对齐 */
 .rec-table th.col-group,
 .rec-table td.col-group { text-align: center; }
 .rec-table td.col-group .cell-groups { justify-content: center; }
+
+/* 联单列：结算状态（已结算 / 无成本）跟在联单下面，居中排一行 */
+.rec-table td.col-group .group-tags {
+  display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; margin-top: 3px;
+}
+
+/* 表头「时间」这列原来被挤到 70px，日期会顶到边框；按内容给足 86px */
+.rec-table th.col-time { width: 86px; }
+
+/* 表格改成固定布局：列宽写多少就是多少，数值列才能真正等宽、间距才均匀。
+   自动布局会在总宽超出时把各列「按比例压缩」，导致 92/73/84 这种参差。 */
+@media (min-width: 901px) {
+  .rec-table { table-layout: fixed; }
+  .rec-table .col-num { width: 92px; }
+  .rec-table .col-group { width: 104px; }
+  .rec-table .col-shot { width: 60px; }
+  .rec-table th:last-child, .rec-table td:last-child { width: 258px; }
+}
