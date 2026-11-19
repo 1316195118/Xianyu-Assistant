@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS settings (
 		// 弃单：非空=这单作废。记录保留可查，但不占在库、不计成本、不计利润率。
 		{"discarded_at", "ALTER TABLE items ADD COLUMN discarded_at TEXT NOT NULL DEFAULT ''"},
 		{"source", "ALTER TABLE items ADD COLUMN source TEXT NOT NULL DEFAULT ''"},
+		{"owner", "ALTER TABLE items ADD COLUMN owner TEXT NOT NULL DEFAULT ''"},
 		// 无成本标记：代卖 / 寄卖 / 赠送这类本来就没有货品成本的卖单，
 		// 用户主动标记后不再进「未挂成本」，利润按销售额全额计。
 		{"cost_free", "ALTER TABLE items ADD COLUMN cost_free INTEGER NOT NULL DEFAULT 0"},
@@ -233,8 +234,8 @@ func repairSellNetOnce() error {
 
 // repairSyncDupOnce 修掉两类脏数据，只跑一次：
 //
-//	1. 账单补建把「退货运费赔付 / 闲鱼转账 / 红包」也当卖单建了出来 —— 这些不是成交，删掉；
-//	2. 连点两次导入（或自动同步撞上手动导入）导致同一订单号插了两条 —— 保留 id 最小的一条。
+//  1. 账单补建把「退货运费赔付 / 闲鱼转账 / 红包」也当卖单建了出来 —— 这些不是成交，删掉；
+//  2. 连点两次导入（或自动同步撞上手动导入）导致同一订单号插了两条 —— 保留 id 最小的一条。
 //
 // 两步都先清 group_items，再删 items，避免联单里留下悬空成员。
 func repairSyncDupOnce() error {

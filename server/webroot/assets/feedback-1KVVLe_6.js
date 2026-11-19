@@ -1,0 +1,1 @@
+import{a as i}from"./index-DmDcQBBD.js";function f(a,n={}){return a?{label:n.label||"撤销",icon:n.icon||"undo",ttl:n.ttl||9e3,run:async()=>{await i.undo(a),n.after&&await n.after(),n.notify&&n.notify(n.doneText||"已撤销，数据已恢复")}}:null}export{f as u};

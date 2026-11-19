@@ -369,6 +369,8 @@ export const api = {
     })
   },
   statsExtras() { return req('/api/stats/extras') },
+  consignStats() { return req('/api/consign/stats') },
+  consignOwners() { return req('/api/consign/owners') },
   ocrFeedback(data) {
     return req('/api/ocr-feedback', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

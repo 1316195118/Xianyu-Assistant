@@ -80,10 +80,24 @@ const blank = () => ({
   sell_order_no: '', sell_time: '', sell_counterparty: '',
   note: '',
   source: '',
+  owner: '',
   quantity: 1, parent_id: 0, unit_cost: 0,
   cost_free: false
 })
 const form = reactive(blank())
+
+// ---------- 归属人（寄卖人）候选：输入单字自动匹配，点输入框看全部 ----------
+const ownerAll = ref([])
+const ownerOpen = ref(false)
+const ownerCandidates = computed(() => {
+  const q = (form.owner || '').trim()
+  return ownerAll.value.filter((n) => !q || n.includes(q))
+})
+async function loadOwners() {
+  try { ownerAll.value = (await api.consignOwners()).owners || [] } catch (e) { /* 忽略 */ }
+}
+function pickOwner(n) { form.owner = n; ownerOpen.value = false }
+function ownerBlur() { setTimeout(() => { ownerOpen.value = false }, 130) }
 
 // ---------- 同商品历史成交价：输入商品名后给定价参考 ----------
 const priceHint = ref(null)      // { count, last, avg, max, min }
@@ -246,7 +260,7 @@ function normProductLocal(s) {
 async function loadEngine() {
   try { engine.value = (await api.getSettings()).ocr_engine || 'local' } catch (e) { /* 默认本地 */ }
 }
-onMounted(() => { loadTags(); loadEngine(); loadPurchases(); loadGroupsMeta() })
+onMounted(() => { loadTags(); loadEngine(); loadPurchases(); loadGroupsMeta(); loadOwners() })
 
 // 新增模式下草稿自动存到本机，误关弹窗不会丢已填内容
 const feedbackMsg = ref('')
@@ -310,7 +324,7 @@ watch(() => props.record, (r) => {
     sell_price: r.sell_price, sell_fee: r.sell_fee, sell_wuyou_fee: r.sell_wuyou_fee || 0, sell_net: r.sell_net,
     sell_shipping: r.sell_shipping, sell_ship_tag: r.sell_ship_tag,
     sell_order_no: r.sell_order_no, sell_time: r.sell_time, sell_counterparty: r.sell_counterparty,
-    note: r.note, source: r.source || '', quantity: r.quantity || 1, parent_id: r.parent_id || 0, unit_cost: r.unit_cost || 0,
+    note: r.note, source: r.source || '', owner: r.owner || '', quantity: r.quantity || 1, parent_id: r.parent_id || 0, unit_cost: r.unit_cost || 0,
     cost_free: !!r.cost_free
   } : {})
   if (r && r.parent_id) {
@@ -685,6 +699,7 @@ async function save() {
     sell_time: form.sell_time.trim(), sell_counterparty: form.sell_counterparty.trim(),
     note: form.note.trim(),
     source: form.source || '',
+    owner: (form.owner || '').trim(),
     quantity: Number(form.quantity) || 1,
     parent_id: Number(form.parent_id) || 0,
     unit_cost: Number(form.unit_cost) || 0,
@@ -744,7 +759,7 @@ async function save() {
           sell_price: cur.sell_price, sell_fee: cur.sell_fee, sell_wuyou_fee: cur.sell_wuyou_fee || 0,
           sell_net: cur.sell_net, sell_shipping: cur.sell_shipping, sell_ship_tag: cur.sell_ship_tag,
           sell_order_no: cur.sell_order_no, sell_time: cur.sell_time, sell_counterparty: cur.sell_counterparty,
-          note: cur.note, source: cur.source || '', quantity: cur.quantity || 1
+          note: cur.note, source: cur.source || '', owner: cur.owner || '', quantity: cur.quantity || 1
         })
       }
       errMsg.value = '这条记录已被其他成员修改，已载入最新内容，请核对后重新保存'
@@ -994,6 +1009,20 @@ function onHeadEnd() {
             <option value="寄卖">寄卖</option>
             <option value="闲鱼">闲鱼</option>
           </select>
+        </div>
+
+        <!-- 归属：寄卖单必填寄卖人；其它卖单可选填。输入单字自动匹配，点击输入框列出全部 -->
+        <div class="field" style="margin-top:12px">
+          <label>归属<HelpTip text="这单货是谁的。寄卖时填寄卖人（如「张三」），之后能在「寄卖」页单独查他寄卖了多少钱、多少单、卖了什么；其它卖单也能选填。输入关键字自动匹配，点输入框看全部已有归属。" /></label>
+          <div class="owner-pick">
+            <input class="input" v-model="form.owner" placeholder="输入或选择归属人，如 张三"
+                   autocomplete="off" @focus="ownerOpen = true" @input="ownerOpen = true" @blur="ownerBlur" />
+            <div v-if="ownerOpen" class="owner-list">
+              <button v-for="n in ownerCandidates" :key="n" type="button" class="owner-item" @mousedown.prevent="pickOwner(n)">{{ n }}</button>
+              <button v-if="form.owner.trim() && !ownerCandidates.includes(form.owner.trim())"
+                      type="button" class="owner-item owner-new" @mousedown.prevent="pickOwner(form.owner.trim())">新增「{{ form.owner.trim() }}」</button>
+            </div>
+          </div>
         </div>
 
         <!-- 买进信息：新增时选卖出侧则隐藏；编辑时按记录类型显示（仅买单 / 独立单显示，卖单隐藏） -->

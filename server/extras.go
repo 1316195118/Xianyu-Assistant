@@ -264,9 +264,6 @@ type topProduct struct {
 	Settled bool    `json:"settled"` // 该商品有完结记录，界面上标「已完结」
 }
 
-
-
-
 // ---------- 待办角标：未挂成本卖单数 ----------
 
 // handleTodoCount GET /api/records/todo-count
@@ -321,7 +318,9 @@ func handleMonthlyTarget(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "方法不允许")
 		return
 	}
-	if month == "" { month = time.Now().Format("2006-01") }
+	if month == "" {
+		month = time.Now().Format("2006-01")
+	}
 	v := getSetting(gfKey("monthly_target@"+month, sid))
 	target, _ := strconv.ParseFloat(v, 64)
 	writeJSON(w, map[string]interface{}{"month": month, "target": round2(target)})
@@ -366,16 +365,24 @@ func handlePriceHint(w http.ResponseWriter, r *http.Request) {
 		var price, unit float64
 		var tm string
 		var id, parent int64
-		if rows.Scan(&price, &tm, &id, &unit, &parent) != nil { continue }
+		if rows.Scan(&price, &tm, &id, &unit, &parent) != nil {
+			continue
+		}
 		if count == 0 {
 			lastPrice, lastTime, lastID = price, tm, id
 			lastCost = unit
-			if lastCost <= 0 { lastCost = alloc[id] }
+			if lastCost <= 0 {
+				lastCost = alloc[id]
+			}
 			max, min = price, price
 		}
 		sum += price
-		if price > max { max = price }
-		if price < min { min = price }
+		if price > max {
+			max = price
+		}
+		if price < min {
+			min = price
+		}
 		count++
 	}
 	if count == 0 {
@@ -384,10 +391,10 @@ func handlePriceHint(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]interface{}{
 		"count": count,
-		"last": round2(lastPrice), "last_time": lastTime, "last_id": lastID,
+		"last":  round2(lastPrice), "last_time": lastTime, "last_id": lastID,
 		"last_cost": round2(lastCost),
-		"avg": round2(sum / float64(count)),
-		"max": round2(max), "min": round2(min),
+		"avg":       round2(sum / float64(count)),
+		"max":       round2(max), "min": round2(min),
 	})
 }
 
@@ -477,6 +484,23 @@ func handleStatsExtras(w http.ResponseWriter, r *http.Request) {
 		}
 		// 弃单不进洞察：它不占在库、不计成本，摆进来只会让周转与利润失真
 		if it.Kind == "discarded" {
+			continue
+		}
+		if it.Source == "寄卖" {
+			// 寄卖单只进利润榜（成本为 0，利润即销售额），不参与周转 / 在库 / 滞销 / 销售总额
+			a := byProduct[it.Product]
+			if a == nil {
+				a = &agg{}
+				byProduct[it.Product] = a
+			}
+			a.profit += it.Profit
+			a.sales += it.SellPrice
+			if it.SettledAt != "" || groupSettledItems[it.ID] {
+				a.settled = true
+			}
+			if d := it.DealTime; len(d) >= 10 && d[:10] > lastDeal[it.Product] {
+				lastDeal[it.Product] = d[:10]
+			}
 			continue
 		}
 		a := byProduct[it.Product]
@@ -1249,4 +1273,107 @@ func resetLoginLimiter() {
 	loginLimiter.Lock()
 	loginLimiter.hits = map[string][]time.Time{}
 	loginLimiter.Unlock()
+}
+
+// ---------- 寄卖（归属人）统计 ----------
+
+// handleConsignStats GET /api/consign/stats
+// 按归属人聚合寄卖单：谁寄卖了多少钱、多少单、卖了什么，前端按人单独查询。
+func handleConsignStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		writeError(w, 405, "方法不允许")
+		return
+	}
+	rows, err := db.Query("SELECT "+itemCols+" FROM items WHERE shop_id=? AND source='寄卖' AND discarded_at='' ORDER BY sell_time DESC", shopID(r))
+	if err != nil {
+		writeError(w, 500, "寄卖统计失败")
+		return
+	}
+	defer rows.Close()
+
+	type consignItem struct {
+		ID           int64   `json:"id"`
+		Product      string  `json:"product"`
+		SellPrice    float64 `json:"sell_price"`
+		SellNet      float64 `json:"sell_net"`
+		SellFee      float64 `json:"sell_fee"`
+		SellShipping float64 `json:"sell_shipping"`
+		SellTime     string  `json:"sell_time"`
+		Counterparty string  `json:"counterparty"`
+	}
+	type consignOwner struct {
+		Owner  string        `json:"owner"`
+		Orders int           `json:"orders"`
+		Sales  float64       `json:"sales"`
+		Net    float64       `json:"net"`
+		Fee    float64       `json:"fee"`
+		Items  []consignItem `json:"items"`
+	}
+	agg := map[string]*consignOwner{}
+	order := []string{}
+	for rows.Next() {
+		it, e := scanItem(rows)
+		if e != nil || it.Kind == "discarded" || it.Source != "寄卖" {
+			continue
+		}
+		owner := strings.TrimSpace(it.Owner)
+		if owner == "" {
+			owner = "未指定归属"
+		}
+		o := agg[owner]
+		if o == nil {
+			o = &consignOwner{Owner: owner}
+			agg[owner] = o
+			order = append(order, owner)
+		}
+		o.Orders++
+		o.Sales += it.SellPrice
+		o.Net += it.SellNet
+		o.Fee += it.SellFee + it.SellWuyouFee + it.SellShipping
+		o.Items = append(o.Items, consignItem{
+			ID: it.ID, Product: it.Product, SellPrice: it.SellPrice, SellNet: it.SellNet,
+			SellFee: it.SellFee + it.SellWuyouFee, SellShipping: it.SellShipping,
+			SellTime: it.SellTime, Counterparty: it.SellCounterparty,
+		})
+	}
+	out := make([]consignOwner, 0, len(agg))
+	var totalOrders int
+	var totalSales, totalNet float64
+	for _, k := range order {
+		v := agg[k]
+		v.Sales = round2(v.Sales)
+		v.Net = round2(v.Net)
+		v.Fee = round2(v.Fee)
+		out = append(out, *v)
+		totalOrders += v.Orders
+		totalSales += v.Sales
+		totalNet += v.Net
+	}
+	writeJSON(w, map[string]interface{}{
+		"owners": out,
+		"total":  map[string]interface{}{"orders": totalOrders, "sales": round2(totalSales), "net": round2(totalNet)},
+	})
+}
+
+// handleConsignOwners GET /api/consign/owners
+// 归属人候选：本店所有填过归属的记录（含非寄卖），录入弹窗自动补全用。
+func handleConsignOwners(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		writeError(w, 405, "方法不允许")
+		return
+	}
+	rows, err := db.Query(`SELECT DISTINCT owner FROM items WHERE shop_id=? AND owner<>'' ORDER BY owner`, shopID(r))
+	if err != nil {
+		writeError(w, 500, "读取归属列表失败")
+		return
+	}
+	defer rows.Close()
+	names := []string{}
+	for rows.Next() {
+		var n string
+		if rows.Scan(&n) == nil && strings.TrimSpace(n) != "" {
+			names = append(names, strings.TrimSpace(n))
+		}
+	}
+	writeJSON(w, map[string]interface{}{"owners": names})
 }

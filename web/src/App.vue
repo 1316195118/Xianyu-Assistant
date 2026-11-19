@@ -91,11 +91,13 @@ const lazyView = (key, loader) => defineComponent({
 const viewLoaders = {
   records: () => import('./views/Records.vue'),
   groups: () => import('./views/Groups.vue'),
+  consign: () => import('./views/Consign.vue'),
   settings: () => import('./views/Settings.vue')
 }
 const Records = lazyView('records', viewLoaders.records)
 const Settings = lazyView('settings', viewLoaders.settings)
 const Groups = lazyView('groups', viewLoaders.groups)
+const Consign = lazyView('consign', viewLoaders.consign)
 import RecordModal from './components/RecordModal.vue'
 import ConfirmHost from './components/ConfirmHost.vue'
 import LoginView from './components/LoginView.vue'
@@ -319,7 +321,7 @@ async function doLogout() {
   needLogin.value = true
 }
 
-const validViews = ['overview', 'records', 'groups', 'settings']
+const validViews = ['overview', 'records', 'groups', 'consign', 'settings']
 const hashView = (h) => {
   const v = h.replace('#', '').replace('-add', '')
   return validViews.includes(v) ? v : 'overview'
@@ -456,13 +458,15 @@ const navItems = [
   { key: 'overview', label: '概览', icon: 'M3 12h4l3-8 4 16 3-8h4' },
   { key: 'records', label: '明细', icon: 'M4 6h16M4 12h16M4 18h16' },
   { key: 'groups', label: '联单', icon: 'M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7' },
+  { key: 'consign', label: '寄卖', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8' },
   { key: 'settings', label: '设置', icon: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1-2.8 2.8-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21h-4v-.2a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1-2.8-2.8.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3v-4h.2a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1 2.8-2.8.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3h4v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1 2.8 2.8-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21v4h-.2a1.6 1.6 0 0 0-1.4 1z' }
 ]
-const pageTitle = computed(() => ({ overview: '经营概览', records: '交易明细', groups: '联动单', settings: '系统设置' }[view.value]))
+const pageTitle = computed(() => ({ overview: '经营概览', records: '交易明细', groups: '联动单', consign: '寄卖', settings: '系统设置' }[view.value]))
 const pageSub = computed(() => ({
   overview: '实时掌握利润、成本与费用构成',
   records: '按交易时间排序 · 检索 / 筛选 / 批量管理',
   groups: '多买多卖挂同一个联单 · 看哪类商品利润高',
+  consign: '寄卖别人的货 · 按人查账，不计入自己的利润成本',
   settings: '识别引擎、安全、备份与数据'
 }[view.value]))
 
@@ -471,7 +475,8 @@ const commands = computed(() => [
   { id: 'nav-overview', label: '经营概览', desc: '利润、成本与费用构成', icon: navItems[0].icon, hint: '页面', keywords: 'overview 首页 概览', run: () => switchView('overview') },
   { id: 'nav-records', label: '交易明细', desc: '检索 / 筛选 / 批量管理', icon: navItems[1].icon, hint: '页面', keywords: 'records 明细 记录 列表', run: () => switchView('records') },
   { id: 'nav-groups', label: '联动单', desc: '多买多卖挂同一联单', icon: navItems[2].icon, hint: '页面', keywords: 'groups 联单 联动', run: () => switchView('groups') },
-  { id: 'nav-settings', label: '系统设置', desc: '识别引擎、安全、备份与数据', icon: navItems[3].icon, hint: '页面', keywords: 'settings 设置 配置 备份', run: () => switchView('settings') },
+  { id: 'nav-consign', label: '寄卖', desc: '按寄卖人查账，不计入自己利润', icon: navItems[3].icon, hint: '页面', keywords: 'consign 寄卖 代卖 归属 张三', run: () => switchView('consign') },
+  { id: 'nav-settings', label: '系统设置', desc: '识别引擎、安全、备份与数据', icon: navItems[4].icon, hint: '页面', keywords: 'settings 设置 配置 备份', run: () => switchView('settings') },
   { id: 'add', label: '上传截图录入', desc: '新建一条买卖记录', icon: 'M12 5v14M5 12h14', hint: 'N', keywords: 'add new 新建 录入 上传', run: openAdd },
   { id: 'batch', label: '批量导入截图', desc: '一次识别多张订单截图', icon: 'M12 16V4M7 9l5-5 5 5M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2', hint: '批量', keywords: 'batch 批量 多张 导入 截图', run: openBatch },
   { id: 'theme-light', label: '切换到浅色模式', desc: '固定使用浅色主题', icon: 'M12 4V2M12 22v-2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M18.4 5.6l1.4-1.4M4.2 19.8l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', hint: '主题', keywords: 'theme light 浅色 亮色', run: () => { themeMode.value = 'light' } },
@@ -726,6 +731,7 @@ function goSettingsFromModal() {
         <Overview v-if="view === 'overview'" :key="'ov-' + activeShopId" :refreshKey="refreshKey" @add="openAdd" @goto-records="gotoRecords" @goto-record="gotoRecord" @goto-product="gotoProduct" @goto-settings="switchView('settings')" @goto-calc="calcOpen = true" @goto-report="reportOpen = true" @notify="notify" />
         <Records v-else-if="view === 'records'" :key="'rc-' + activeShopId" :refreshKey="refreshKey" :highlightId="highlightId" :focusQuery="focusQuery" :focusNorm="focusNorm" :focusType="focusType" :focusNonce="focusNonce" @add="openAdd" @edit="openEdit" @refresh="bump" @notify="notify" @goto-group="gotoGroup" @batch="openBatch" />
         <Groups v-else-if="view === 'groups'" :key="'gp-' + activeShopId" :refreshKey="refreshKey" :focusGroupId="focusGroupId" @notify="notify" @edit="openEdit" @view="openViewRecord" @focused="focusGroupId = null" />
+        <Consign v-else-if="view === 'consign'" :key="'cs-' + activeShopId" :refreshKey="refreshKey" @notify="notify" />
         <Settings v-else :key="'st-' + activeShopId" :refreshKey="refreshKey" @notify="notify" @refresh="bump" />
       </div>
     </main>

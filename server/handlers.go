@@ -46,6 +46,7 @@ type Item struct {
 	Note       string `json:"note"`
 	Attachment string `json:"attachment"` // 附件文件名（空=无）；随列表返回，编辑弹窗才能显示已有截图
 	Source     string `json:"source"`     // 货物来源：自采 / 回收 / 寄卖 / 闲鱼（空=未标注）
+	Owner      string `json:"owner"`      // 归属人（寄卖时=寄卖人，如「张三」；其它来源可选填）
 
 	// 发货时间（闲鱼 consignTime，精确到秒）。空=还没发货 / 非闲鱼单据。
 	ConsignTime string `json:"consign_time"`
@@ -223,6 +224,8 @@ func registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/health", handleHealth) // 健康检查可不鉴权
 	mux.HandleFunc("/api/version", authWrap(handleVersion))
 	mux.HandleFunc("/api/stats/extras", authWrap(handleStatsExtras))
+	mux.HandleFunc("/api/consign/stats", authWrap(handleConsignStats))
+	mux.HandleFunc("/api/consign/owners", authWrap(handleConsignOwners))
 	mux.HandleFunc("/api/ocr-feedback", authWrap(handleOCRFeedback))
 	mux.HandleFunc("/api/backup/verify", authWrap(handleBackupVerify))
 
@@ -431,6 +434,10 @@ func handleTrend(w http.ResponseWriter, r *http.Request) {
 		if it.Kind == "discarded" {
 			continue
 		}
+		// 寄卖不计入经营趋势（货是别人的）
+		if it.Source == "寄卖" {
+			continue
+		}
 		key := it.DealTime
 		if len(key) >= 7 {
 			key = key[:7]
@@ -522,7 +529,8 @@ type ItemInput struct {
 	SellTime         string  `json:"sell_time"`
 	SellCounterparty string  `json:"sell_counterparty"`
 
-	Note string `json:"note"`
+	Note  string `json:"note"`
+	Owner string `json:"owner"` // 归属人：寄卖单的寄卖人；其它卖单可选填
 
 	// 货物来源：自采 / 回收 / 寄卖 / 闲鱼。闲鱼同步导入的记录固定写「闲鱼」。
 	Source string `json:"source"`
@@ -1059,12 +1067,12 @@ func insertItem(it *Item, shopID int64, ts string) (int64, error) {
         (shop_id, product, product_norm, parent_id, quantity, unit_cost,
          buy_price,buy_shipping,buy_ship_tag,buy_order_no,buy_time,buy_counterparty,
          sell_price,sell_fee,sell_wuyou_fee,sell_net,sell_shipping,sell_ship_tag,sell_order_no,sell_time,sell_counterparty,
-         note, consign_time, source, cost_free, created_at, updated_at)
-        VALUES (?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?)`,
+         note, consign_time, source, owner, cost_free, created_at, updated_at)
+        VALUES (?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?)`,
 		shopID, it.Product, normProduct(it.Product), it.ParentID, it.Quantity, it.UnitCost,
 		it.BuyPrice, it.BuyShipping, it.BuyShipTag, it.BuyOrderNo, it.BuyTime, it.BuyCounterparty,
 		it.SellPrice, it.SellFee, it.SellWuyouFee, it.SellNet, it.SellShipping, it.SellShipTag, it.SellOrderNo, it.SellTime, it.SellCounterparty,
-		it.Note, it.ConsignTime, normSource(it.Source), boolToInt(it.CostFree), ts, ts)
+		it.Note, it.ConsignTime, normSource(it.Source), it.Owner, boolToInt(it.CostFree), ts, ts)
 	if err != nil {
 		return 0, err
 	}
@@ -1076,8 +1084,13 @@ func applySide(it *Item, in *ItemInput, side string) {
 	if in.Product != "" {
 		it.Product = in.Product
 	}
+	// 归属人：卖单常用（寄卖人），买进侧也允许带
+	if side == "" || side == "sell" || strings.TrimSpace(in.Owner) != "" {
+		it.Owner = strings.TrimSpace(in.Owner)
+	}
 	if side == "" || side == "buy" {
 		it.Source = normSource(in.Source)
+		it.Owner = strings.TrimSpace(in.Owner)
 		it.BuyPrice = in.BuyPrice
 		it.BuyShipping = in.BuyShipping
 		it.BuyShipTag = in.BuyShipTag
@@ -1355,6 +1368,10 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 			s.DiscardedCount++
 			continue
 		}
+		// 寄卖：货是别人的，不进任何利润 / 成本 / 运费 / 服务费口径
+		if it.Source == "寄卖" {
+			continue
+		}
 		s.TotalCount++
 		// 服务费（软件服务费 + 无忧卖）。若两条费率为 0 但到手价 < 成交价，
 		// 用 成交价 − 到手价 反推总服务费（识别漏抓手续费行时的兜底，避免统计为 0）。
@@ -1498,6 +1515,7 @@ const itemCols = `id, product, COALESCE(product_norm,'') AS product_norm, parent
     buy_price, buy_shipping, buy_ship_tag, buy_order_no, buy_time, buy_counterparty,
     sell_price, sell_fee, sell_wuyou_fee, sell_net, sell_shipping, sell_ship_tag, sell_order_no, sell_time, sell_counterparty,
     note, COALESCE(attachment,'') AS attachment, COALESCE(consign_time,'') AS consign_time,
+    COALESCE(owner,'') AS owner,
     COALESCE(settled_at,'') AS settled_at, COALESCE(discarded_at,'') AS discarded_at,
     COALESCE(source,'') AS source,
     COALESCE(cost_free,0) AS cost_free,
@@ -1510,7 +1528,7 @@ func scanItem(rows *sql.Rows) (Item, error) {
 		&it.BuyPrice, &it.BuyShipping, &it.BuyShipTag, &it.BuyOrderNo, &it.BuyTime, &it.BuyCounterparty,
 		&it.SellPrice, &it.SellFee, &it.SellWuyouFee, &it.SellNet, &it.SellShipping, &it.SellShipTag, &it.SellOrderNo, &it.SellTime, &it.SellCounterparty,
 		&it.Note, &it.Attachment, &it.ConsignTime, &it.SettledAt, &it.DiscardedAt,
-		&it.Source, &it.CostFree, &it.CreatedAt, &it.UpdatedAt,
+		&it.Source, &it.Owner, &it.CostFree, &it.CreatedAt, &it.UpdatedAt,
 	)
 	if err == nil {
 		it.derive()
@@ -1538,11 +1556,11 @@ func updateItem(it *Item, shopID int64) error {
         product=?, product_norm=?, parent_id=?, quantity=?, unit_cost=?,
         buy_price=?, buy_shipping=?, buy_ship_tag=?, buy_order_no=?, buy_time=?, buy_counterparty=?,
         sell_price=?, sell_fee=?, sell_wuyou_fee=?, sell_net=?, sell_shipping=?, sell_ship_tag=?, sell_order_no=?, sell_time=?, sell_counterparty=?,
-        note=?, source=?, cost_free=?, updated_at=? WHERE id=? AND shop_id=?`,
+        note=?, source=?, owner=?, cost_free=?, updated_at=? WHERE id=? AND shop_id=?`,
 		it.Product, normProduct(it.Product), it.ParentID, it.Quantity, it.UnitCost,
 		it.BuyPrice, it.BuyShipping, it.BuyShipTag, it.BuyOrderNo, it.BuyTime, it.BuyCounterparty,
 		it.SellPrice, it.SellFee, it.SellWuyouFee, it.SellNet, it.SellShipping, it.SellShipTag, it.SellOrderNo, it.SellTime, it.SellCounterparty,
-		it.Note, normSource(it.Source), boolToInt(it.CostFree), now, it.ID, shopID)
+		it.Note, normSource(it.Source), it.Owner, boolToInt(it.CostFree), now, it.ID, shopID)
 	return err
 }
 
@@ -1893,7 +1911,7 @@ func computeProductProfit(sid int64) []productProfitRow {
 			//   - 已经在联单里、且联单有买进单的，成本由联单核算，不该重复提示；
 			//   - 自己填了单件成本的，本来就有成本。
 			// 与明细页 type=unlinked 的 SQL 同一口径，排行/建议上的数字和点进去的条数才对得上。
-			if it.ParentID == 0 && it.SettledAt == "" && it.UnitCost <= 0 && !it.CostFree && !groupedWithBuy[it.ID] {
+			if it.Source != "寄卖" && it.ParentID == 0 && it.SettledAt == "" && it.UnitCost <= 0 && !it.CostFree && !groupedWithBuy[it.ID] {
 				p.Unlinked++
 			}
 		case "standalone":

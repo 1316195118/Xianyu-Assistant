@@ -5243,3 +5243,76 @@ html[data-motion="reduce"] .modal-mask .modal, html[data-motion="reduce"] .ali-m
 .shop-scope { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 2px 6px; }
 .shop-scope .chips { display: inline-flex; gap: 6px; }
 .shop-scope .scope-note { font-size: 11px; }
+
+/* ============================================================
+   寄卖：印章 / 标签 / 归属候选 / 寄卖页
+   ============================================================ */
+.seal-consign { color: #8b5cf6; }
+.seal-consign .seal-inner { border-color: currentColor; }
+.consign-tag {
+  display: inline-flex; align-items: center; padding: 1px 6px;
+  border: 1.5px solid #8b5cf6; color: #8b5cf6; border-radius: 6px;
+  font-size: 10px; font-weight: 700; transform: rotate(-4deg); white-space: nowrap;
+}
+.owner-chip {
+  display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px;
+  background: rgba(139, 92, 246, .12); color: #7c3aed; font-size: 10px; font-weight: 700; white-space: nowrap;
+}
+html[data-theme="dark"] .owner-chip { background: rgba(139, 92, 246, .22); color: #c4b5fd; }
+
+/* 录入弹窗归属候选 */
+.owner-pick { position: relative; }
+.owner-list {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  max-height: 200px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: 10px; box-shadow: var(--shadow-2); padding: 4px;
+}
+.owner-item {
+  display: block; width: 100%; text-align: left; padding: 8px 10px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--text);
+  font-size: 13px; cursor: pointer;
+}
+.owner-item:hover { background: var(--surface-2); }
+.owner-item.owner-new { color: #8b5cf6; font-weight: 700; border-top: 1px dashed var(--border); margin-top: 3px; padding-top: 9px; }
+
+/* 寄卖页 */
+.consign-tools { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+.consign-tools .search-wrap { flex: 1; }
+.consign-active-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px;
+  border-radius: 999px; background: rgba(139, 92, 246, .12); color: #7c3aed;
+  font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+}
+.consign-owner { padding: 0; overflow: hidden; }
+.consign-owner-head {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 14px 16px; border: 0; background: transparent; text-align: left;
+  font: inherit; color: var(--text); cursor: pointer;
+}
+.consign-owner-head:active { background: var(--surface-2); }
+.consign-avatar {
+  width: 38px; height: 38px; border-radius: 50%; flex: 0 0 auto;
+  display: grid; place-items: center; font-size: 16px; font-weight: 700;
+  background: rgba(139, 92, 246, .14); color: #7c3aed;
+}
+.consign-owner-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.consign-owner-main b { font-size: 14px; }
+.consign-owner-main small { font-size: 11.5px; color: var(--text-3); }
+.consign-owner-net { font-weight: 800; color: #8b5cf6; white-space: nowrap; }
+.consign-chev { flex: 0 0 auto; color: var(--text-3); transition: transform .2s var(--ease); }
+.consign-chev.up { transform: rotate(180deg); }
+.consign-owner-preview { padding: 0 16px 14px 66px; font-size: 12px; color: var(--text-3); }
+.consign-items-head, .consign-item {
+  display: grid; grid-template-columns: minmax(0, 1.6fr) .9fr .9fr .8fr 1fr 1fr;
+  gap: 8px; align-items: center; padding: 8px 16px 8px 66px; font-size: 12px;
+}
+.consign-items-head { color: var(--text-3); border-top: 1px solid var(--border); padding-top: 10px; }
+.consign-item { border-top: 1px solid var(--border); }
+.consign-item .net-col { color: var(--blue); }
+@media (max-width: 600px) {
+  .consign-items-head { display: none; }
+  .consign-item { grid-template-columns: minmax(0, 1fr) auto; padding: 10px 14px; row-gap: 4px; }
+  .consign-item .muted:nth-of-type(2), .consign-item .muted:nth-of-type(3) { display: none; }
+  .consign-item span:first-child { grid-column: 1 / -1; font-weight: 600; }
+}
