@@ -1250,11 +1250,11 @@ function onCardClick(r, e) {
                   </div>
                   <div class="cell-meta">
                     <span class="cell-sub">{{ counterpartyOf(r) || '—' }}</span>
-                    <span v-if="isDiscarded(r)" class="discard-dot">已弃单</span>
+
                     <span v-if="r.source === '寄卖'" class="consign-tag" :title="'寄卖单' + (r.owner ? ' · 归属 ' + r.owner : '')">寄卖单</span>
                     <span v-if="r.source === '代采'" class="consign-tag daicai-tag" :title="'代采单' + (r.owner ? ' · 替 ' + r.owner + ' 买' : '')">代采单</span>
                     <span v-if="r.owner && r.source !== '寄卖' && r.source !== '代采'" class="owner-chip" :title="'归属：' + r.owner">{{ r.owner }}</span>
-                    <span v-if="groupSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
+
                   </div>
                 </td>
                 <td class="col-group">
@@ -1269,8 +1269,10 @@ function onCardClick(r, e) {
                   </div>
                   <span v-else class="td-muted">—</span>
                   <!-- 结算状态跟联单放在一起：都属于「这单归到哪、算没算完」 -->
-                  <div v-if="autoSettled(r) || (r.cost_free && r.source !== '寄卖' && r.source !== '代采')" class="group-tags">
-                    <span v-if="autoSettled(r)" class="auto-settled-chip" title="成本已明确，自动计入已结算（不用包联单）">已结算</span>
+                  <div v-if="isDiscarded(r) || groupSettled(r) || autoSettled(r) || (r.cost_free && r.source !== '寄卖' && r.source !== '代采')" class="group-tags">
+                    <span v-if="isDiscarded(r)" class="discard-dot" title="已弃单：不占在库、不计成本与利润">已弃单</span>
+                    <span v-else-if="groupSettled(r)" class="settled-dot" title="所在联单已完结">已完结</span>
+                    <span v-else-if="autoSettled(r)" class="auto-settled-chip" title="成本已明确，自动计入已结算（不用包联单）">已结算</span>
                     <span v-if="r.cost_free && r.source !== '寄卖' && r.source !== '代采'" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
                   </div>
                 </td>

@@ -5644,3 +5644,9 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
 /* 联单芯片不能超列宽：列 104 - 左右内边距 20 = 84，超出会顶到旁边的时间列 */
 .rec-table td.col-group .group-chip { max-width: 84px; }
 .rec-table td.col-group .group-chip .group-chip-t { max-width: 46px; }
+
+/* 联单列里的状态标签统一字号（已完结 / 已弃单 / 已结算 / 无成本） */
+.rec-table td.col-group .group-tags .settled-dot,
+.rec-table td.col-group .group-tags .discard-dot {
+  font-size: 9.5px; padding: 1px 4px; white-space: nowrap;
+}
