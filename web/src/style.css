@@ -5612,7 +5612,7 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
   .rec-table tbody td.col-time { border-left: 1px solid #eef0f4; }
 
   .rec-table tbody tr:not(.detail-row) > td {
-    height: 58px; padding: 5px 10px; font-size: 12.5px;
+    height: 54px; padding: 5px 10px; font-size: 12.5px;
     border-bottom: 1px solid #f2f3f6;
   }
   .rec-table tbody tr.row-alt { background: #fcfcfd; }
@@ -5640,16 +5640,21 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
   /* 联单列：芯片在上、状态在下，一律居中 */
   .rec-table th.col-group,
   .rec-table td.col-group { text-align: center; }
-  /* 旧规则把芯片容器锁成 18px 高，两行标题会被它裁掉 */
-  .rec-table td.col-group .cell-groups { justify-content: center; margin: 0; height: auto; }
-  /* 联单标题最多两行：一列能放下十几个字，悬停仍有完整标题 */
+  /* 容器必须有确定宽度，芯片的 max-width:100% 才有参照，否则会顶到金额列上 */
+  .rec-table td.col-group { overflow: hidden; }
+  .rec-table td.col-group .cell-groups {
+    display: flex; justify-content: center; margin: 0; height: auto;
+    width: 100%; max-width: 100%; min-width: 0;
+  }
+  /* 联单标题单排、用满整列宽度（芯片原来居中只有 104，两侧的空白白扔了） */
   .rec-table td.col-group .group-chip {
-    max-width: 104px; padding: 2px 6px; font-size: 10.5px; height: auto; min-height: 18px;
-    align-items: flex-start; white-space: normal;
+    max-width: 100%; min-width: 0; padding: 2px 6px; font-size: 10.5px; height: 20px;
+    align-items: center; white-space: nowrap; overflow: hidden;
   }
   .rec-table td.col-group .group-chip .group-chip-t {
-    max-width: none; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden; line-height: 12px; text-align: left;
+    display: block; flex: 1 1 auto; min-width: 0; max-width: none;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    line-height: 14px; text-align: left;
   }
   .rec-table td.col-group .group-tags {
     display: flex; flex-wrap: nowrap; align-items: center;
