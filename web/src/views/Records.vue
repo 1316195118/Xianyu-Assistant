@@ -1307,6 +1307,8 @@ function onCardClick(r, e) {
                     <div class="dg-title">补充信息</div>
                     <div class="dg-items">
                       <div class="dg-item"><span>件数</span><b>{{ r.quantity || 1 }}</b></div>
+                      <div class="dg-item"><span>货物来源</span><b>{{ r.source || '未标注' }}</b></div>
+                      <div class="dg-item"><span>归属</span><b>{{ r.owner || '—' }}</b></div>
                       <div class="dg-item"><span>备注</span><b>{{ r.note || '—' }}</b></div>
                       <div v-if="r.parent_id" class="dg-item"><span>关联买进单</span><b>{{ parentProduct(r.parent_id) }}</b></div>
                       <div v-else-if="childCountOf(r.id)" class="dg-item"><span>已挂卖出</span><b>{{ childCountOf(r.id) }} 笔</b></div>
@@ -1479,6 +1481,8 @@ function onCardClick(r, e) {
             <div v-if="r.has_sell"><span>无忧卖服务费</span><b>{{ fmtMoney(r.sell_wuyou_fee || 0) }}</b></div>
             <div><span>运费支出</span><b>{{ fmtMoney(r.buy_shipping + r.sell_shipping) }}</b></div>
             <div><span>运货标签</span><b>{{ [r.buy_ship_tag, r.sell_ship_tag].filter(Boolean).join(' / ') || '—' }}</b></div>
+            <div><span>货物来源</span><b>{{ r.source || '未标注' }}</b></div>
+            <div><span>归属</span><b>{{ r.owner || '—' }}</b></div>
             <div><span>备注</span><b>{{ r.note || '—' }}</b></div>
             <div v-if="r.settled_at"><span>完结于</span><b>{{ r.settled_at }}</b></div>
             <div v-if="r.discarded_at"><span>弃单于</span><b>{{ r.discarded_at }}</b></div>

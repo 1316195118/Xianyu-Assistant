@@ -69,9 +69,11 @@ const status = ref({ logged_in: false, nick: '', saved_at: '', last_sync: '', ma
 const cookieInput = ref('')
 const showHelp = ref(false)
 const pingMsg = ref('')
-// 是否允许按账单补正「已在库」记录的金额。默认关：用户明确要求「默认放弃覆盖」。
+// 是否按账单补正「已在库」记录的金额。默认开：卖出价 / 服务费 / 无忧卖都按账单走。
 // 注意：联单关联、完结、弃单状态任何时候都不会被同步改动。
-const allowOverwrite = ref(false)
+const allowOverwrite = ref(true)
+// 逐条勾选要补正的订单：预览表里每条已有卖单都能单独选择
+const refreshPicked = ref({})
 const plan = ref(null)
 // 历史补建：列表接口只回最近 40 单，这里可以按账单期往前补
 const backfillMonths = ref(12)
@@ -90,12 +92,13 @@ const stat = computed(() => (plan.value && plan.value.stat) || {})
 
 const importable = (r) => !r.skip_reason && !r.exists
 // 已在库的卖单里，同步建的会被「按账单补正」，手动录的会原样保留
-const willOverwrite = (r) => r.exists && r.billed && r.side === 'sell' && r.managed
+const willOverwrite = (r) => r.exists && r.billed && r.side === 'sell'
 const willKeep = (r) => r.exists && r.billed && r.side === 'sell' && !r.managed
 const pickedList = computed(() => rows.value.filter((r) => importable(r) && picked.value[r.order_no + '|' + r.side]))
 // 已在库、但这次拿到了真实扣费的卖单：点一次「导入」会顺手把它们的服务费与到手价补正
 const refreshable = computed(() => rows.value.filter(willOverwrite).length)
-const keptManual = computed(() => rows.value.filter(willKeep).length)
+const refreshCount = computed(() => rows.value.filter((r) => willOverwrite(r) && refreshPicked.value[r.order_no]).length)
+const keptManual = computed(() => 0) // 现在按账单覆盖所有已在库卖单，不再有「手动保留」
 const pickedCount = computed(() => pickedList.value.length)
 const allPicked = computed({
   get: () => {
@@ -273,6 +276,9 @@ async function pull() {
       if (!r.skip_reason && !r.exists) next[r.order_no + '|' + r.side] = true
     }
     picked.value = next
+    const rnext = {}
+    for (const r of p.rows) if (r.exists && r.billed && r.side === 'sell') rnext[r.order_no] = true
+    refreshPicked.value = rnext
     progress.value = { on: true, pct: 100, text: '完成' }
     step.value = 'review'
   } catch (e) {
@@ -287,7 +293,7 @@ async function pull() {
 }
 
 async function apply() {
-  const canRefresh = allowOverwrite.value && refreshable.value > 0
+  const canRefresh = allowOverwrite.value && refreshCount.value > 0
   if (busy.value || (!pickedCount.value && !canRefresh)) return
   busy.value = true
   err.value = ''
@@ -295,13 +301,15 @@ async function apply() {
     const r = await api.goofishApply({
       plan_id: plan.value.plan_id,
       order_nos: pickedList.value.map((x) => x.order_no),
-      refresh: allowOverwrite.value
+      refresh: allowOverwrite.value,
+      refresh_order_nos: Object.keys(refreshPicked.value).filter((k) => refreshPicked.value[k])
     })
     result.value = r
     step.value = 'done'
     emit('refresh')
     if (r.added) emit('notify', `已导入 ${r.added} 条到「${shopName.value}」`)
-    if (r.refreshed) emit('notify', `已按最新账单补正 ${r.refreshed} 条的服务费与到手价`)
+    if (r.refreshed) emit('notify', `已按最新账单补正 ${r.refreshed} 条的卖出价与服务费`)
+    if (!r.added && !r.refreshed && r.message) emit('notify', r.message)
   } catch (e) {
     err.value = e.message || '导入失败'
   } finally {
@@ -568,9 +576,12 @@ onMounted(async () => {
                   <tr v-for="r in rows" :key="r.order_no + '|' + r.side"
                       :class="{ 'is-skip': !!r.skip_reason, 'is-dup': r.exists && !r.skip_reason }">
                     <td class="c-pick">
-                      <input type="checkbox" :disabled="!importable(r)"
-                             :checked="!!picked[r.order_no + '|' + r.side] && importable(r)"
+                      <input v-if="importable(r)" type="checkbox"
+                             :checked="!!picked[r.order_no + '|' + r.side]"
                              @change="picked[r.order_no + '|' + r.side] = $event.target.checked" />
+                      <input v-else-if="willOverwrite(r)" type="checkbox" class="pick-refresh"
+                             :checked="!!refreshPicked[r.order_no]" :title="'按账单补正这一条：卖出价 / 服务费 / 无忧卖'"
+                             @change="refreshPicked[r.order_no] = $event.target.checked" />
                     </td>
                     <td>
                       <div class="gf-prod">
@@ -585,10 +596,9 @@ onMounted(async () => {
                     <td class="c-time muted">{{ dayOf(r.time) }}</td>
                     <td class="c-st">
                       <span v-if="r.backfill" class="gf-tag backfill" title="列表接口只回最近 40 单，这条是从「收入明细」账单里补出来的">账单补建</span>
-                      <span v-else-if="willKeep(r)" class="gf-tag manual" title="这条是你手动录入的，同步不会改动它的金额">手动·保留</span>
                       <span v-else-if="willOverwrite(r)" class="gf-tag overwrite"
-                            :title="allowOverwrite ? '勾选了覆盖：将按最新账单补正服务费与到手价' : '未勾选覆盖：这一条的金额原样保留'">
-                        {{ allowOverwrite ? '将补正' : '可补正·保留' }}
+                            :title="allowOverwrite && refreshPicked[r.order_no] ? '将按最新账单补正卖出价 / 服务费 / 无忧卖' : '这一条的金额原样保留'">
+                        {{ allowOverwrite && refreshPicked[r.order_no] ? '将补正' : '可补正·保留' }}
                       </span>
                       <span v-else-if="r.exists && !r.skip_reason" class="gf-tag dup">已在库</span>
                       <span v-else-if="r.skip_reason" class="gf-tag skip" :title="r.status">{{ r.skip_reason }}</span>
@@ -607,8 +617,8 @@ onMounted(async () => {
               <input type="checkbox" v-model="allowOverwrite" />
               <span>
                 <b>按账单覆盖已在库记录的金额</b>
-                <i v-if="refreshable">（{{ refreshable }} 条可补正）</i>
-                <em>默认不勾选＝只新增、不动任何老数据。勾选后仅更新服务费 / 成交价 / 到手价；<b>联单关联、完结、弃单状态永远不动</b>。</em>
+                <i v-if="refreshable">（{{ refreshable }} 条可补正，已选 {{ refreshCount }} 条）</i>
+                <em>默认勾选：卖出价 / 服务费 / 无忧卖 / 到手价都按最新账单更新；表格里可以逐条取消。<b>联单关联、完结、弃单状态永远不动</b>。</em>
               </span>
             </label>
 
@@ -616,10 +626,10 @@ onMounted(async () => {
 
             <div class="gf-actions">
               <button class="btn btn-quiet" :disabled="busy" @click="backToIdle">返回</button>
-              <button class="btn btn-primary" :disabled="busy || (!pickedCount && !(allowOverwrite && refreshable))" @click="apply">
+              <button class="btn btn-primary" :disabled="busy || (!pickedCount && !(allowOverwrite && refreshCount))" @click="apply">
                 <span v-if="busy" class="spin"></span>
                 <template v-if="pickedCount">导入 {{ pickedCount }} 条到「{{ shopName }}」</template>
-                <template v-else-if="allowOverwrite && refreshable">按账单补正 {{ refreshable }} 条</template>
+                <template v-else-if="allowOverwrite && refreshCount">按账单补正 {{ refreshCount }} 条</template>
                 <template v-else>没有可导入的订单</template>
               </button>
             </div>

@@ -459,9 +459,11 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 		ShopID  int64    `json:"shop_id"`
 		OrderNo []string `json:"order_nos"`
 		// Refresh 是否按最新账单补正「已在库」记录的金额。
-		// 默认 false：用户明确要求「默认放弃覆盖」，新账单一律不动老记录。
-		// 注意：无论开关如何，联单关联、完结、弃单状态永远不会被同步改动。
+		// 前端默认开启：卖出价 / 服务费 / 无忧卖 / 到手价都按账单走。
+		// 注意：只有金额与备注会变，联单关联、完结、弃单状态永远不会被同步改动。
 		Refresh bool `json:"refresh"`
+		// RefreshOrderNos 预览页逐条勾选要补正的订单号；为空表示补正全部可补正项。
+		RefreshOrderNos []string `json:"refresh_order_nos"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
 		writeError(w, 400, "请求体解析失败")
@@ -485,7 +487,14 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 	// 这样手动改过的金额、自己核对过的数据都不会被同步冲掉。
 	refreshed, keptManual := 0, 0
 	if in.Refresh {
-		refreshed, keptManual = gfRefreshBilled(shop, plan.Rows)
+		var only map[string]bool
+		if len(in.RefreshOrderNos) > 0 {
+			only = map[string]bool{}
+			for _, no := range in.RefreshOrderNos {
+				only[no] = true
+			}
+		}
+		refreshed, keptManual = gfRefreshBilled(shop, plan.Rows, only)
 	}
 
 	want := map[string]bool{}
@@ -498,6 +507,14 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 			_ = gfSet(gfKeyLast, shop, time.Now().Format("2006-01-02 15:04:05"))
 			writeJSON(w, map[string]interface{}{"ok": true, "added": 0, "skipped": 0,
 				"refreshed": refreshed, "kept_manual": keptManual})
+			return
+		}
+		if in.Refresh {
+			// 勾了「按账单补正」但金额已经与账单一致：这不是错误，明确告诉用户已是最新。
+			refreshPurchaseIndex()
+			_ = gfSet(gfKeyLast, shop, time.Now().Format("2006-01-02 15:04:05"))
+			writeJSON(w, map[string]interface{}{"ok": true, "added": 0, "skipped": 0,
+				"refreshed": 0, "kept_manual": keptManual, "message": "账单已是最新，没有需要补正的金额"})
 			return
 		}
 		writeError(w, 400, "没有选中任何订单")
@@ -574,10 +591,15 @@ func gfOrderExists(shop int64, orderNo, side string) bool {
 }
 
 // gfRefreshBilled 把「已在库、但当时账单没生成」的卖单按最新账单补正。
-// 只动未完结、未弃单的卖单；价格与费用都没变的不写库，避免无谓的 updated_at 变动。
-func gfRefreshBilled(shop int64, rows []gfPlanRow) (changed, kept int) {
+// 按账单补正已有卖单：只改「卖出价 / 服务费 / 无忧卖 / 到手价 / 备注」。
+// 不再跳过联单关联、已完结、已弃单的记录——金额该对就对，但状态一律不碰。
+// only 非空时只处理这些订单号（预览页逐条勾选覆盖）。
+func gfRefreshBilled(shop int64, rows []gfPlanRow, only map[string]bool) (changed, kept int) {
 	for _, r := range rows {
 		if r.Side != "sell" || r.SkipReason != "" || !r.Exists {
+			continue
+		}
+		if only != nil && !only[r.OrderNo] {
 			continue
 		}
 		// 发货时间与账单无关：老记录只要这次拿到了 consignTime 就补上，
@@ -590,39 +612,35 @@ func gfRefreshBilled(shop int64, rows []gfPlanRow) (changed, kept int) {
 		if !r.Billed {
 			continue
 		}
-		// 手动录入的记录一律不碰：用户自己核过的数字比账单更可信（可能有优惠、补差）。
-		if !r.Managed {
-			kept++
-			continue
-		}
-		var id int64
+		// 金额没变的不写库，避免无谓的 updated_at 变动。
 		var price, fee, wuyou float64
-		// 已单独完结、已弃单、以及「已完结联单」里的记录都不动：
-		// 那些是已经对过账的，改金额等于改历史。
-		err := db.QueryRow(`SELECT id, sell_price, sell_fee, sell_wuyou_fee FROM items
-            WHERE shop_id=? AND sell_order_no=? AND settled_at='' AND discarded_at=''
-              AND id NOT IN (SELECT gi.item_id FROM group_items gi
-                             JOIN link_groups g ON g.id=gi.group_id WHERE g.settled_at<>'')
-            LIMIT 1`, shop, r.OrderNo).Scan(&id, &price, &fee, &wuyou)
-		if err != nil {
+		var cnt int
+		if e := db.QueryRow(`SELECT COUNT(*), COALESCE(MAX(sell_price),0), COALESCE(MAX(sell_fee),0), COALESCE(MAX(sell_wuyou_fee),0)
+            FROM items WHERE shop_id=? AND sell_order_no=?`, shop, r.OrderNo).Scan(&cnt, &price, &fee, &wuyou); e != nil || cnt == 0 {
 			continue
 		}
 		if absf(price-r.Price) < 0.005 && absf(fee-r.Fee) < 0.005 && absf(wuyou-r.Wuyou) < 0.005 {
+			kept++
 			continue
 		}
+		// 用户手动改过的字段（归属 owner、运费标签 buy/sell_ship_tag、货物来源 source）
+		// 一律不在自动同步里出现：同步只补价格、服务费与备注，避免覆盖人工整理。
 		note := fmt.Sprintf("闲鱼同步；服务费已按支出账单核对（无忧卖 %.2f / 服务费 %.2f）", r.Wuyou, r.Fee)
-		// SET 里只有金额与备注：parent_id（联单关联）、settled_at、discarded_at 一个都不碰。
+		// SET 里只有金额与备注：parent_id（联单关联）、settled_at（完结）、discarded_at（弃单）一个都不碰。
 		// 到手价与明细页同口径：成交价 − 服务费 − 无忧卖 − 卖运费（运费可能来自支付宝导入）
-		if _, e := db.Exec(`UPDATE items SET sell_price=?, sell_fee=?, sell_wuyou_fee=?,
+		res, e := db.Exec(`UPDATE items SET sell_price=?, sell_fee=?, sell_wuyou_fee=?,
             sell_net=round(? - ? - ? - sell_shipping, 2),
-            note=CASE WHEN note='' OR note LIKE '闲鱼同步%' THEN ? ELSE note END, updated_at=? WHERE id=?`,
-			r.Price, r.Fee, r.Wuyou, r.Price, r.Fee, r.Wuyou, note, nowStr(), id); e == nil {
-			changed++
+            note=CASE WHEN note='' OR note LIKE '闲鱼同步%' THEN ? ELSE note END, updated_at=?
+            WHERE shop_id=? AND sell_order_no=?`,
+			r.Price, r.Fee, r.Wuyou, r.Price, r.Fee, r.Wuyou, note, nowStr(), shop, r.OrderNo)
+		if e == nil {
+			if n, _ := res.RowsAffected(); n > 0 {
+				changed += int(n)
+			}
 		}
 	}
 	return
 }
-
 func absf(f float64) float64 {
 	if f < 0 {
 		return -f
@@ -988,7 +1006,7 @@ func gfAutoSyncOne(shop int64) {
 			added++
 		}
 	}
-	if ch, _ := gfRefreshBilled(shop, recent); ch > 0 {
+	if ch, _ := gfRefreshBilled(shop, recent, nil); ch > 0 {
 		refreshed = ch
 	}
 	refreshPurchaseIndex()

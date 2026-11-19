@@ -87,6 +87,21 @@ const blank = () => ({
 const form = reactive(blank())
 
 // ---------- 归属人（寄卖人）候选：输入单字自动匹配，点输入框看全部 ----------
+// 归属只属于寄卖单：来源不是「寄卖」时自动清空，避免挂错人
+watch(() => form.source, (v) => {
+  if (hydrating) return
+  if (v === '寄卖') {
+    // 寄卖是别人的货：默认无成本，用户之后仍可手动改回来
+    form.cost_free = true
+    form.unit_cost = 0
+  } else {
+    // 归属只属于寄卖单；离开寄卖时把自动加的「无成本」也撤掉（用户仍可手动勾）
+    form.owner = ''
+    form.cost_free = false
+  }
+})
+
+
 const ownerAll = ref([])
 const ownerOpen = ref(false)
 const ownerCandidates = computed(() => {
@@ -674,8 +689,14 @@ const profit = computed(() => {
 })
 const holding = computed(() => (Number(form.buy_price) || 0) + (Number(form.buy_shipping) || 0))
 
+const justSaved = ref(false)
 async function save() {
   errMsg.value = ''
+  if (saving.value || justSaved.value) return
+  if (form.source === '寄卖' && !form.owner.trim()) {
+    errMsg.value = '寄卖单必须填写归属人（这单货是谁的）'
+    return
+  }
   if (!validate()) return
   saving.value = true
   // 服务费兜底：识别漏抓手续费行但成交价>到手价时，用差额反推总服务费，
@@ -741,7 +762,9 @@ async function save() {
       } catch (e) { /* 联动建立失败不影响主记录保存 */ }
     }
     try { localStorage.removeItem(DRAFT_KEY) } catch (e) {}
-    emit('saved', { merged: false, product: form.product, id: saleId, editing: isEdit.value, autoGroup: !!autoGroupId })
+    justSaved.value = true
+    const info = { merged: false, product: form.product, id: saleId, editing: isEdit.value, autoGroup: !!autoGroupId }
+    setTimeout(() => emit('saved', info), 420)
   } catch (e) {
     // 已完结联单的锁定优先于并发冲突：直接把服务端那句中文提示展示出来
     if (e.status === 409 && e.data?.code === 'settled') {
@@ -767,7 +790,7 @@ async function save() {
       errMsg.value = e.message || '保存失败'
     }
   } finally {
-    saving.value = false
+    if (!justSaved.value) saving.value = false
   }
 }
 
@@ -1018,9 +1041,9 @@ function onHeadEnd() {
             <input class="input" v-model="form.owner" placeholder="输入或选择归属人，如 张三"
                    autocomplete="off" @focus="ownerOpen = true" @input="ownerOpen = true" @blur="ownerBlur" />
             <div v-if="ownerOpen" class="owner-list">
-              <button v-for="n in ownerCandidates" :key="n" type="button" class="owner-item" @mousedown.prevent="pickOwner(n)">{{ n }}</button>
+              <button v-for="n in ownerCandidates" :key="n" type="button" class="owner-item" @pointerdown.prevent="pickOwner(n)">{{ n }}</button>
               <button v-if="form.owner.trim() && !ownerCandidates.includes(form.owner.trim())"
-                      type="button" class="owner-item owner-new" @mousedown.prevent="pickOwner(form.owner.trim())">新增「{{ form.owner.trim() }}」</button>
+                      type="button" class="owner-item owner-new" @pointerdown.prevent="pickOwner(form.owner.trim())">新增「{{ form.owner.trim() }}」</button>
             </div>
           </div>
         </div>
@@ -1213,8 +1236,8 @@ function onHeadEnd() {
         </template>
         <template v-else>
           <button class="btn btn-quiet" @click="emit('close')">取消</button>
-          <button class="btn btn-primary" @click="save" :disabled="saving">
-            <span v-if="saving" class="spin"></span>{{ isEdit ? '保存修改' : '保存记录' }}
+          <button class="btn btn-primary" @click="save" :disabled="saving" :class="{ 'is-saved': justSaved }">
+            <span v-if="saving && !justSaved" class="spin"></span>{{ justSaved ? '✓ 已保存' : (saving ? '保存中…' : (isEdit ? '保存修改' : '保存记录')) }}
           </button>
         </template>
       </div>

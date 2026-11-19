@@ -5316,3 +5316,9 @@ html[data-theme="dark"] .owner-chip { background: rgba(139, 92, 246, .22); color
   .consign-item .muted:nth-of-type(2), .consign-item .muted:nth-of-type(3) { display: none; }
   .consign-item span:first-child { grid-column: 1 / -1; font-weight: 600; }
 }
+
+/* 保存成功态：按钮短暂变绿，让用户确认已保存 */
+.btn-primary.is-saved { background: var(--down); border-color: var(--down); color: #fff; }
+
+/* 同步预览里「逐条补正」的勾选框，与导入勾选区分开 */
+.gf-table .pick-refresh { accent-color: #8b5cf6; }

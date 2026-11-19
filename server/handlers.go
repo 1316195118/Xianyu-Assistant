@@ -1515,9 +1515,8 @@ const itemCols = `id, product, COALESCE(product_norm,'') AS product_norm, parent
     buy_price, buy_shipping, buy_ship_tag, buy_order_no, buy_time, buy_counterparty,
     sell_price, sell_fee, sell_wuyou_fee, sell_net, sell_shipping, sell_ship_tag, sell_order_no, sell_time, sell_counterparty,
     note, COALESCE(attachment,'') AS attachment, COALESCE(consign_time,'') AS consign_time,
-    COALESCE(owner,'') AS owner,
     COALESCE(settled_at,'') AS settled_at, COALESCE(discarded_at,'') AS discarded_at,
-    COALESCE(source,'') AS source,
+    COALESCE(source,'') AS source, COALESCE(owner,'') AS owner,
     COALESCE(cost_free,0) AS cost_free,
     created_at, updated_at`
 
