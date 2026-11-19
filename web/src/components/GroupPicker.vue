@@ -58,9 +58,13 @@ async function addTo(g) {
   busy.value = g.id
   try {
     const r = await api.addGroupItems(g.id, props.itemIds)
-    emit('notify', r.added > 0
-      ? `已把 ${r.added} 条记录加入「${g.title || '未命名联单'}」`
-      : `这些记录已经在「${g.title}」里了`)
+    if (r.added > 0) {
+      // 原本「单独完结」的记录会在这里转交给联单，顺手说一声，免得用户以为完结状态丢了
+      const tail = r.cleared > 0 ? `，其中 ${r.cleared} 条原为单独完结，已改为按联单结算` : ''
+      emit('notify', `已把 ${r.added} 条记录加入「${g.title || '未命名联单'}」` + tail)
+    } else {
+      emit('notify', `这些记录已经在「${g.title}」里了`)
+    }
     emit('done')
     emit('close')
   } catch (e) {

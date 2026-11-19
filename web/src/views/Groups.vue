@@ -6,6 +6,7 @@ import { undoAction } from '../feedback'
 import { fmtMoney, shortTime, todayStr } from '../utils'
 import HelpTip from '../components/HelpTip.vue'
 import AnimatedNumber from '../components/AnimatedNumber.vue'
+import MergeSuggest from '../components/MergeSuggest.vue'
 
 const props = defineProps({
   refreshKey: { type: Number, default: 0 },
@@ -21,7 +22,7 @@ const showEditor = ref(false)
 const saving = ref(false)
 const focusedId = ref(null)   // 从明细联动过来时高亮 + 展开全部关联记录
 const expandedId = ref(null)
-const merging = ref(false)
+const mergeOpen = ref(false)
 
 const form = reactive({ title: '', note: '', item_ids: [] })
 const editorEl = ref(null)
@@ -44,27 +45,12 @@ async function load() {
 onMounted(load)
 watch(() => props.refreshKey, load)
 
-// 合并重复联单：把“共享同一条记录（同一买单）”的多个联单自动合并为一个
-async function mergeDuplicates() {
-  if (merging.value) return
-  const ok = await confirm({
-    title: '合并重复联单？',
-    message: '将把共享同一买单 / 记录的多个联单合并为一个。',
-    detail: ['只删除重复的联单分组，其中的买卖记录会完整保留。'],
-    confirmText: '开始合并', danger: true
-  })
-  if (!ok) return
-  merging.value = true
-  try {
-    const r = await api.autoMergeGroups()
-    await load()
-    emit('notify', r.merged_groups > 0 ? `已合并 ${r.merged_groups} 个重复联单` : '没有检测到重复联单')
-  } catch (e) {
-    emit('notify', '合并失败：' + (e.message || '未知错误'), true)
-  } finally {
-    merging.value = false
-  }
+// 合并建议：不再一键硬合，先把「标题很像的联单」「同名散单」列成建议，
+// 用户挑完、改完标题再提交（面板在 MergeSuggest.vue 里）。
+function openMerge() {
+  mergeOpen.value = true
 }
+
 watch(() => props.focusGroupId, async (id) => {
   if (!id) return
   if (!groups.value.length) await load()
@@ -437,7 +423,10 @@ async function toggleSettle(g) {
       </div>
       <div class="hero-actions">
         <button class="btn btn-primary" @click="openCreate"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新建联单</button>
-        <button class="btn btn-ghost" :disabled="merging" @click="mergeDuplicates">{{ merging ? '合并中…' : '合并重复联单' }}</button>
+        <button class="btn btn-ghost" @click="openMerge">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M8 12h8"/></svg>
+          合并建议
+        </button>
       </div>
     </section>
 
@@ -668,5 +657,9 @@ async function toggleSettle(g) {
         <div class="skel-metrics"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span></div>
       </div>
     </div>
+
+    <!-- 合并建议面板：挑完、改完标题再提交 -->
+    <MergeSuggest v-if="mergeOpen" @close="mergeOpen = false" @done="load"
+                  @notify="(m, e) => emit('notify', m, e)" />
   </div>
 </template>

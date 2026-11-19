@@ -57,10 +57,11 @@ function thumbUrl(r, w) { return api.attachmentUrl(r.id, { w, file: r.attachment
 // 记录 -> 所属联单 映射（一次取回全部联单建立索引，点击即联动）
 const groupMap = ref({})
 
-// 明细分类：全部 / 买单 / 卖单 / 完结单（与后端 type 过滤一致）
+// 明细分类：全部 / 买单 / 卖单 / 已结算（与后端 type 过滤一致）
+// 「已结算」= 整张联单完结的 + 卖单自己填好成本、自动结算的
 const typeOptions = [
   { v: '', t: '全部' }, { v: 'buy', t: '买单' },
-  { v: 'sell', t: '卖单' }, { v: 'unlinked', t: '未挂成本' }, { v: 'settled', t: '完结单' },
+  { v: 'sell', t: '卖单' }, { v: 'unlinked', t: '未挂成本' }, { v: 'settled', t: '已结算' },
   { v: 'discarded', t: '弃单' }
 ]
 const sortOptions = [
@@ -622,6 +623,12 @@ const groupMembership = computed(() => {
 // 单条完结（旧数据里的 settled_at）不再出章：现在卖单只要填了单件成本就算核算完成，
 // 不再有「单独完结」这个动作。
 const groupSettled = (r) => (groupsOf(r.id) || []).some(g => g.settled)
+// 自动结算：卖单成本已经说得清（手填单件成本 / 标了无成本 / 两侧都填），
+// 不用包联单、也不用手动完结，后端统计时直接计入「已结算」。
+// 判定口径要和后端 autoSettled 一致：改一处就同步改另一处。
+const autoSettled = (r) => !!r && !r.settled_at && !r.discarded_at && !groupSettled(r) &&
+  r.has_sell && r.source !== '寄卖' && r.source !== '代采' &&
+  ((r.unit_cost || 0) > 0 || r.cost_free || (r.buy_price || 0) > 0)
 // 弃单：记录还在，但不占在库、不计成本与利润
 const isDiscarded = (r) => !!(r && r.discarded_at)
 // 没有成本单的卖单（独立卖单，没有买进侧）：不占资金也没有成本，
@@ -699,6 +706,14 @@ const sealDate = (r, t) => {
   return String(g.settled_at || '').slice(0, 10).replace(/-/g, '.')
 }
 const typeLabel = (r) => isDiscarded(r) ? '弃单' : groupSettled(r) ? '完结单' : (r.has_sell ? '卖单' : '买单')
+// 详情面板里的结算状态：让「为什么这单算已结算」一目了然
+const settleStateOf = (r) => {
+  if (isDiscarded(r)) return '已作废（不进账）'
+  if (groupSettled(r)) return '已结算 · 联单完结'
+  if (autoSettled(r)) return r.cost_free ? '已结算 · 标记为无成本' : '已结算 · 成本已明确'
+  if (!r.has_sell) return '不适用（还没卖出）'
+  return '未结算 · 还没填成本'
+}
 const typeClass = (r) => isDiscarded(r) ? 'badge-discard' : groupSettled(r) ? 'badge-settled' : (r.has_sell ? 'badge-sell' : 'badge-buy')
 // 每行「买进价 / 到手价」按你的口径：
 // 第一格：卖出单看卖价、买进单看买价（它们都是这笔的「成交价」）
@@ -1236,6 +1251,7 @@ function onCardClick(r, e) {
                     <span v-if="r.source === '代采'" class="consign-tag daicai-tag" :title="'代采单' + (r.owner ? ' · 替 ' + r.owner + ' 买' : '')">代采单</span>
                     <span v-if="r.owner && r.source !== '寄卖' && r.source !== '代采'" class="owner-chip" :title="'归属：' + r.owner">{{ r.owner }}</span>
                     <span v-if="groupSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
+                    <span v-else-if="autoSettled(r)" class="auto-settled-chip" title="成本已明确，自动计入已结算（不用包联单）">已结算</span>
                     <span v-if="r.cost_free && r.source !== '寄卖' && r.source !== '代采'" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
                     <span v-if="groupsOf(r.id).length" class="cell-groups">
                       <span v-for="g in groupsOf(r.id).slice(0, 2)" :key="'g'+g.id" class="group-chip" @click.stop="emit('goto-group', g.id)" :title="'查看联动单：'+g.title">
@@ -1331,7 +1347,8 @@ function onCardClick(r, e) {
                   <div class="detail-group">
                     <div class="dg-title">单据状态</div>
                     <div class="dg-items">
-                      <div class="dg-item"><span>完结</span><b>{{ r.settled_at || '未完结' }}</b></div>
+                      <div class="dg-item"><span>结算</span><b>{{ settleStateOf(r) }}</b></div>
+                      <div v-if="r.settled_at" class="dg-item"><span>完结于</span><b>{{ r.settled_at }}</b></div>
                       <div class="dg-item"><span>弃单</span><b>{{ r.discarded_at || '—' }}</b></div>
                     </div>
                     <div v-if="isDiscarded(r)" class="dg-hint">弃单不占在库、不计成本与利润率，只保留记录。</div>
@@ -1505,6 +1522,7 @@ function onCardClick(r, e) {
             <div><span>货物来源</span><b>{{ r.source || '未标注' }}</b></div>
             <div><span>归属</span><b>{{ r.owner || '—' }}</b></div>
             <div><span>备注</span><b>{{ r.note || '—' }}</b></div>
+            <div><span>结算</span><b>{{ settleStateOf(r) }}</b></div>
             <div v-if="r.settled_at"><span>完结于</span><b>{{ r.settled_at }}</b></div>
             <div v-if="r.discarded_at"><span>弃单于</span><b>{{ r.discarded_at }}</b></div>
 

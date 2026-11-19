@@ -670,6 +670,7 @@ func handleGroupItemsAdd(w http.ResponseWriter, r *http.Request, id int64) {
 		return
 	}
 	added := 0
+	cleared := 0 // 原本单独完结、被转入本联单的记录数
 	for _, iid := range ids {
 		// 一条记录只能属于一张联单：已在别处的，明确告知而不是悄悄合并
 		var otherID int64
@@ -690,9 +691,15 @@ func handleGroupItemsAdd(w http.ResponseWriter, r *http.Request, id int64) {
 			writeError(w, 400, "「"+product+"」已弃单，不能加入联单")
 			return
 		}
+		// 已单独完结的记录也能加进联单：加进来之后完结状态改由联单决定，
+		// 所以把单品完结时间清掉，避免「既单独完结、又在联单里」两套口径打架。
 		if settled != "" {
-			writeError(w, 400, "「"+product+"」已单独完结，不能加入联单")
-			return
+			if _, err := db.Exec("UPDATE items SET settled_at='', updated_at=? WHERE id=? AND shop_id=?",
+				nowStr(), iid, shopID(r)); err != nil {
+				writeError(w, 500, "「"+product+"」转入联单失败")
+				return
+			}
+			cleared++
 		}
 		res, err := db.Exec("INSERT OR IGNORE INTO group_items(group_id, item_id) VALUES(?,?)", id, iid)
 		if err != nil {
@@ -711,7 +718,7 @@ func handleGroupItemsAdd(w http.ResponseWriter, r *http.Request, id int64) {
 	db.QueryRow("SELECT id,title,note,settled_at,created_at,updated_at FROM link_groups WHERE id=? AND shop_id=?", id, shopID(r)).
 		Scan(&g.ID, &g.Title, &g.Note, &g.SettledAt, &g.CreatedAt, &g.UpdatedAt)
 	hydrateGroup(&g, shopID(r))
-	writeJSON(w, map[string]interface{}{"ok": true, "added": added, "group": g})
+	writeJSON(w, map[string]interface{}{"ok": true, "added": added, "cleared": cleared, "group": g})
 }
 
 // /api/groups/candidates：联单选记录的候选池。
@@ -757,8 +764,9 @@ func handleGroupCandidates(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			continue
 		}
-		// 完结 / 弃单的商品不再出现在联单候选里（用户明确要求）
-		if it.SettledAt != "" || it.DiscardedAt != "" || grouped[it.ID] {
+		// 弃单、已经在联单里的不再当候选。
+		// 单独完结的允许进候选：加进联单时会把「单品完结」交还给联单，不冲突。
+		if it.DiscardedAt != "" || grouped[it.ID] {
 			continue
 		}
 		role := "sell"

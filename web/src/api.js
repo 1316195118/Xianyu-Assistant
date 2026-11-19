@@ -190,6 +190,13 @@ export const api = {
   autoMergeGroups() {
     return req('/api/groups/auto-merge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
   },
+  // 合并建议：先给建议（相似标题的联单 / 同名散单），用户挑完再提交
+  groupMergeSuggestions() { return req('/api/groups/merge-suggestions') },
+  applyGroupMerge(data) {
+    return req('/api/groups/merge-apply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+    })
+  },
   linkSale(data) {
     return req('/api/groups/link-sale', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)

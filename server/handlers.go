@@ -202,6 +202,8 @@ func registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/groups/by-item/", authWrap(handleGroupsByItem))
 	mux.HandleFunc("/api/groups/link-sale", authWrap(handleLinkSale))
 	mux.HandleFunc("/api/groups/auto-merge", authWrap(handleAutoMerge))
+	mux.HandleFunc("/api/groups/merge-suggestions", authWrap(handleGroupMergeSuggestions))
+	mux.HandleFunc("/api/groups/merge-apply", authWrap(handleGroupMergeApply))
 	mux.HandleFunc("/api/groups/", authWrap(handleGroupByID))
 	mux.HandleFunc("/api/settings", authWrap(handleSettings))
 	mux.HandleFunc("/api/settings/test", authWrap(handleSettingsTest))
@@ -560,6 +562,29 @@ func isExternalGoods(source string) bool {
 	return source == "寄卖" || source == "代采"
 }
 
+// autoSettled：卖单只要成本说得清，就算「已结算」——不用再包联单，也不用手动点完结。
+// 成本说得清 = 手填了单件成本 / 勾了「无成本」/ 挂了买进单 / 单据本身两侧都填。
+// 这是派生状态，不写库：成本改回去，它就自动退回未结算。
+// 寄卖、代采这类货是别人的，走寄卖页的结算，不掺和这里。
+func autoSettled(it Item) bool {
+	if it.SettledAt != "" || (it.Kind != "sale" && it.Kind != "standalone") {
+		return false
+	}
+	if isExternalGoods(it.Source) || !it.HasSell {
+		return false
+	}
+	// 只认「成本确实有数」的：手填单件成本 / 勾了无成本 / 单据本身两侧都填了。
+	// 光挂了买进单但没写单件成本的不算——那属于成本还没落到这单上，别虚增完结利润。
+	return it.UnitCost > 0 || it.CostFree || it.BuyPrice > 0
+}
+
+// autoSettledSQL 是 autoSettled 的 SQL 版（明细「已结算」分类要用）。
+// 两处口径必须一致：改一个就同步改另一个。
+const autoSettledSQL = "(COALESCE(settled_at,'')='' AND COALESCE(discarded_at,'')=''" +
+	" AND (sell_net>0 OR sell_price>0 OR sell_order_no<>'' OR sell_counterparty<>'')" +
+	" AND (COALESCE(unit_cost,0)>0 OR COALESCE(cost_free,0)=1 OR buy_price>0)" +
+	" AND COALESCE(source,'') NOT IN ('寄卖','代采'))"
+
 func buildWhere(r *http.Request) (string, []interface{}) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	from := strings.TrimSpace(r.URL.Query().Get("from"))
@@ -671,12 +696,16 @@ func buildWhere(r *http.Request) (string, []interface{}) {
 			conds = append(conds, "("+strings.Join(ors, " OR ")+")")
 		}
 	}
-	// 明细分类：买单 / 卖单 / 完结单 / 弃单（与前端标签一致）。
-	// 买单、卖单、完结单三者互斥；弃单单独一类，只在「全部」里和它们并存。
+	// 明细分类：买单 / 卖单 / 已结算 / 弃单（与前端标签一致）。
+	// 买单、卖单、已结算三者互斥；弃单单独一类，只在「全部」里和它们并存。
 	typ := strings.TrimSpace(r.URL.Query().Get("type"))
-	// 完结有两种：整张联单完结（group_items 里有已完结联单），或这条单据单独完结（items.settled_at）
+	// 已结算有两种：整张联单完结（group_items 里有已完结联单）/ 这条单据单独完结，或
+	// 卖单成本已经说得清（自动结算，派生状态，不写库）。
 	settledSub := "(id IN (SELECT gi.item_id FROM group_items gi JOIN link_groups g ON g.id=gi.group_id WHERE g.settled_at<>'')" +
 		" OR settled_at<>'')"
+	// 注意：自动结算只加在「已结算」分类里，不参与 live 的排除——
+	// 否则大部分卖单会从「卖单」分类里消失，用户就找不到自己刚录的单了。
+	settledAny := "(" + settledSub + " OR " + autoSettledSQL + ")"
 	notSettled := "NOT " + settledSub
 	live := notSettled + " AND discarded_at=''"
 	switch typ {
@@ -695,7 +724,7 @@ func buildWhere(r *http.Request) (string, []interface{}) {
             WHERE gi2.group_id=gi.group_id AND i2.shop_id=` + strconv.FormatInt(shopID(r), 10) + ` AND ` + purchaseCond + `))`
 		conds = append(conds, "NOT ("+purchaseWhere(shopID(r))+")", "parent_id=0", "unit_cost<=0", "NOT ("+groupWithBuy+")", "COALESCE(cost_free,0)=0", live)
 	case "settled":
-		conds = append(conds, settledSub, "discarded_at=''")
+		conds = append(conds, settledAny, "discarded_at=''")
 	case "discarded":
 		conds = append(conds, "discarded_at<>''")
 	case "":
@@ -1460,9 +1489,9 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 			s.TotalInvest += it.BuyPrice + it.BuyShipping
 			s.SoldCount++
 		}
-		// 完成单净利润：只算「已完结联单」内的明细。
-		// 单品完结（不走联单）不进这个口径——用户明确要求「只有联单完结的才计入」，
-		// 这类单据的销售额与成本仍照常进总账，只是不参与「完成单净利润」。
+		// 完成单净利润：算「已完结联单」内的明细 + 成本已经说得清的卖单（自动结算）。
+		// 以前只认联单完结，散卖单填了成本也不进这个口径，用户得为了看一眼完结利润去包联单；
+		// 现在卖单只要成本明确就直接算，联单仍然管「一批货一起完结」的场景。
 		if settledSet[it.ID] {
 			switch it.Kind {
 			case "purchase":
@@ -1478,6 +1507,21 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 				s.SettledNet += it.SellNet
 				s.SettledCost += it.BuyPrice + it.BuyShipping
 				s.SettledSold++
+			}
+		} else if autoSettled(it) && !settledSet[it.ParentID] {
+			// 自带成本的卖单：到手价进完结成交额，成本按这单带走的货品成本算。
+			// 父买单已经在完结联单里时跳过，那份成本由联单统一结，避免重复计。
+			sq := it.Quantity
+			if sq < 1 {
+				sq = 1
+			}
+			s.SettledSales += it.SellNet
+			s.SettledNet += it.SellNet
+			s.SettledSold++
+			if it.Kind == "standalone" {
+				s.SettledCost += it.BuyPrice + it.BuyShipping
+			} else {
+				s.SettledCost += round2(effectiveUnitCost(it, alloc) * float64(sq))
 			}
 		}
 	}
