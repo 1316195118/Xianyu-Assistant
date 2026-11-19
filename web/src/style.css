@@ -5559,3 +5559,18 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
   margin-left: 6px; font-style: normal; font-size: 10.5px; font-weight: 600;
   color: var(--text-3);
 }
+
+/* 明细表：成交价列居中、利润列 */
+.rec-table thead th.col-center,
+.rec-table tbody td.col-center { text-align: center; }
+.rec-table .col-profit { width: 92px; white-space: nowrap; }
+.rec-table td.col-profit.pos { color: var(--up); font-weight: 750; }
+.rec-table td.col-profit.neg { color: var(--down); font-weight: 750; }
+
+/* 手机卡片：利润一行靠右，和金额区同一套配色 */
+.rc-profit {
+  display: flex; align-items: baseline; justify-content: flex-end; gap: 6px;
+  margin-top: 6px; padding-right: 2px; font-size: 12px;
+}
+.rc-profit span { color: var(--text-3); }
+.rc-profit b { font-size: 13px; font-weight: 750; }

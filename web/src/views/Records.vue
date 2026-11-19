@@ -495,7 +495,8 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize.value))
 const allChecked = computed(() => items.value.length > 0 && items.value.every(i => selected.value.includes(i.id)))
 const hasFilters = computed(() => !!(q.value.trim() || type.value || from.value || to.value || minAmount.value || maxAmount.value))
 // 展开行 colspan 需随「自定义列」隐藏情况变化，固定 8 会错位
-const visibleColCount = computed(() => 5 + (showCols.value.shot ? 1 : 0) + (showCols.value.shipping ? 1 : 0) + (showCols.value.fee ? 1 : 0) + (showCols.value.time ? 1 : 0))
+// 固定列：勾选 / 商品 / 成交价 / 到手价 / 利润 / 操作 = 6，其余按自定义列开关加
+const visibleColCount = computed(() => 6 + (showCols.value.shot ? 1 : 0) + (showCols.value.shipping ? 1 : 0) + (showCols.value.fee ? 1 : 0) + (showCols.value.time ? 1 : 0))
 const activeFilterCount = computed(() => [q.value.trim(), type.value, from.value, to.value, minAmount.value, maxAmount.value].filter(v => v !== '' && v != null).length)
 const filteredProfit = computed(() => Number(sum.value?.total_profit) || 0)
 function toggleAll() {
@@ -1214,10 +1215,11 @@ function onCardClick(r, e) {
               <th class="col-check"><input type="checkbox" :checked="allChecked" @change="toggleAll" /></th>
               <th>商品 / 订单</th>
               <th class="col-shot">截图</th>
-              <th class="th-right" title="卖单取卖出成交价，买单取买进价">成交价</th>
+              <th class="col-center" title="卖单取卖出成交价，买单取买进价">成交价</th>
               <th class="th-right col-ship" title="买运费 + 卖运费">运费</th>
               <th class="th-right" title="卖单为到手价（卖价−运费−服务费）；买单为总成本（买价+运费）">到手价 / 成本</th>
               <th class="th-right col-fee" title="软件服务费 + 无忧卖服务费">服务费</th>
+              <th class="th-right col-profit" title="成交价 − 货品成本 − 卖运费 − 服务费（买单没有利润，显示 —）">利润</th>
               <th class="col-time">交易时间</th>
               <th class="th-right">操作</th>
             </tr>
@@ -1270,7 +1272,7 @@ function onCardClick(r, e) {
                   </button>
                   <span v-else class="td-thumb-empty">—</span>
                 </td>
-                <td class="td-right num td-buy">
+                <td class="col-center num td-buy">
                   {{ fmtMoney(rowBuyPrice(r)) }}
                   <b v-if="billPending(r)" class="fee-pending"
                      title="闲鱼订单列表给的是商品金额；账单一般延后几天生成，出账后再点「立即同步」会按实收金额自动更正">待账单</b>
@@ -1278,6 +1280,11 @@ function onCardClick(r, e) {
                 <td class="td-right num td-muted col-ship">{{ fmtMoney(r.buy_shipping + r.sell_shipping) }}</td>
                 <td class="td-right num" :class="[r.has_sell ? 'net-col' : 'td-buy', { 'is-neg': r.has_sell && rowNet(r) < 0 }]">{{ fmtMoney(rowMidValue(r)) }}</td>
                 <td class="td-right num td-muted col-fee">{{ r.has_sell ? fmtMoney((r.sell_fee || 0) + (r.sell_wuyou_fee || 0)) : '—' }}</td>
+                <td class="td-right num col-profit td-profit"
+                    :class="r.has_sell ? ((r.profit || 0) >= 0 ? 'pos' : 'neg') : 'td-muted'"
+                    :title="!r.has_sell ? '买单还没卖出去，没有利润' : (r.discarded_at ? '已弃单，不计入统计' : '成交价 − 货品成本 − 卖运费 − 服务费')">
+                  {{ r.has_sell ? fmtMoney(r.profit || 0) : '—' }}
+                </td>
                 <td class="muted nowrap cell-time col-time">{{ shortTime(r.deal_time) }}</td>
                 <td class="td-right nowrap cell-actions rc-actions-desktop" @click.stop>
                   <button class="btn btn-sm btn-ghost btn-discard" :class="{ 'is-on': r.discarded_at }"
@@ -1471,6 +1478,12 @@ function onCardClick(r, e) {
                 <span v-else class="ship-free">包邮</span>
               </template>
             </div>
+          </div>
+          <!-- 手机上没有单独的利润列，就在金额区下补一行，和桌面表一致 -->
+          <div v-if="r.has_sell" class="rc-profit">
+            <span>本单利润</span>
+            <b class="num" :class="(r.profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(r.profit || 0) }}</b>
+            <em v-if="r.discarded_at" class="dg-note">已弃单</em>
           </div>
           <div class="rc-actions">
             <!-- 功能键放上面一排（图标在上、文字在下，五个等宽）；「查看详情」放下面整行，
