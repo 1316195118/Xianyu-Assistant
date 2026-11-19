@@ -148,10 +148,12 @@ setTimeout(() => {
     emit('notify', `本月目标还差 ${fmtMoney(t - p)}，剩 ${d} 天`, false, null, { tone: 'warn' })
   } catch (e) { /* ignore */ }
 }, 1500)
-// 备份状态：只取「上次备份时间」，用来在首页提醒
-onMounted(async () => {
+// 备份状态：只取「上次备份时间」，用来在首页提醒。
+// 读取失败保持 null（未知），不要当成空字符串（从未备份）去催用户。
+async function loadBackupStatus() {
   try { backupLast.value = (await api.getBackups()).last || '' } catch { backupLast.value = null }
-})
+}
+onMounted(loadBackupStatus)
 // 月度目标与趋势选择的周、月、季周期无关。
 let targetSeq = 0
 async function loadTarget() {
@@ -512,7 +514,11 @@ const chart = computed(() => {
     </div>
 
     <!-- 备份提醒 -->
-    <div v-if="backupWarn" class="backup-warn">
+    <div v-if="backupLast === null" class="backup-warn" role="status">
+      <span>备份状态没读出来，暂时无法确认最近一次备份时间</span>
+      <button class="btn btn-sm" @click="loadBackupStatus">重试</button>
+    </div>
+    <div v-else-if="backupWarn" class="backup-warn">
       <span>{{ backupWarn }}</span>
       <button class="btn btn-sm" @click="emit('goto-settings')">去备份</button>
     </div>

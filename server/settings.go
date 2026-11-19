@@ -126,9 +126,15 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			setSetting("ocr_api_key", strings.TrimSpace(in.OCRAPIKey))
 		}
 		// 只读密码：存 settings 表的 readonly_password_hash（+ 独立 salt）。
+		// 必须先有管理密码：否则「只读」这个限制没有主语，任何人都能直接读写，
+		// 只读密码只会变成一个看似安全、实际毫无边界的入口。
 		if in.ClearReadOnlyPassword {
 			clearReadonlyPassword()
 		} else if in.ReadOnlyPassword != "" {
+			if !authEnabled() {
+				writeError(w, 400, "请先设置管理密码（访问密码），再设置只读密码")
+				return
+			}
 			if len([]rune(in.ReadOnlyPassword)) < 4 {
 				writeError(w, 400, "只读密码至少 4 位")
 				return

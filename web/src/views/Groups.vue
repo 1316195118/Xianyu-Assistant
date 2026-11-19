@@ -41,6 +41,8 @@ const q = ref('')
 const side = ref('')
 const candidates = ref([])
 const candidateLoading = ref(false)
+const candidateError = ref('')
+let candSeq = 0
 const selectedMap = ref({})
 // 已选记录的商品名（用于推荐标题）。搜索切换候选后，旧的选中项会离开 candidates，
 // 所以这里单独留一份 id -> {product, kind}
@@ -232,6 +234,14 @@ function applyExternals(list) {
   externals.value = (list || []).filter(e => e.kind !== 'buy').map(mapExternal)
   externalsBuy.value = (list || []).filter(e => e.kind === 'buy').map(mapExternal)
 }
+// 分块保存回包只同步「刚保存的这一块」：另一块可能还有没提交的编辑，
+// 整包覆盖会把用户刚敲进去的内容悄悄抹掉。
+function applyExternalBlock(list, key) {
+  const isBuy = key === 'buy'
+  const next = (list || []).filter(e => (e.kind === 'buy') === isBuy).map(mapExternal)
+  if (isBuy) externalsBuy.value = next
+  else externals.value = next
+}
 function markExtDirty(key) { extDirty.value[key === 'buy' ? 'buy' : 'sell'] = true }
 function addExternal(key) {
   extList(key).push({
@@ -245,7 +255,8 @@ function removeExternal(key, i) { extList(key).splice(i, 1); markExtDirty(key) }
 // 每块自己的「保存」：只替换这一块，不碰标题、不碰成员、也不碰另一块。
 // 联单还没创建时，先按当前标题 + 已选记录建一张，再把两块一起存进去。
 async function saveExtBlock(key) {
-  if (extSaving.value) return
+  // 和整单保存共用一把写锁：两条路径都会 createGroup，同时点会建出两张联单
+  if (saving.value || extSaving.value) return
   const kind = key === 'buy' ? 'buy' : 'sell'
   const e = externalError()
   if (e) { emit('notify', e, true); return }
@@ -270,7 +281,7 @@ async function saveExtBlock(key) {
       return
     }
     const g = await api.saveGroupExternals(editingId.value, kind, normExternals(extList(key)))
-    applyExternals(g.externals)
+    applyExternalBlock(g.externals, kind)
     extDirty.value[kind === 'buy' ? 'buy' : 'sell'] = false
     emit('notify', kind === 'buy' ? '外部买入已保存' : '外部卖出已保存')
     load()
@@ -333,14 +344,25 @@ function externalError() {
 }
 
 async function loadCandidates() {
+  // 搜索是防抖触发的，先发的请求可能后到；只认最后一次，避免旧候选盖掉新结果
+  const seq = ++candSeq
   candidateLoading.value = true
+  candidateError.value = ''
   try {
     const p = { side: side.value }
     if (q.value.trim()) p.q = q.value.trim()
     else if (form.title.trim()) p.similar = form.title.trim()
-    candidates.value = (await api.groupCandidates(p)).items || []
-  } catch (e) { candidates.value = [] }
-  finally { candidateLoading.value = false }
+    const r = await api.groupCandidates(p)
+    if (seq !== candSeq) return
+    candidates.value = r.items || []
+  } catch (e) {
+    if (seq !== candSeq) return
+    // 失败不能装成「没有候选」——那会让人以为真的没数据，进而手动重选一遍
+    candidates.value = []
+    candidateError.value = e.message || '候选加载失败'
+  } finally {
+    if (seq === candSeq) candidateLoading.value = false
+  }
 }
 function onSearchInput() { clearTimeout(searchTimer); searchTimer = setTimeout(loadCandidates, 300) }
 function onTitleInput() { if (!q.value.trim()) { clearTimeout(searchTimer); searchTimer = setTimeout(loadCandidates, 400) } }
@@ -364,6 +386,7 @@ function autoMatch() {
   emit('notify', n ? `已自动匹配 ${n} 条同名/高相似记录` : '没有找到高相似记录，请手动搜索选择')
 }
 async function save() {
+  if (saving.value || extSaving.value) return
   if (!form.title.trim()) { emit('notify', '请填写联单标题', true); return }
   const extErr = externalError()
   if (extErr) { emit('notify', extErr, true); return }
@@ -476,7 +499,7 @@ async function toggleSettle(g) {
           </div>
           <button v-if="b.items.length" class="btn btn-sm"
                   :class="extDirty[b.key] ? 'btn-primary' : 'btn-ghost'"
-                  :disabled="!!extSaving" @click="saveExtBlock(b.key)"
+                  :disabled="!!extSaving || saving" @click="saveExtBlock(b.key)"
                   :title="editingId ? '只保存这一块，不影响标题和其他内容' : '会先按当前标题创建联单，再保存'">
             {{ extSaving === b.key ? '保存中…' : (extDirty[b.key] ? '保存' : '已保存') }}
           </button>
@@ -552,6 +575,10 @@ async function toggleSettle(g) {
       </div>
 
       <div class="cand-meta muted">已选 <b>{{ selectedCount }}</b> 条 · 候选 {{ candidates.length }} 条 <span v-if="candidateLoading">· 加载中…</span>（可多选）</div>
+      <div v-if="candidateError" class="tip err cand-err" role="alert">
+        <span>候选记录没加载出来：{{ candidateError }}</span>
+        <button class="btn btn-sm" @click="loadCandidates">重试</button>
+      </div>
       <div class="cand-list">
         <label v-for="c in candidates" :key="c.item.id" class="cand-item" :class="{ on: selectedMap[c.item.id] }">
           <input type="checkbox" :checked="!!selectedMap[c.item.id]" @change="toggleSelect(c.item.id)" />
@@ -569,7 +596,7 @@ async function toggleSettle(g) {
           </div>
           <span class="cand-score muted">{{ c.reason }}</span>
         </label>
-        <div v-if="!candidates.length && !candidateLoading" class="empty empty-compact">
+        <div v-if="!candidates.length && !candidateLoading && !candidateError" class="empty empty-compact">
           <div class="empty-badge"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
           <div class="empty-title">没有候选记录</div>
           <div class="empty-sub">换个关键词，或先去录入截图</div>
@@ -578,7 +605,7 @@ async function toggleSettle(g) {
 
       <div class="editor-foot">
         <button class="btn btn-quiet" @click="closeEditor">取消</button>
-        <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : (editingId ? '保存修改' : '创建联单') }}</button>
+        <button class="btn btn-primary" :disabled="saving || !!extSaving" @click="save">{{ saving ? '保存中…' : (editingId ? '保存修改' : '创建联单') }}</button>
       </div>
     </section>
 

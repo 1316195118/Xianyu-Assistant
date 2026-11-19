@@ -167,6 +167,7 @@ const backup = ref({ enabled: false, interval_hours: 24, keep: 7, last: '', dir:
 const backupBusy = ref(false)
 const verifyBusy = ref(false)
 const backupMsg = ref(null)
+const backupError = ref('')   // 读取备份状态失败的原因（与「真的没备份」区分开）
 
 // ---------- 数据导入导出 ----------
 const dataOpen = ref(false)
@@ -184,6 +185,17 @@ const targetOpen = ref(false)    // 月度利润目标二级窗口
 watch(targetOpen, (open) => { if (open && !targetSaving.value) loadTarget() })
 
 async function saveReadonly() {
+  // 管理密码是只读账号的前提：没有它，系统本来就不拦人，只读限制没有意义。
+  if (!auth.value.enabled) {
+    const ok = await confirm({
+      title: '先设置管理密码',
+      message: '只读账号依赖管理密码来区分「谁能改、谁只能看」。',
+      detail: ['现在还没有管理密码，任何能打开这个地址的人都可以直接修改数据。', '请先设置管理密码（访问密码），再回来设只读密码。'],
+      confirmText: '去设置管理密码'
+    })
+    if (ok) { readonlyOpen.value = false; pwdOpen.value = true }
+    return
+  }
   if (readonlyPwd.value.length < 4) { emit('notify', '只读密码至少 4 位', true); return }
   try {
     await api.saveSettings({ readonly_password: readonlyPwd.value })
@@ -222,7 +234,13 @@ async function loadAuth() {
   try { auth.value = await api.authStatus() } catch (e) { /* ignore */ }
 }
 async function loadBackups() {
-  try { backup.value = await api.getBackups() } catch (e) { /* ignore */ }
+  backupError.value = ''
+  try { backup.value = await api.getBackups() }
+  catch (e) {
+    // 读不到 ≠ 没备份过。把状态标成「未知」，界面上说清楚并给重试，
+    // 别让首页/设置页把它当成「从未备份」吓人一跳。
+    backupError.value = e.message || '备份状态读取失败'
+  }
 }
 
 const presets = [
@@ -285,8 +303,9 @@ async function disablePassword() {
     await api.setPassword({ old: pwdForm.old, disable: true })
     pwdForm.old = ''
     await loadAuth()
-    pwdMsg.value = { text: '访问密码已关闭', ok: true }
-    emit('notify', '访问密码已关闭')
+    await load()   // 服务端会一并清掉只读密码，刷新徽标
+    pwdMsg.value = { text: '访问密码已关闭，只读密码也已清除', ok: true }
+    emit('notify', '访问密码已关闭，只读密码也已一并清除', false, null, { tone: 'warn', ttl: 6000 })
   } catch (e) {
     pwdMsg.value = { text: '操作失败：' + e.message, ok: false }
   } finally { pwdBusy.value = false }
@@ -380,12 +399,17 @@ function pickFile() { if (!importBusy.value) fileInput.value?.click() }
 
 async function submitImport(mode, parsed, format, shop) {
   const replacing = mode === 'replace'
+  const detail = replacing
+    ? ['覆盖会替换当前店铺的交易明细，原有记录的联单关联可能受影响。', '导入前会自动备份；覆盖完成后 15 秒内可在提示中撤销。']
+    : ['追加不会清空现有记录；导入前会自动备份。']
+  if (format === 'CSV' && csvPreview.value) {
+    detail.unshift(`已识别 ${csvPreview.value.mapped} 列：${csvPreview.value.head.join('、')}` +
+      (csvPreview.value.ignored.length ? `；忽略 ${csvPreview.value.ignored.length} 列` : ''))
+  }
   const ok = await confirm({
     title: replacing ? '确认覆盖店铺数据？' : '确认追加数据？',
     message: `将从 ${format} 文件导入 ${parsed.items.length} 条记录到「${shop.name}」。`,
-    detail: replacing
-      ? ['覆盖会替换当前店铺的交易明细，原有记录的联单关联可能受影响。', '导入前会自动备份；覆盖完成后 15 秒内可在提示中撤销。']
-      : ['追加不会清空现有记录；导入前会自动备份。'],
+    detail,
     confirmText: replacing ? '确认覆盖' : '确认追加', danger: replacing
   })
   if (!ok) {
@@ -411,6 +435,29 @@ function importShop() {
 }
 
 // CSV 导入：把常见表头（中文或英文）映射成记录字段，再走和 JSON 一样的导入通道。
+// 字段的显示名：预览里要让用户看懂「这一列会进到哪个字段」
+const CSV_FIELD_LABELS = {
+  product: '商品名称', sell_price: '成交价', sell_net: '到手价', sell_time: '卖出时间',
+  sell_order_no: '卖出订单号', sell_counterparty: '买家', buy_price: '买进价',
+  buy_time: '买进时间', buy_order_no: '买进订单号', buy_counterparty: '卖家',
+  buy_shipping: '买运费', sell_shipping: '卖运费', sell_fee: '软件服务费',
+  sell_wuyou_fee: '无忧卖服务费', note: '备注', quantity: '件数'
+}
+const csvPreview = ref(null)   // { cols, mapped, ignored, rows, count, head }
+// 表头映射预览：把「哪一列会被认成什么」和「哪几列会被丢掉」摆出来，
+// 否则列名写错时，只有导完发现金额串列才知道。
+function buildCsvPreview(headers, keys, dataRows) {
+  const cols = headers.map((h, i) => ({
+    idx: i, name: h, field: keys[i] || '', label: CSV_FIELD_LABELS[keys[i]] || ''
+  }))
+  const mapped = cols.filter(c => c.field)
+  const head = mapped.map(c => c.label)
+  const sample = dataRows.slice(0, 3).map(cells => mapped.map(c => String(cells[c.idx] ?? '').trim()))
+  csvPreview.value = {
+    cols, head, rows: sample, count: dataRows.length,
+    mapped: mapped.length, ignored: cols.filter(c => !c.field).map(c => c.name)
+  }
+}
 const CSV_COLS = {
   '商品名称': 'product', '商品': 'product', 'product': 'product',
   '卖出价': 'sell_price', '成交价': 'sell_price', 'sell_price': 'sell_price',
@@ -452,6 +499,7 @@ async function onCsvFile(e) {
   const mode = importMode.value, shop = importShop()
   importBusy.value = true
   dataMsg.value = null
+  csvPreview.value = null
   try {
     const rows = parseCsv(await f.text())
     if (rows.length < 2) { dataMsg.value = { text: 'CSV 里没有数据行', ok: false }; return }
@@ -477,6 +525,7 @@ async function onCsvFile(e) {
       items.push(it)
     }
     if (!items.length) { dataMsg.value = { text: '没有识别到可导入的列（需要 商品名称 + 金额 这类表头）', ok: false }; return }
+    buildCsvPreview(headers, keys, rows.slice(1))
     await submitImport(mode, { items }, 'CSV', shop)
   } catch (err) {
     dataMsg.value = { text: 'CSV 导入失败：' + (err.message || err), ok: false }
@@ -670,7 +719,7 @@ async function test() {
         <button class="set-row" aria-label="打开只读账号设置" @click="readonlyOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.5"/></svg></span>
           <span class="set-row-main"><b>只读账号</b><small>独立密码，只能查看不能修改</small></span>
-          <span class="badge" :class="meta.has_readonly ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ meta.has_readonly ? '已开启' : '未设置' }}</span>
+          <span class="badge" :class="!auth.enabled ? 'badge-buy' : (meta.has_readonly ? 'badge-ok' : 'badge-buy')"><span class="dot"></span>{{ !auth.enabled ? '需先设管理密码' : (meta.has_readonly ? '已开启' : '未设置') }}</span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
       </div>
@@ -682,8 +731,8 @@ async function test() {
       <div class="card set-group-items">
         <button class="set-row" aria-label="打开自动备份" @click="backupOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
-          <span class="set-row-main"><b>自动备份</b><small>定时快照 · 上次 {{ backup.last || '从未' }}</small></span>
-          <span class="badge" :class="backup.enabled ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ backup.enabled ? '已开启' : '未开启' }}</span>
+          <span class="set-row-main"><b>自动备份</b><small>定时快照 · 上次 {{ backupError ? '读取失败' : (backup.last || '从未') }}</small></span>
+          <span class="badge" :class="backupError ? 'badge-buy' : (backup.enabled ? 'badge-ok' : 'badge-buy')"><span class="dot"></span>{{ backupError ? '状态未知' : (backup.enabled ? '已开启' : '未开启') }}</span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
         <button class="set-row" aria-label="打开数据导出与导入" @click="dataOpen = true">
@@ -854,6 +903,10 @@ async function test() {
             </div>
           </div>
           <div class="muted settings-note">备份目录：<code class="mono">{{ backup.dir }}</code> · 共 {{ backup.files.length }} 份</div>
+          <div v-if="backupError" class="tip err" role="alert">
+            <span>备份状态没读出来：{{ backupError }}</span>
+            <button class="btn btn-sm" @click="loadBackups">重试</button>
+          </div>
           <div v-if="backupMsg" class="tip" :class="{ err: !backupMsg.ok }">{{ backupMsg.text }}</div>
           <div class="lic-table" v-if="backup.files.length">
             <div class="lic-head back-head"><span>文件名</span><span>大小</span><span>时间</span><span>操作</span></div>
@@ -864,7 +917,7 @@ async function test() {
               <span><a class="link" :href="api.backupUrl(f.name)" :download="f.name">下载</a><a class="link" style="margin-left:10px;color:var(--up)" @click="deleteBackup(f.name)">删除</a></span>
             </div>
           </div>
-          <div v-else class="empty empty-compact">
+          <div v-else-if="!backupError" class="empty empty-compact">
             <div class="empty-badge"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></div>
             <div class="empty-title">暂无备份文件</div>
             <div class="empty-sub">点「立即备份」生成第一份完整快照</div>
@@ -898,6 +951,31 @@ async function test() {
             <input ref="fileInput" type="file" accept=".json,application/json" hidden @change="onImportFile" />
             <input ref="csvInput" type="file" accept=".csv,text/csv" hidden @change="onCsvFile" />
           </div>
+          <!-- CSV 表头映射预览：导入前先看清「哪列进哪个字段、哪列会被丢掉」 -->
+          <div v-if="csvPreview" class="csv-preview">
+            <div class="csv-preview-head">
+              <b>CSV 表头识别</b>
+              <span class="muted">识别 {{ csvPreview.mapped }} 列 · 共 {{ csvPreview.count }} 条数据</span>
+            </div>
+            <div class="csv-map">
+              <span v-for="c in csvPreview.cols" :key="c.idx" class="csv-map-item" :class="{ bad: !c.field }">
+                <b>{{ c.name || '（空表头）' }}</b>
+                <i v-if="c.field">→ {{ c.label }}</i>
+                <i v-else>未识别，不会导入</i>
+              </span>
+            </div>
+            <div v-if="csvPreview.rows.length" class="csv-sample">
+              <table>
+                <thead><tr><th v-for="h in csvPreview.head" :key="h">{{ h }}</th></tr></thead>
+                <tbody>
+                  <tr v-for="(r, i) in csvPreview.rows" :key="i"><td v-for="(v, j) in r" :key="j">{{ v || '—' }}</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="csvPreview.ignored.length" class="csv-warn">
+              {{ csvPreview.ignored.length }} 列不会被导入：{{ csvPreview.ignored.join('、') }}
+            </div>
+          </div>
           <div v-if="dataMsg" class="tip" :class="{ err: !dataMsg.ok }">{{ dataMsg.text }}</div>
         </div>
         <div class="modal-foot"><button class="btn btn-primary" @click="dataOpen = false">完成</button></div>
@@ -927,13 +1005,29 @@ async function test() {
       <div class="modal" role="dialog" aria-modal="true" aria-label="只读账号">
         <div class="modal-head"><h3>只读账号</h3><button class="x" @click="readonlyOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body">
+          <!-- 没有管理密码时，只读限制没有主语：先拦在这里，并给出一步直达的入口 -->
+          <div v-if="!auth.enabled" class="notice-box readonly-lock" role="status">
+            <b>还不能设置只读密码</b>
+            <div>只读账号靠管理密码来区分权限。现在系统没有管理密码，任何能访问这个地址的人都能直接改数据，设只读密码也不会真正限制谁。</div>
+            <div>请先开启「访问密码」（即管理密码），再回来设置只读账号。</div>
+          </div>
           <p class="muted set-sheet-desc">设一个独立密码，用它的登录只能查看数据，不能新增、修改或删除。主密码仍拥有完整权限。</p>
-          <div class="readonly-row"><input class="input" type="password" v-model="readonlyPwd" placeholder="设置只读密码（至少 4 位）" autocomplete="new-password" /></div>
+          <div class="readonly-row">
+            <input class="input" type="password" v-model="readonlyPwd"
+                   :disabled="!auth.enabled" :placeholder="auth.enabled ? '设置只读密码（至少 4 位）' : '请先设置管理密码'"
+                   autocomplete="new-password" />
+          </div>
           <p class="muted set-sheet-desc" v-if="meta.has_readonly">当前状态：已开启</p>
         </div>
         <div class="modal-foot">
-          <button v-if="meta.has_readonly" class="btn btn-ghost btn-danger" @click="clearReadonly">清除只读密码</button>
-          <button class="btn btn-primary" @click="saveReadonly" :disabled="!readonlyPwd">保存</button>
+          <template v-if="!auth.enabled">
+            <button class="btn btn-ghost" @click="readonlyOpen = false">关闭</button>
+            <button class="btn btn-primary" @click="readonlyOpen = false; pwdOpen = true">去设置管理密码</button>
+          </template>
+          <template v-else>
+            <button v-if="meta.has_readonly" class="btn btn-ghost btn-danger" @click="clearReadonly">清除只读密码</button>
+            <button class="btn btn-primary" @click="saveReadonly" :disabled="!readonlyPwd">保存</button>
+          </template>
         </div>
       </div>
     </div>

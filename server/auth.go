@@ -572,8 +572,11 @@ func handleAuthPassword(w http.ResponseWriter, r *http.Request) {
 	if in.Disable {
 		setSetting("auth_hash", "")
 		setSetting("auth_salt", "")
+		// 管理密码关掉后，只读密码会变成唯一还能用的旧入口，留着只会让人困惑：
+		// 明明「密码已关闭」，却仍能用旧只读密码登录。一并清掉。
+		clearReadonlyPassword()
 		bumpAuthVersion()
-		writeJSON(w, map[string]bool{"ok": true})
+		writeJSON(w, map[string]bool{"ok": true, "readonly_cleared": true})
 		return
 	}
 	if len([]rune(in.Password)) < 8 {

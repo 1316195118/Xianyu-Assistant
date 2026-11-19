@@ -270,20 +270,34 @@ async function loadTags() {
 }
 // 预加载买进单索引（后端内存索引，一次返回），弹窗打开即可秒选，无需等匹配请求
 const purchasePool = ref([])
+const purchaseLoading = ref(false)
+const purchaseError = ref('')
+const groupsMetaError = ref('')
+const linkboxError = computed(() => purchaseError.value || groupsMetaError.value)
 async function loadPurchases() {
-  try { purchasePool.value = (await api.purchases()).items || [] } catch (e) { purchasePool.value = [] }
+  purchaseLoading.value = true; purchaseError.value = ''
+  try { purchasePool.value = (await api.purchases()).items || [] }
+  catch (e) { purchasePool.value = []; purchaseError.value = e.message || '买进单加载失败' }
+  finally { purchaseLoading.value = false }
 }
 // 已完结联单里的买单 id 集合：创建卖单时这些买单不可再被选入，
 // 避免把新卖单追加到“已完结”的联单里（即“选择联单”处隐藏已完结联单）。
 const settledItemIds = ref(new Set())
 async function loadGroupsMeta() {
+  groupsMetaError.value = ''
   try {
     const gs = (await api.groups()).items || []
     const set = new Set()
     for (const g of gs) if (g.settled_at) for (const id of (g.item_ids || [])) set.add(id)
     settledItemIds.value = set
-  } catch (e) { settledItemIds.value = new Set() }
+  } catch (e) {
+    // 拿不到「哪些买单已完结」时，宁可空集合也别悄悄放行：
+    // 但必须在界面上说明，否则用户会选中一个其实不能动的买单
+    settledItemIds.value = new Set()
+    groupsMetaError.value = '完结联单状态加载失败'
+  }
 }
+function retryLinkbox() { loadPurchases(); loadGroupsMeta() }
 const isSettledBuy = (id) => settledItemIds.value.has(id)
 function normProductLocal(s) {
   return String(s || '').toLowerCase().replace(/[\s，,。、:：\-_/()（）]/g, '')
@@ -996,6 +1010,12 @@ function onHeadEnd() {
               <span class="badge badge-ok" v-if="selectedPurchases.length"><span class="dot"></span>已选 {{ selectedPurchases.length }} 个</span>
             </div>
             <div class="muted" style="font-size:11.5px;margin:-4px 0 8px">已完结联单里的买单不可选，如需补充请先在「联动单」页重新开启该联单</div>
+            <!-- 拉取失败必须说出来：空列表看起来就是「没有可选的买单」，
+                 用户会转而去改数据，而真实原因只是接口没回来 -->
+            <div v-if="linkboxError" class="tip err linkbox-err" role="alert">
+              <span>{{ linkboxError }}，暂时无法判断哪些买单已被完结联单锁定</span>
+              <button class="btn btn-sm" @click="retryLinkbox">重试</button>
+            </div>
             <div class="linkbox-tools">
               <input class="input" v-model="purchaseQuery" placeholder="搜索买进单：商品 / 订单号 / 卖家" />
               <button class="btn btn-sm" @click="autoSelectSimilar()">匹配相似</button>
@@ -1013,7 +1033,8 @@ function onHeadEnd() {
                 <span v-if="selectedPurchases.includes(p.id)" class="linkbox-check" aria-hidden="true"><svg class="ck-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path :d="CK" /></svg></span>
                 <b class="num">{{ fmtMoneyPlain(p.buy_price) }}</b>
               </label>
-              <div v-if="!purchaseCandidates.length" class="muted" style="padding:12px;font-size:12px">没有匹配的买进单</div>
+              <div v-if="!purchaseCandidates.length && !purchaseLoading && !linkboxError" class="muted" style="padding:12px;font-size:12px">没有匹配的买进单</div>
+              <div v-else-if="purchaseLoading" class="muted" style="padding:12px;font-size:12px">正在加载买进单…</div>
             </div>
             <div v-if="selectedPurchases.length && !purchasePickerOpen" class="linkbox-chips">
               <span v-for="id in selectedPurchases" :key="id" class="linkbox-chip" @click="togglePurchase(id)">

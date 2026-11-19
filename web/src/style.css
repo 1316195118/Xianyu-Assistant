@@ -2152,6 +2152,49 @@ html[data-theme="dark"] .toast-stack .toast.info { background: #1e3b66; }
 .undo-main small { font-size: 11px; }
 .readonly-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .readonly-row .input { max-width: 300px; }
+/* 「先设管理密码」的拦截说明：贴在最上面，和下面的输入框一起读得通 */
+.readonly-lock { margin-bottom: 12px; line-height: 1.6; }
+.readonly-lock b { display: block; margin-bottom: 4px; font-size: 13px; }
+.readonly-lock div + div { margin-top: 4px; }
+.readonly-row .input:disabled { cursor: not-allowed; background: var(--surface-2); color: var(--text-3); }
+/* 候选加载失败：说明原因并给重试，不要伪装成「没有候选」 */
+.cand-err { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+.cand-err span { flex: 1; min-width: 0; }
+/* 买进单 / 完结状态拉取失败 */
+.linkbox-err { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
+.linkbox-err span { flex: 1; min-width: 0; font-size: 11.5px; }
+
+/* CSV 表头映射预览 */
+.csv-preview {
+  margin-top: 12px; padding: 11px 12px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface-2);
+}
+.csv-preview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.csv-preview-head b { font-size: 12.5px; }
+.csv-preview-head .muted { font-size: 11px; }
+.csv-map { display: flex; flex-wrap: wrap; gap: 6px; }
+.csv-map-item {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+  padding: 3px 8px; border-radius: 999px; background: var(--surface);
+  border: 1px solid var(--border-strong); font-size: 11px; line-height: 1.5;
+}
+.csv-map-item b { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+.csv-map-item i { font-style: normal; color: var(--text-3); white-space: nowrap; }
+.csv-map-item.bad { border-style: dashed; background: transparent; }
+.csv-map-item.bad i { color: #b4562a; }
+html[data-theme="dark"] .csv-map-item.bad i { color: #e8a273; }
+.csv-sample { margin-top: 9px; overflow-x: auto; }
+.csv-sample table { border-collapse: collapse; font-size: 11px; width: 100%; }
+.csv-sample th, .csv-sample td {
+  padding: 4px 8px; border-bottom: 1px solid var(--border); text-align: left;
+  white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis;
+}
+.csv-sample th { color: var(--text-3); font-weight: 700; }
+.csv-warn {
+  margin-top: 8px; padding: 6px 9px; border-radius: 8px;
+  background: var(--up-soft); color: #a5391f; font-size: 11px; line-height: 1.5;
+}
+html[data-theme="dark"] .csv-warn { background: #3a221f; color: #ffb4a2; }
 
 .bulk-edit { display: flex; align-items: center; gap: 6px; flex: 1 1 320px; min-width: 0; }
 .bulk-edit .select { width: 130px; flex: 0 0 auto; }
