@@ -495,8 +495,8 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize.value))
 const allChecked = computed(() => items.value.length > 0 && items.value.every(i => selected.value.includes(i.id)))
 const hasFilters = computed(() => !!(q.value.trim() || type.value || from.value || to.value || minAmount.value || maxAmount.value))
 // 展开行 colspan 需随「自定义列」隐藏情况变化，固定 8 会错位
-// 固定列：勾选 / 商品 / 成交价 / 到手价 / 利润 / 操作 = 6，其余按自定义列开关加
-const visibleColCount = computed(() => 6 + (showCols.value.shot ? 1 : 0) + (showCols.value.shipping ? 1 : 0) + (showCols.value.fee ? 1 : 0) + (showCols.value.time ? 1 : 0))
+// 固定列：勾选 / 商品 / 联单 / 成交价 / 到手价 / 利润 / 操作 = 7，其余按自定义列开关加
+const visibleColCount = computed(() => 7 + (showCols.value.shot ? 1 : 0) + (showCols.value.shipping ? 1 : 0) + (showCols.value.fee ? 1 : 0) + (showCols.value.time ? 1 : 0))
 const activeFilterCount = computed(() => [q.value.trim(), type.value, from.value, to.value, minAmount.value, maxAmount.value].filter(v => v !== '' && v != null).length)
 const filteredProfit = computed(() => Number(sum.value?.total_profit) || 0)
 function toggleAll() {
@@ -1214,10 +1214,11 @@ function onCardClick(r, e) {
             <tr>
               <th class="col-check"><input type="checkbox" :checked="allChecked" @change="toggleAll" /></th>
               <th>商品 / 订单</th>
+              <th class="col-group" title="这条记录属于哪张联单；点一下直达">联单</th>
               <th class="col-shot">截图</th>
-              <th class="col-center" title="卖单取卖出成交价，买单取买进价">成交价</th>
+              <th class="th-right col-price" title="卖单取卖出成交价，买单取买进价">成交价</th>
               <th class="th-right col-ship" title="买运费 + 卖运费">运费</th>
-              <th class="th-right" title="卖单为到手价（卖价−运费−服务费）；买单为总成本（买价+运费）">到手价 / 成本</th>
+              <th class="th-right col-price" title="卖单为到手价（卖价−运费−服务费）；买单为总成本（买价+运费）">到手价 / 成本</th>
               <th class="th-right col-fee" title="软件服务费 + 无忧卖服务费">服务费</th>
               <th class="th-right col-profit" title="成交价 − 货品成本 − 卖运费 − 服务费（买单没有利润，显示 —）">利润</th>
               <th class="col-time">交易时间</th>
@@ -1256,14 +1257,19 @@ function onCardClick(r, e) {
                     <span v-if="groupSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
                     <span v-else-if="autoSettled(r)" class="auto-settled-chip" title="成本已明确，自动计入已结算（不用包联单）">已结算</span>
                     <span v-if="r.cost_free && r.source !== '寄卖' && r.source !== '代采'" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
-                    <span v-if="groupsOf(r.id).length" class="cell-groups">
-                      <span v-for="g in groupsOf(r.id).slice(0, 2)" :key="'g'+g.id" class="group-chip" @click.stop="emit('goto-group', g.id)" :title="'查看联动单：'+g.title">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
-                        {{ g.title }}
-                      </span>
-                      <span v-if="groupsOf(r.id).length > 2" class="group-more">+{{ groupsOf(r.id).length - 2 }}</span>
+                  </div>
+                </td>
+                <td class="col-group">
+                  <div v-if="groupsOf(r.id).length" class="cell-groups">
+                    <span v-for="g in groupsOf(r.id).slice(0, 1)" :key="'g'+g.id" class="group-chip"
+                          @click.stop="emit('goto-group', g.id)"
+                          :title="'查看联单：' + g.title + (groupsOf(r.id).length > 1 ? '（还有 ' + (groupsOf(r.id).length - 1) + ' 张）' : '')">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+                      <span class="group-chip-t">{{ g.title }}</span>
+                      <span v-if="groupsOf(r.id).length > 1" class="group-chip-n">+{{ groupsOf(r.id).length - 1 }}</span>
                     </span>
                   </div>
+                  <span v-else class="td-muted">—</span>
                 </td>
                 <td class="col-shot">
                   <button v-if="r.attachment" type="button" class="td-thumb" @click.stop="openImage(r)"
@@ -1272,14 +1278,14 @@ function onCardClick(r, e) {
                   </button>
                   <span v-else class="td-thumb-empty">—</span>
                 </td>
-                <td class="col-center num td-buy">
+                <td class="td-right num td-buy col-price">
                   <!-- 待账单放金额前面：先说明这个数是商品金额，再看数 -->
                   <b v-if="billPending(r)" class="fee-pending fee-pending-lead"
                      title="闲鱼订单列表给的是商品金额；账单一般延后几天生成，出账后再点「立即同步」会按实收金额自动更正">待账单</b>
                   {{ fmtMoney(rowBuyPrice(r)) }}
                 </td>
                 <td class="td-right num td-muted col-ship">{{ fmtMoney(r.buy_shipping + r.sell_shipping) }}</td>
-                <td class="td-right num" :class="[r.has_sell ? 'net-col' : 'td-buy', { 'is-neg': r.has_sell && rowNet(r) < 0 }]">{{ fmtMoney(rowMidValue(r)) }}</td>
+                <td class="td-right num col-price" :class="[r.has_sell ? 'net-col' : 'td-buy', { 'is-neg': r.has_sell && rowNet(r) < 0 }]">{{ fmtMoney(rowMidValue(r)) }}</td>
                 <td class="td-right num td-muted col-fee">{{ r.has_sell ? fmtMoney((r.sell_fee || 0) + (r.sell_wuyou_fee || 0)) : '—' }}</td>
                 <td class="td-right num col-profit td-profit"
                     :class="r.has_sell ? ((r.profit || 0) >= 0 ? 'pos' : 'neg') : 'td-muted'"

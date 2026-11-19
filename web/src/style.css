@@ -5062,11 +5062,14 @@ body:has(.ali-mask) .to-top { display: none !important; }
   }
   .rec-table .seal-row { display: none; }
   .rec-table .discard-dot { color: var(--up); font-size: 10px; font-weight: 700; }
+  /* 操作列：四个按钮统一间距、带文字（只有图标看不出是弃单还是删除） */
+  .rc-actions-desktop { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
   .rc-actions-desktop .btn {
-    font-size: 0; gap: 0; min-width: 30px; padding: 6px 8px; justify-content: center;
+    font-size: 11.5px; gap: 3px; min-width: 0; padding: 5px 8px;
+    justify-content: center; white-space: nowrap; line-height: 1.2;
   }
-  .rc-actions-desktop .btn .ico { width: 14px; height: 14px; margin: 0; }
-  .rc-actions-desktop .btn + .btn { margin-left: 3px; }
+  .rc-actions-desktop .btn .ico { width: 13px; height: 13px; margin: 0; flex: 0 0 auto; }
+  .rc-actions-desktop .btn + .btn { margin-left: 0; }
   .sum-caption .sum-peek { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -5577,3 +5580,16 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
 
 /* 待账单标签移到金额前面时，间隔放在右侧 */
 .fee-pending-lead { margin-right: 5px; }
+
+/* 明细表：联单独立成列（原来挂在商品名下面，长了会把商品行挤乱） */
+.rec-table .col-group { width: 132px; max-width: 132px; }
+.rec-table .col-group .cell-groups { margin: 0; }
+.group-chip .group-chip-t {
+  max-width: 82px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.group-chip-n { color: var(--blue); font-weight: 800; margin-left: 2px; }
+
+/* 金额列：统一右对齐 + 不换行，带「待账单」的行数字也不会被顶歪；
+   两列给同样宽度，成交价和到手价的数字在同一条竖线上 */
+.rec-table th.col-price { width: 128px; white-space: nowrap; }
+.rec-table td.col-price { white-space: nowrap; }
