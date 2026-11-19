@@ -5322,3 +5322,46 @@ html[data-theme="dark"] .owner-chip { background: rgba(139, 92, 246, .22); color
 
 /* 同步预览里「逐条补正」的勾选框，与导入勾选区分开 */
 .gf-table .pick-refresh { accent-color: #8b5cf6; }
+
+
+/* 数字列表头与内容统一右对齐（thead 的 text-align:left 会盖掉 .th-right） */
+.rec-table thead th.th-right { text-align: right; }
+.rec-table thead th:last-child { text-align: right; }
+
+/* 顶栏统计范围切换 */
+.scope-pill {
+  display: inline-flex; align-items: center; height: 28px; padding: 0 10px;
+  border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text-2); font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+}
+.scope-pill.on { background: var(--brand-soft); border-color: var(--brand); color: var(--brand-deep); }
+@media (max-width: 600px) { .scope-pill { height: 26px; padding: 0 8px; font-size: 11px; } }
+
+/* 归属快捷选择 */
+.owner-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.owner-quick-chip {
+  padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text-2); font-size: 12px; cursor: pointer;
+}
+.owner-quick-chip.on { background: rgba(139, 92, 246, .14); border-color: #8b5cf6; color: #7c3aed; font-weight: 700; }
+
+/* 寄卖页：区间条件与结算 */
+.consign-tools { flex-wrap: wrap; }
+.consign-range { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.consign-dates { display: inline-flex; align-items: center; gap: 6px; }
+.consign-dates .date-input { width: 132px; }
+.consign-owner-actions { display: inline-flex; gap: 6px; flex: 0 0 auto; }
+.pending-num { font-style: normal; color: var(--up); font-weight: 800; }
+.settle-row {
+  display: grid; grid-template-columns: 1fr auto 1.2fr auto; gap: 10px; align-items: center;
+  padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 12.5px;
+}
+.settle-row:last-child { border-bottom: 0; }
+@media (max-width: 600px) {
+  .consign-tools { align-items: stretch; }
+  .consign-dates { flex: 1 1 100%; }
+  .consign-dates .date-input { flex: 1; width: auto; }
+  .consign-tools .search-wrap { flex: 1 1 100%; }
+  .consign-owner-head { gap: 8px; flex-wrap: wrap; }
+  .consign-owner-actions { order: 4; }
+}

@@ -754,19 +754,30 @@ watch([sort, order], () => {
 watch(showCols, (v) => {
   try { localStorage.setItem('xy_columns', JSON.stringify(v)) } catch (e) {}
 }, { deep: true })
+const batchBusy = ref(false)
 async function applyBatchEdit() {
-  if (!selected.value.length || !batchValue.value.trim()) return
+  if (batchBusy.value) return
+  if (!selected.value.length) {
+    emit('notify', '请先勾选要修改的记录', true)
+    return
+  }
+  if (!batchValue.value.trim()) {
+    emit('notify', '请先填写要改成的新值', true)
+    return
+  }
   const locked = items.value.filter(i => selected.value.includes(i.id) && groupSettled(i))
   if (locked.length) {
     emit('notify', `选中的记录里有 ${locked.length} 条属于已完结联单，请先在「联单」页重新开启后再改`, true)
     return
   }
+  batchBusy.value = true
   try {
     const r = await api.batchUpdate(selected.value, { [batchField.value]: batchValue.value.trim() })
-    emit('notify', `已更新 ${r.updated} 条记录`)
+    emit('notify', r.updated > 0 ? `已更新 ${r.updated} 条记录` : '没有记录被修改（该字段可能不允许批量改）')
     batchValue.value = ''
     load()
   } catch (e) { emit('notify', '批量修改失败：' + e.message, true) }
+  finally { batchBusy.value = false }
 }
 function exportProfit() {
   runExport('profit', api.exportUrl('profit'), `利润表-${todayStr()}.csv`, '已导出利润表')
@@ -1008,7 +1019,9 @@ function onCardClick(r, e) {
           <option value="sell_time">卖出时间</option>
         </select>
         <input class="input" v-model="batchValue" placeholder="填入新值" @keyup.enter="applyBatchEdit" />
-        <button class="btn btn-sm btn-primary" @click="applyBatchEdit">应用</button>
+        <button class="btn btn-sm btn-primary" :disabled="batchBusy" @click="applyBatchEdit">
+          <span v-if="batchBusy" class="spin"></span>应用
+        </button>
       </div>
       <button class="btn btn-sm" @click="openGroupPicker(selected)">加入联单</button>
       <button class="btn btn-sm" :disabled="costBusy" @click="openCostPicker">

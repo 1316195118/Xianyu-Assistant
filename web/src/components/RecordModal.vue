@@ -146,12 +146,12 @@ const autoSellTag = (v) => (hasShip(v) ? '卖家承担' : '买家承担')
 // 载入已有记录时不要覆盖用户当初存下的标签
 let hydrating = false
 watch(() => form.buy_shipping, (v) => {
-  if (hydrating) return
+  if (hydrating || form.buy_ship_tag === '自提') return
   const t = autoBuyTag(v)
   if (form.buy_ship_tag !== t) form.buy_ship_tag = t
 })
 watch(() => form.sell_shipping, (v) => {
-  if (hydrating) return
+  if (hydrating || form.sell_ship_tag === '自提') return
   const t = autoSellTag(v)
   if (form.sell_ship_tag !== t) form.sell_ship_tag = t
 })
@@ -614,8 +614,13 @@ function onTagSelect(scope, ev) {
     newTag.value = ''
   } else {
     // 手动选的标签会一直保留，直到运费金额再变一次（金额才是唯一判定依据）
-    if (scope === 'buy') { customBuy.value = false; form.buy_ship_tag = v }
-    else { customSell.value = false; form.sell_ship_tag = v }
+    if (scope === 'buy') {
+      customBuy.value = false; form.buy_ship_tag = v
+      if (v === '自提') form.buy_shipping = 0
+    } else {
+      customSell.value = false; form.sell_ship_tag = v
+      if (v === '自提') { form.sell_shipping = 0; recalcNet() }
+    }
   }
 }
 async function saveNewTag() {
@@ -624,8 +629,13 @@ async function saveNewTag() {
   try {
     await api.addTag(name)
     await loadTags()
-    if (tagScope.value === 'buy') { form.buy_ship_tag = name; customBuy.value = false }
-    else { form.sell_ship_tag = name; customSell.value = false }
+    if (tagScope.value === 'buy') {
+      form.buy_ship_tag = name; customBuy.value = false
+      if (name === '自提') form.buy_shipping = 0
+    } else {
+      form.sell_ship_tag = name; customSell.value = false
+      if (name === '自提') { form.sell_shipping = 0; recalcNet() }
+    }
     newTag.value = ''
   } catch (e) {
     errMsg.value = e.message
@@ -1040,6 +1050,10 @@ function onHeadEnd() {
           <div class="owner-pick">
             <input class="input" v-model="form.owner" placeholder="输入或选择归属人，如 张三"
                    autocomplete="off" @focus="ownerOpen = true" @input="ownerOpen = true" @blur="ownerBlur" />
+            <div v-if="ownerAll.length" class="owner-quick">
+              <button v-for="n in ownerAll.slice(0, 8)" :key="'q'+n" type="button" class="owner-quick-chip"
+                      :class="{ on: form.owner === n }" @click="form.owner = n">{{ n }}</button>
+            </div>
             <div v-if="ownerOpen" class="owner-list">
               <button v-for="n in ownerCandidates" :key="n" type="button" class="owner-item" @pointerdown.prevent="pickOwner(n)">{{ n }}</button>
               <button v-if="form.owner.trim() && !ownerCandidates.includes(form.owner.trim())"
@@ -1069,7 +1083,9 @@ function onHeadEnd() {
             </div>
             <div class="field">
               <label>买进运费</label>
-              <input class="input num" type="number" step="0.01" v-model.number="form.buy_shipping" placeholder="0.00" :class="{ 'is-err': errors.buy_shipping }" @input="clearErr('buy_shipping')" />
+              <input class="input num" type="number" step="0.01" v-model.number="form.buy_shipping" placeholder="0.00"
+                     :disabled="form.buy_ship_tag === '自提'" :class="{ 'is-err': errors.buy_shipping }" @input="clearErr('buy_shipping')" />
+              <span v-if="form.buy_ship_tag === '自提'" class="field-hint muted">自提：买运费固定 0</span>
               <span v-if="errors.buy_shipping" class="field-err">{{ errors.buy_shipping }}</span>
             </div>
             <div class="field full">
@@ -1148,7 +1164,9 @@ function onHeadEnd() {
                 <label>卖出运费<HelpTip text="成本项，从利润里扣除" /></label>
                 <a class="link link-mini" @click="autoNet">按 成交价−服务费 算到手</a>
               </div>
-              <input class="input num" type="number" step="0.01" v-model.number="form.sell_shipping" placeholder="0.00" :class="{ 'is-err': errors.sell_shipping }" @input="clearErr('sell_shipping'); recalcNet()" />
+              <input class="input num" type="number" step="0.01" v-model.number="form.sell_shipping" placeholder="0.00"
+                     :disabled="form.sell_ship_tag === '自提'" :class="{ 'is-err': errors.sell_shipping }" @input="clearErr('sell_shipping'); recalcNet()" />
+              <span v-if="form.sell_ship_tag === '自提'" class="field-hint muted">自提：卖运费固定 0</span>
               <span v-if="errors.sell_shipping" class="field-err">{{ errors.sell_shipping }}</span>
             </div>
             <div class="field full">

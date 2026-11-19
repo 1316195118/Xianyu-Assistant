@@ -226,6 +226,9 @@ func registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/stats/extras", authWrap(handleStatsExtras))
 	mux.HandleFunc("/api/consign/stats", authWrap(handleConsignStats))
 	mux.HandleFunc("/api/consign/owners", authWrap(handleConsignOwners))
+	mux.HandleFunc("/api/consign/settle", authWrap(handleConsignSettle))
+	mux.HandleFunc("/api/consign/settlements", authWrap(handleConsignSettlements))
+	mux.HandleFunc("/api/consign/settlements/", authWrap(handleConsignSettlementByID))
 	mux.HandleFunc("/api/ocr-feedback", authWrap(handleOCRFeedback))
 	mux.HandleFunc("/api/backup/verify", authWrap(handleBackupVerify))
 
@@ -1084,10 +1087,9 @@ func applySide(it *Item, in *ItemInput, side string) {
 	if in.Product != "" {
 		it.Product = in.Product
 	}
-	// 归属人：卖单常用（寄卖人），买进侧也允许带
-	if side == "" || side == "sell" || strings.TrimSpace(in.Owner) != "" {
-		it.Owner = strings.TrimSpace(in.Owner)
-	}
+	// 货物来源与归属：卖单/买单都要保存（卖单常标寄卖，之前只写在买进分支会丢）
+	it.Source = normSource(in.Source)
+	it.Owner = strings.TrimSpace(in.Owner)
 	if side == "" || side == "buy" {
 		it.Source = normSource(in.Source)
 		it.Owner = strings.TrimSpace(in.Owner)

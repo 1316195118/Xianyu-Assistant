@@ -153,6 +153,9 @@ CREATE TABLE IF NOT EXISTS settings (
 	// 只在 source 为空时补，不覆盖用户手填的来源，重复执行无副作用。
 	db.Exec(`UPDATE items SET source='闲鱼'
         WHERE COALESCE(source,'')='' AND note LIKE '闲鱼同步%'`)
+	// 一次性数据修复：早期版本 owner 列顺序错位，把「寄卖」写进了归属人。
+	// 归属人只可能是人名，这里清掉这条脏数据（幂等，不影响任何金额）。
+	db.Exec("UPDATE items SET owner='' WHERE owner='寄卖'")
 
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_items_parent ON items(parent_id)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_items_norm ON items(product_norm)")
@@ -188,6 +191,9 @@ CREATE TABLE IF NOT EXISTS settings (
 	if err := createBillCacheTable(); err != nil {
 		return err
 	}
+	if err := createConsignTables(); err != nil {
+		return err
+	}
 	if err := createGroupTables(); err != nil {
 		return err
 	}
@@ -204,7 +210,7 @@ CREATE TABLE IF NOT EXISTS settings (
 		return err
 	}
 	// 预置常用运费标签
-	for _, t := range []string{"包邮", "卖家承担", "买家承担", "到付"} {
+	for _, t := range []string{"包邮", "卖家承担", "买家承担", "到付", "自提"} {
 		if _, err := db.Exec("INSERT OR IGNORE INTO ship_tags(name, created_at) VALUES(?,?)", t, nowStr()); err != nil {
 			return err
 		}
@@ -526,4 +532,22 @@ func saveBillFact(r gfBillRow) {
         wuyou=excluded.wuyou, billed=excluded.billed, post_fee=excluded.post_fee,
         fetched_at=excluded.fetched_at`,
 		r.OrderNo, r.Actual, r.Auction, r.Tech, r.Wuyou, billed, r.PostFee, nowStr())
+}
+
+// createConsignTables 寄卖结算记录（谁结过多少钱），幂等建表。
+func createConsignTables() error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS consign_settlements (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        shop_id     INTEGER NOT NULL DEFAULT 1,
+        owner       TEXT NOT NULL,
+        amount      REAL NOT NULL DEFAULT 0,
+        note        TEXT NOT NULL DEFAULT '',
+        settled_at  TEXT NOT NULL,
+        created_at  TEXT NOT NULL
+    )`)
+	if err != nil {
+		return err
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_consign_settle_owner ON consign_settlements(shop_id, owner, settled_at)")
+	return nil
 }

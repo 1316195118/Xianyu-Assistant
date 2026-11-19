@@ -108,7 +108,8 @@ import { api } from './api'
 import { currentConfirm, settleConfirm } from './confirm'
 import { themeMode } from './theme'
 import ShopSwitcher from './components/ShopSwitcher.vue'
-import { activeId as activeShopId, loadShops, globalSession, hasAnyPassword } from './shopStore'
+import { activeId as activeShopId, loadShops, shops, globalSession, hasAnyPassword } from './shopStore'
+import { allShopsMode } from './shopScope'
 import { shopPickedThisSession, clearShopPicked } from './shopId'
 import { gfStatus, gfPanelOpen, gfRebindRequest } from './gfState'
 import {
@@ -690,6 +691,11 @@ function goSettingsFromModal() {
           <p class="muted">{{ pageSub }}</p>
         </div>
         <div class="topbar-actions">
+          <button v-if="shops.length > 1" class="scope-pill" :class="{ on: allShopsMode }"
+                  :title="allShopsMode ? '当前查看全部店铺合计，点击切回单店' : '当前只看这家店，点击切换为全部店铺合计'"
+                  @click="allShopsMode = !allShopsMode">
+            {{ allShopsMode ? '全部店铺' : '当前店铺' }}
+          </button>
           <ShopSwitcher @notify="notify" />
           <span class="presence" :class="{ live: connected }"
                 :title="connected ? `实时同步已连接 · ${online} 个客户端在线` : '实时同步未连接，正在自动重连…'">

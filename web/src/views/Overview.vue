@@ -5,6 +5,7 @@ import { fmtMoney, fmtNum, shortTime } from '../utils'
 import AnimatedNumber from '../components/AnimatedNumber.vue'
 import HelpTip from '../components/HelpTip.vue'
 import InsightsPanel from '../components/InsightsPanel.vue'
+import { allShopsMode } from '../shopScope'
 import ProductProfit from '../components/ProductProfit.vue'
 import AdvicePanel from '../components/AdvicePanel.vue'
 
@@ -46,7 +47,7 @@ const salesFoot = computed(() => {
   return '所有登记卖单，按成交价计，未扣服务费'
 })
 
-const allShops = ref(false)
+const allShops = allShopsMode
 const stats = ref(null)
 const period = ref('month')
 const periods = [{ v: 'month', t: '月' }, { v: 'quarter', t: '季' }, { v: 'week', t: '周' }]
@@ -352,16 +353,6 @@ const chart = computed(() => {
 <template>
   <div class="page ov-page">
     <div v-if="error" class="alert-err">{{ error }} <button class="btn btn-sm" @click="load">重试</button></div>
-
-    <!-- 店铺范围：单店 / 全部店铺合计 -->
-    <div class="shop-scope">
-      <span class="muted">统计范围</span>
-      <div class="chips">
-        <button class="chip" :class="{ on: !allShops }" @click="allShops = false">当前店铺</button>
-        <button class="chip" :class="{ on: allShops }" @click="allShops = true">全部店铺合计</button>
-      </div>
-      <span v-if="allShops" class="muted scope-note">合并所有店铺；目标与联单明细仍按店铺独立</span>
-    </div>
 
     <!-- Hero：本月经营。完结单核算已经在下面单独一条，这里放"这个月做得怎么样" -->
     <section class="card hero-card">

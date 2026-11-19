@@ -369,8 +369,23 @@ export const api = {
     })
   },
   statsExtras() { return req('/api/stats/extras') },
-  consignStats() { return req('/api/consign/stats') },
+  consignStats(params = {}) {
+    const q = new URLSearchParams(params).toString()
+    return req('/api/consign/stats' + (q ? '?' + q : ''))
+  },
   consignOwners() { return req('/api/consign/owners') },
+  consignSettle(payload) {
+    return req('/api/consign/settle', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    })
+  },
+  consignSettlements(params = {}) {
+    const q = new URLSearchParams(params).toString()
+    return req('/api/consign/settlements' + (q ? '?' + q : ''))
+  },
+  deleteConsignSettlement(id) {
+    return req('/api/consign/settlements/' + id, { method: 'DELETE' })
+  },
   ocrFeedback(data) {
     return req('/api/ocr-feedback', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
