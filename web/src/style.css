@@ -5580,8 +5580,12 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
 .rc-profit span { color: var(--text-3); }
 .rc-profit b { font-size: 13px; font-weight: 750; }
 
-/* 待账单独立成行、在格子里居中；金额单独一行右对齐，两者互不影响 */
-.fee-pending-line { display: block; width: fit-content; margin: 0 auto 1px; }
+/* 待账单浮在金额左侧空位上、垂直居中：不占布局，金额位置永远不变 */
+.rec-table td.col-price { position: relative; }
+.fee-pending-side {
+  position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+  font-size: 10.5px; padding: 1px 5px;
+}
 .price-num { display: block; }
 
 /* 明细表：联单独立成列（原来挂在商品名下面，长了会把商品行挤乱） */
@@ -5594,5 +5598,10 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
 
 /* 金额列：统一右对齐 + 不换行，带「待账单」的行数字也不会被顶歪；
    两列给同样宽度，成交价和到手价的数字在同一条竖线上 */
-.rec-table th.col-price { width: 128px; white-space: nowrap; }
-.rec-table td.col-price { white-space: nowrap; }
+.rec-table th.col-price { width: 136px; white-space: nowrap; }
+.rec-table td.col-price { white-space: nowrap; padding-left: 50px; }
+
+/* 联单列：表头与芯片一起居中，否则表头靠左、内容靠中，看着不对齐 */
+.rec-table th.col-group,
+.rec-table td.col-group { text-align: center; }
+.rec-table td.col-group .cell-groups { justify-content: center; }
