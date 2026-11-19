@@ -1751,8 +1751,9 @@ input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
 /* 「完结 / 取消完结」字数不一样，不定宽的话每点一次整行按钮都会左右跳。
    预留出最长文案的宽度，点击前后位置不变；其余按钮按最短可读宽度收，
    否则 5 个按钮会把表格撑到 1200+，1280 笔记本上必须横向拖才能看全。 */
-.cell-actions .btn-discard, .cell-actions .btn-settle { min-width: 80px; }
-.cell-actions .btn:not(.btn-discard):not(.btn-settle) { min-width: 56px; }
+/* 四个按钮统一宽度，间距才均匀（以前给「弃单」单独 80px，因为旧版有「完结/取消完结」
+   两种文案会左右跳；现在文案都是两个字，再留着就会让第一个按钮显得格外宽） */
+.cell-actions .btn { min-width: 0; }
 .cell-actions .btn-danger { color: var(--text-3); }
 .cell-actions .btn-danger:hover { color: var(--up); background: var(--up-soft); }
 .group-chip { gap: var(--sp-1); }
@@ -5067,7 +5068,7 @@ body:has(.ali-mask) .to-top { display: none !important; }
   /* 操作列：四个按钮统一间距、带文字（只有图标看不出是弃单还是删除） */
   .rc-actions-desktop { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
   .rc-actions-desktop .btn {
-    font-size: 11.5px; gap: 3px; min-width: 0; padding: 5px 8px;
+    font-size: 11.5px; gap: 3px; min-width: 54px; padding: 5px 8px;
     justify-content: center; white-space: nowrap; line-height: 1.2;
   }
   .rc-actions-desktop .btn .ico { width: 13px; height: 13px; margin: 0; flex: 0 0 auto; }
