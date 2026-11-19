@@ -770,6 +770,7 @@ async function save() {
   try {
     let saleId = props.record?.id || 0
     let autoGroupId = 0
+    const incomplete = []
     if (isEdit.value) {
       await api.update(props.record.id, payload)
     } else {
@@ -786,9 +787,8 @@ async function save() {
     if (!isEdit.value && saleId && file.value) {
       try {
         await api.uploadAttachment(saleId, file.value)
-      } catch (e) {
-        // 附件失败（超过 5MB / 网络）不影响记录本身，记录已经保存成功
-        console.warn('自动保存截图失败:', e.message)
+      } catch {
+        incomplete.push('截图上传')
       }
     }
     // 卖出单：把多选的买进单建立为联动单（N:M）。单个选择仍同时保留 parent_id 成本分摊。
@@ -799,11 +799,11 @@ async function save() {
           purchase_ids: selectedPurchases.value,
           title: form.product.trim() || '联动单'
         })
-      } catch (e) { /* 联动建立失败不影响主记录保存 */ }
+      } catch { incomplete.push('联单关联') }
     }
     try { localStorage.removeItem(DRAFT_KEY) } catch (e) {}
     justSaved.value = true
-    const info = { merged: false, product: form.product, id: saleId, editing: isEdit.value, autoGroup: !!autoGroupId }
+    const info = { merged: false, product: form.product, id: saleId, editing: isEdit.value, autoGroup: !!autoGroupId, incomplete }
     setTimeout(() => emit('saved', info), 420)
   } catch (e) {
     // 已完结联单的锁定优先于并发冲突：直接把服务端那句中文提示展示出来

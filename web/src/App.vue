@@ -512,7 +512,7 @@ function onHash() {
 // 反馈队列：连续操作不再互相覆盖，最多同时保留 3 条；带撤销动作的提示停留更久
 function notify(text, err = false, action = null, opts = {}) {
   const id = ++toastSeq
-  const ttl = action?.ttl || (action ? 9000 : 3200)
+  const ttl = action?.ttl || opts.ttl || (action ? 9000 : 3200)
   toasts.value.push({
     id, text, err, action, ttl, busy: false,
     tone: opts.tone || (err ? 'error' : 'success'),
@@ -593,7 +593,14 @@ function onSaved(info) {
   // 「已定位到指定记录」的横条），用户看不到别的单，还得手动点「显示全部」。
   // 现在只刷新列表，保持原来的筛选和位置。需要精确定位时走「最近记录」跳转。
   bump()
-  if (info?.merged) notify(`已自动合并到同名商品「${info.product}」`)
+  if (info?.incomplete?.length) {
+    const savedShop = activeShopId.value
+    const action = info.id ? { label: '查看该记录', run: () => {
+      if (activeShopId.value === savedShop) gotoRecord(info.id)
+      else notify('请切回保存记录时的店铺查看', false, null, { tone: 'info' })
+    } } : null
+    notify(`记录已保存，但${info.incomplete.join('、')}失败。不用重复录入，可到明细补传截图或关联联单。`, false, action, { tone: 'warn', ttl: 9000 })
+  } else if (info?.merged) notify(`已自动合并到同名商品「${info.product}」`)
   else if (info?.autoGroup) notify(`已保存，并自动生成联单「${info.product}」`)
   else notify(info?.editing ? '已保存修改' : '已保存')
 }
@@ -675,7 +682,7 @@ function goSettingsFromModal() {
         <span class="side-brand-text"><b>闲鱼售卖统计</b><small>经营数据看板</small></span>
       </div>
       <nav class="side-nav">
-        <button v-for="n in navItems" :key="n.key" :class="{ active: view === n.key }" @click="switchView(n.key)">
+        <button v-for="n in navItems" :key="n.key" :class="{ active: view === n.key }" :aria-current="view === n.key ? 'page' : undefined" @click="switchView(n.key)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="n.icon" /></svg>
           <span>{{ n.label }}</span>
         </button>
@@ -768,7 +775,7 @@ function goSettingsFromModal() {
 
     <!-- 手机底部导航 -->
     <nav class="tabbar">
-      <button v-for="n in navItems" :key="n.key" :class="{ active: view === n.key }" @click="switchView(n.key)">
+      <button v-for="n in navItems" :key="n.key" :class="{ active: view === n.key }" :aria-current="view === n.key ? 'page' : undefined" @click="switchView(n.key)">
         <span class="tab-ico">
           <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="n.icon" /></svg>
           <i v-if="n.key === 'records' && todoCount > 0" class="tab-badge" :title="todoCount + ' 单未挂成本'">{{ todoCount > 99 ? '99+' : todoCount }}</i>

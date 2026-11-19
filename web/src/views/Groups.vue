@@ -611,7 +611,7 @@ async function toggleSettle(g) {
             <span class="gc-state" :class="isSettled(g) ? 'done' : 'open'">{{ isSettled(g) ? '已完结' : '进行中' }}</span>
             <span class="gc-count">{{ g.stats.buy_count }} 买 · {{ g.stats.sell_count }} 卖<span v-if="g.note" class="gc-note-dot" title="有备注">备注</span></span>
           </span>
-          <!-- 和明细表行尾那三个按钮完全一致：纯文字、等宽、无边框 -->
+          <!-- 和明细统一为等宽带边框的文字按钮；手机端提高触控高度。 -->
           <div class="gc-mini-acts" @click.stop>
             <button class="btn btn-sm btn-ghost" :title="isSettled(g) ? '重新开启这个联单' : '把这一批货标记为完结'" @click="toggleSettle(g)">
               {{ isSettled(g) ? '开启' : '完结' }}

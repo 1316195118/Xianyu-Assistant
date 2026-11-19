@@ -13,12 +13,18 @@ const props = defineProps({ refreshKey: { type: Number, default: 0 } })
 const emit = defineEmits(['add', 'goto-records', 'goto-record', 'goto-product', 'goto-settings', 'goto-calc', 'goto-report', 'notify'])
 
 // 备份提醒：超过 7 天没备份（或从未备份）就在首页提一句
-const backupLast = ref('')
+const backupLast = ref(null) // null：尚未读取或读取失败；空字符串：确实没有备份
 const monthTarget = ref(0)   // 本月利润目标，0=未设置
+const targetForMonth = ref('')
+function currentMonth() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
 // 完结单核算默认收起：手机首屏放不下完整卡片，收起后只占一行，
 // 首屏不再出现「被导航栏切掉一半」的尴尬；点标题展开看三个金额。
 const ssOpen = ref(true)
 const backupWarn = computed(() => {
+  if (backupLast.value === null) return ''
   if (!backupLast.value) return '还没有备份过，数据只存在这台机器上'
   const d = new Date(String(backupLast.value).replace(/-/g, '/'))
   if (isNaN(d.getTime())) return ''
@@ -53,6 +59,7 @@ const period = ref('month')
 const periods = [{ v: 'month', t: '月' }, { v: 'quarter', t: '季' }, { v: 'week', t: '周' }]
 const recent = ref([])
 const trend = ref([])
+const monthlyTrend = ref(null)
 const loading = ref(true)
 // 已经有数据时刷新不再回骨架屏：后台静默拉新，页面内容不闪
 const showSkeleton = computed(() => loading.value && !stats.value)
@@ -105,13 +112,16 @@ async function load() {
   loading.value = true; error.value = ''
   try {
     const scope = allShops.value ? { all: '1' } : {}
-    const [s, l, t, gs] = await Promise.all([
+    const chartPeriod = period.value
+    const [s, l, t, gs, mt] = await Promise.all([
       api.stats(scope), api.list({ page: 1, page_size: 6, sort: 'created', order: 'desc' }),
-      api.trend({ period: period.value, ...scope }),
-      allShops.value ? Promise.resolve(null) : api.groupsBrief().catch(() => null)
+      api.trend({ period: chartPeriod, ...scope }),
+      allShops.value ? Promise.resolve(null) : api.groupsBrief().catch(() => null),
+      chartPeriod === 'month' ? null : api.trend({ period: 'month', ...scope }).catch(() => null)
     ])
     if (seq !== loadSeq) return
     stats.value = s; recent.value = l.items; trend.value = t.months || []
+    monthlyTrend.value = chartPeriod === 'month' ? trend.value : (mt?.months ?? null)
     const set = new Set()
     for (const g of (gs?.items || [])) {
       if (g.settled_at) for (const id of (g.item_ids || [])) set.add(id)
@@ -126,14 +136,13 @@ onActivated(() => { if (Date.now() - lastLoaded > 800) load() })
 // 月底目标提醒：剩 3 天内且没达标，提示一次（按月份去重，会话内不再弹）
 setTimeout(() => {
   try {
-    if (allShops.value) return
-    const t = monthTarget.value || 0
-    if (t <= 0) return
-    const d = daysLeft.value || 0
-    if (d > 3 || d < 0) return
-    const p = month.value?.profit || 0
+    if (!showTarget.value) return
+    const t = monthTarget.value
+    const d = daysLeft.value
+    if (d > 3 || d < 1) return
+    const p = thisMonth.value.profit || 0
     if (p >= t) return
-    const key = 'xy-target-nudge-' + (month.value?.month || '')
+    const key = 'xy-target-nudge-' + targetForMonth.value
     if (sessionStorage.getItem(key)) return
     sessionStorage.setItem(key, '1')
     emit('notify', `本月目标还差 ${fmtMoney(t - p)}，剩 ${d} 天`, false, null, { tone: 'warn' })
@@ -141,21 +150,28 @@ setTimeout(() => {
 }, 1500)
 // 备份状态：只取「上次备份时间」，用来在首页提醒
 onMounted(async () => {
-  try { backupLast.value = (await api.getBackups()).last || '' } catch (e) { backupLast.value = '' }
+  try { backupLast.value = (await api.getBackups()).last || '' } catch { backupLast.value = null }
 })
-// 月度目标：按当前数据月份读，切月/刷新时一起更新
+// 月度目标与趋势选择的周、月、季周期无关。
+let targetSeq = 0
 async function loadTarget() {
-  // 不用 month（它定义在后面，watch 创建时读会撞 TDZ）；目标本来就按当前月存。
-  const m = new Date().toISOString().slice(0, 7)
+  const seq = ++targetSeq
+  if (allShops.value) return
+  const m = currentMonth()
   try {
     const r = await api.getMonthlyTarget(m)
+    if (seq !== targetSeq) return
     monthTarget.value = Number(r?.target) || 0
-  } catch (e) { monthTarget.value = 0 }
+    targetForMonth.value = m
+  } catch {
+    if (seq === targetSeq) targetForMonth.value = ''
+  }
 }
 onMounted(loadTarget)
+onActivated(() => { if (targetForMonth.value !== currentMonth()) loadTarget() })
 watch(() => props.refreshKey, loadTarget)
 watch(() => props.refreshKey, load)
-watch(allShops, load)
+watch(allShops, () => { load(); loadTarget() })
 watch(period, () => load())
 
 // 最近记录沿用明细口径：买单 / 卖单（已完结联单内额外显示「完结单」徽标）；
@@ -230,9 +246,20 @@ const donutCenter = computed(() => {
   return { label: '累计净利', value: fmtMoney(d.profit), sub: '利润率 ' + profitMargin.value.toFixed(1) + '%', neg: d.profit < 0 }
 })
 
-// Hero 右侧小指标改按「完结单」口径，与 Hero 大数字（完成单净利润）自洽
-// 本月经营数据（Hero 用）
-const month = computed(() => (monthDelta.value ? monthDelta.value.latest : null))
+// Hero 展示的是「数据里最近有成交的那个月」：月初还没开单时，
+// 它仍然停在上个月的真实数字，不会突然变成一条空记录。
+const month = computed(() => {
+  const ms = monthlyTrend.value || []
+  return ms.length ? ms[ms.length - 1] : null
+})
+// 月度目标是按自然月存的，进度必须用「当前这个月」算，
+// 不能跟着 Hero 的最近成交月走，否则月初会把上个月的利润算进本月进度。
+const thisMonth = computed(() => {
+  const m = currentMonth()
+  return monthlyTrend.value?.find(x => x?.month === m) || { month: m, profit: 0 }
+})
+const showTarget = computed(() => !allShops.value && monthlyTrend.value !== null &&
+  targetForMonth.value === thisMonth.value.month && monthTarget.value > 0)
 const monthLabel = computed(() => {
   const m = month.value?.month || ''
   const p = m.split('-')
@@ -240,16 +267,13 @@ const monthLabel = computed(() => {
 })
 const targetPct = computed(() => {
   if (!monthTarget.value || monthTarget.value <= 0) return 0
-  return Math.max(0, Math.min(100, ((month.value?.profit || 0) / monthTarget.value) * 100))
+  return Math.max(0, Math.min(100, ((thisMonth.value.profit || 0) / monthTarget.value) * 100))
 })
 const daysLeft = computed(() => {
-  const m = month.value?.month || ''
-  if (!m) return 0
-  const [y, mo] = m.split('-').map(Number)
+  const [y, mo] = currentMonth().split('-').map(Number)
   const last = new Date(y, mo, 0).getDate()
   const today = new Date()
-  return (today.getMonth() + 1 === mo && today.getFullYear() === y)
-    ? Math.max(0, last - today.getDate() + 1) : 0
+  return Math.max(0, last - today.getDate() + 1)
 })
 const settledMargin = computed(() => {
   const s = stats.value || {}
@@ -262,13 +286,13 @@ const settledAvg = computed(() => {
 
 // 累计净利润 KPI 卡的本月净利润 + 环比/同比（取自月度趋势）
 const monthDelta = computed(() => {
-  const ms = (trend.value || []).filter(m => m && m.month)
-  if (!ms.length) return null
-  const latest = ms[ms.length - 1]
-  const prev = ms.length >= 2 ? ms[ms.length - 2] : null
-  const p = latest.month.split('-')
-  const ym = (parseInt(p[0], 10) - 1) + '-' + p[1]
-  const yearAgo = ms.find(x => x.month === ym) || null
+  const ms = monthlyTrend.value
+  const latest = month.value
+  if (!ms || !latest) return null
+  const [year, mon] = latest.month.split('-').map(Number)
+  const prevMonth = `${mon === 1 ? year - 1 : year}-${String(mon === 1 ? 12 : mon - 1).padStart(2, '0')}`
+  const prev = ms.find(x => x?.month === prevMonth)
+  const yearAgo = ms.find(x => x?.month === `${year - 1}-${String(mon).padStart(2, '0')}`)
   const pct = (cur, base) => {
     if (base === 0) return cur === 0 ? 0 : (cur > 0 ? 100 : -100)
     return (cur - base) / Math.abs(base) * 100
@@ -402,8 +426,8 @@ const chart = computed(() => {
           <span>本月目标 {{ fmtMoney(monthTarget) }}<template v-if="daysLeft"> · 剩 {{ daysLeft }} 天</template></span>
           <b class="num">{{ targetPct.toFixed(0) }}%</b>
         </div>
-        <div class="ht-bar"><i :style="{ width: targetPct + '%' }"></i></div>
-        <div class="ht-foot">已完成 {{ fmtMoney(Math.max(0, month?.profit || 0)) }} / {{ fmtMoney(monthTarget) }}</div>
+        <div class="ht-bar" role="progressbar" aria-label="本月利润目标完成进度" :aria-valuenow="Math.round(targetPct)"><i :style="{ width: targetPct + '%' }"></i></div>
+        <div class="ht-foot">已完成 {{ fmtMoney(Math.max(0, thisMonth.profit || 0)) }} / {{ fmtMoney(monthTarget) }}</div>
       </div>
     </section>
 

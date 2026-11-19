@@ -11,6 +11,7 @@ import AlipayImport from '../components/AlipayImport.vue'
 import HelpTip from '../components/HelpTip.vue'
 import { undoAction } from '../feedback'
 import { gfPanelOpen, gfStatus } from '../gfState'
+import { activeId, activeShop } from '../shopStore'
 
 const props = defineProps({ refreshKey: { type: Number, default: 0 } })
 const emit = defineEmits(['notify', 'refresh'])
@@ -83,27 +84,48 @@ const engine = ref('local')
 const form = reactive({ ocr_api_base: '', ocr_model: '', ocr_api_key: '' })
 const meta = ref({ has_key: false, masked_key: '', source: 'env', env_fallback: false })
 // 月度利润目标（按店铺按月）
-const targetMonth = ref(new Date().toISOString().slice(0, 7))
-const targetValue = ref(0)
+const now = new Date()
+const targetMonth = ref(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
+const targetValue = ref(null)
 const targetSaving = ref(false)
-const targetMsg = ref('')
+const targetLoading = ref(false)
+const targetLoadedMonth = ref('')
+const targetReadError = ref('')
+const targetMsg = ref(null)
+const canSaveTarget = computed(() => !targetSaving.value && !targetLoading.value &&
+  !!targetMonth.value && targetLoadedMonth.value === targetMonth.value &&
+  typeof targetValue.value === 'number' && Number.isFinite(targetValue.value) && targetValue.value >= 0)
+let targetSeq = 0
 async function loadTarget() {
+  const seq = ++targetSeq
+  const month = targetMonth.value
+  targetLoadedMonth.value = ''; targetValue.value = null
+  targetMsg.value = null; targetReadError.value = ''
+  targetLoading.value = !!month
+  if (!month) return
   try {
-    const r = await api.getMonthlyTarget(targetMonth.value)
+    const r = await api.getMonthlyTarget(month)
+    if (seq !== targetSeq) return
     targetValue.value = Number(r?.target) || 0
-  } catch (e) { targetValue.value = 0 }
+    targetLoadedMonth.value = month
+  } catch (e) {
+    if (seq === targetSeq) targetReadError.value = `读取目标失败：${e.message || '请重试'}`
+  } finally {
+    if (seq === targetSeq) targetLoading.value = false
+  }
 }
 async function saveTarget() {
-  targetSaving.value = true; targetMsg.value = ''
+  if (!canSaveTarget.value) return
+  const month = targetMonth.value
+  targetSaving.value = true; targetMsg.value = null
   try {
-    await api.saveMonthlyTarget(targetMonth.value, Number(targetValue.value) || 0)
-    targetMsg.value = '已保存'
+    await api.saveMonthlyTarget(month, targetValue.value)
+    targetMsg.value = { ok: true, text: '已保存月度目标' }
+    emit('notify', '已保存月度目标')
     emit('refresh')
-    setTimeout(() => { targetMsg.value = '' }, 2500)
-  } catch (e) { targetMsg.value = e.message || '保存失败' }
+  } catch (e) { targetMsg.value = { ok: false, text: `保存失败：${e.message || '请重试'}` } }
   finally { targetSaving.value = false }
 }
-onMounted(loadTarget)
 watch(targetMonth, loadTarget)
 
 const advancedOpen = ref(false)
@@ -159,6 +181,7 @@ const readonlyPwd = ref('')
 const helpOpen = ref(false)      // 识别与配对说明：默认收起
 const readonlyOpen = ref(false)  // 只读账号二级窗口
 const targetOpen = ref(false)    // 月度利润目标二级窗口
+watch(targetOpen, (open) => { if (open && !targetSaving.value) loadTarget() })
 
 async function saveReadonly() {
   if (readonlyPwd.value.length < 4) { emit('notify', '只读密码至少 4 位', true); return }
@@ -353,7 +376,39 @@ function doExportExcel() {
     setTimeout(() => { excelBusy.value = false }, 600)
   })
 }
-function pickFile() { fileInput.value?.click() }
+function pickFile() { if (!importBusy.value) fileInput.value?.click() }
+
+async function submitImport(mode, parsed, format, shop) {
+  const replacing = mode === 'replace'
+  const ok = await confirm({
+    title: replacing ? '确认覆盖店铺数据？' : '确认追加数据？',
+    message: `将从 ${format} 文件导入 ${parsed.items.length} 条记录到「${shop.name}」。`,
+    detail: replacing
+      ? ['覆盖会替换当前店铺的交易明细，原有记录的联单关联可能受影响。', '导入前会自动备份；覆盖完成后 15 秒内可在提示中撤销。']
+      : ['追加不会清空现有记录；导入前会自动备份。'],
+    confirmText: replacing ? '确认覆盖' : '确认追加', danger: replacing
+  })
+  if (!ok) {
+    dataMsg.value = { text: '已取消导入，未修改数据。', ok: true }
+    return
+  }
+  if (activeId.value !== shop.id) throw new Error('店铺已切换，请重新选择导入文件')
+  const r = await api.importData(mode, parsed)
+  const text = r.message || `已导入 ${r.count ?? parsed.items.length} 条记录`
+  dataMsg.value = { text, ok: true }
+  emit('notify', text, false, undoAction(r.undo_token, {
+    label: '撤销导入',
+    ttl: 15000,
+    doneText: '已撤销导入，数据恢复到导入前',
+    after: async () => { await loadBackups(); emit('refresh') },
+    notify: (t) => emit('notify', t)
+  }))
+  emit('refresh')
+}
+
+function importShop() {
+  return { id: activeId.value, name: activeShop.value?.name || '当前店铺' }
+}
 
 // CSV 导入：把常见表头（中文或英文）映射成记录字段，再走和 JSON 一样的导入通道。
 const CSV_COLS = {
@@ -389,11 +444,13 @@ function parseCsv(text) {
   }
   return rows
 }
-function pickCsv() { csvInput.value?.click() }
+function pickCsv() { if (!importBusy.value) csvInput.value?.click() }
 async function onCsvFile(e) {
   const f = e.target.files?.[0]
-  if (!f) return
   e.target.value = ''
+  if (!f || importBusy.value) return
+  const mode = importMode.value, shop = importShop()
+  importBusy.value = true
   dataMsg.value = null
   try {
     const rows = parseCsv(await f.text())
@@ -420,11 +477,7 @@ async function onCsvFile(e) {
       items.push(it)
     }
     if (!items.length) { dataMsg.value = { text: '没有识别到可导入的列（需要 商品名称 + 金额 这类表头）', ok: false }; return }
-    importBusy.value = true
-    const r = await api.importData(importMode.value, { items })
-    emit('notify', `CSV 导入完成：新增/合并 ${r.count ?? items.length} 单`)
-    emit('refresh')
-    await load()
+    await submitImport(mode, { items }, 'CSV', shop)
   } catch (err) {
     dataMsg.value = { text: 'CSV 导入失败：' + (err.message || err), ok: false }
   } finally { importBusy.value = false }
@@ -432,69 +485,33 @@ async function onCsvFile(e) {
 
 async function onImportFile(e) {
   const f = e.target.files?.[0]
-  if (!f) return
-  dataMsg.value = null
-  let parsed
-  try {
-    parsed = JSON.parse(await f.text())
-  } catch (err) {
-    dataMsg.value = { text: '文件不是有效的 JSON', ok: false }
-    e.target.value = ''; return
-  }
-  if (!parsed || !Array.isArray(parsed.items)) {
-    dataMsg.value = { text: '缺少 items 数据，不是本系统导出的文件', ok: false }
-    e.target.value = ''; return
-  }
-  // 前端先做一遍数据体检，避免把坏数据送进后端再触发事务回滚
-  const seenOrders = new Set()
-  for (const it of parsed.items) {
-    const no = String(it.sell_order_no || it.buy_order_no || '').trim()
-    if (no && seenOrders.has(no)) {
-      dataMsg.value = { text: `导入文件存在重复订单号 ${no}`, ok: false }
-      e.target.value = ''; return
-    }
-    if (no) seenOrders.add(no)
-    for (const k of ['buy_price', 'sell_price', 'sell_net', 'buy_shipping', 'sell_shipping']) {
-      if (Number(it[k]) < 0) {
-        dataMsg.value = { text: `订单 ${no || '—'} 的 ${k} 为负数`, ok: false }
-        e.target.value = ''; return
-      }
-    }
-    const t = String(it.buy_time || it.sell_time || '').trim()
-    if (t && !/^\d{4}-\d{2}-\d{2}/.test(t)) {
-      dataMsg.value = { text: `订单 ${no || '—'} 的时间格式不合法：${t}`, ok: false }
-      e.target.value = ''; return
-    }
-  }
-  const modeText = importMode.value === 'replace' ? '覆盖（清空现有数据）' : '追加'
-  const ok = await confirm({
-    title: '导入数据？',
-    message: `将以「${modeText}」方式导入 ${parsed.items.length} 条记录。`,
-    detail: [
-      importMode.value === 'replace' ? '覆盖模式会先清空现有全部数据。' : '追加模式会保留现有记录。',
-      '导入前系统会自动生成一份备份；覆盖导入后也可在提示条中撤销（15 秒）。'
-    ],
-    confirmText: '确认导入', danger: true
-  })
-  if (!ok) { e.target.value = ''; return }
+  e.target.value = ''
+  if (!f || importBusy.value) return
+  const mode = importMode.value, shop = importShop()
   importBusy.value = true
+  dataMsg.value = null
   try {
-    const r = await api.importData(importMode.value, parsed)
-    dataMsg.value = { text: r.message, ok: true }
-    emit('notify', '数据导入完成', false, undoAction(r.undo_token, {
-      label: '撤销导入',
-      ttl: 15000,
-      doneText: '已撤销导入，数据恢复到导入前',
-      after: async () => { await loadBackups(); emit('refresh') },
-      notify: (t) => emit('notify', t)
-    }))
-    await loadBackups()
+    const raw = await f.text()
+    let parsed
+    try { parsed = JSON.parse(raw) }
+    catch { throw new Error('文件不是有效的 JSON') }
+    if (!Array.isArray(parsed?.items)) throw new Error('缺少 items 数据，不是本系统导出的文件')
+    const seenOrders = new Set()
+    for (const it of parsed.items) {
+      if (!it || typeof it !== 'object' || Array.isArray(it)) throw new Error('文件中有无法识别的记录')
+      const no = String(it.sell_order_no || it.buy_order_no || '').trim()
+      if (no && seenOrders.has(no)) throw new Error(`导入文件存在重复订单号 ${no}`)
+      if (no) seenOrders.add(no)
+      for (const k of ['buy_price', 'sell_price', 'sell_net', 'buy_shipping', 'sell_shipping']) {
+        if (Number(it[k]) < 0) throw new Error(`订单 ${no || '—'} 的 ${k} 为负数`)
+      }
+      const t = String(it.buy_time || it.sell_time || '').trim()
+      if (t && !/^\d{4}-\d{2}-\d{2}/.test(t)) throw new Error(`订单 ${no || '—'} 的时间格式不合法：${t}`)
+    }
+    await submitImport(mode, parsed, 'JSON', shop)
   } catch (err) {
-    dataMsg.value = { text: '导入失败：' + err.message, ok: false }
-  } finally {
-    importBusy.value = false
-    e.target.value = ''
-  }
+    dataMsg.value = { text: 'JSON 导入失败：' + (err.message || err), ok: false }
+  } finally { importBusy.value = false }
 }
 
 async function selectEngine(v) {
@@ -873,8 +890,8 @@ async function test() {
           <div class="set-field-label">导入</div>
           <div class="import-row">
             <div class="seg seg-sm import-mode-seg">
-              <button :class="{ 'on-both': importMode === 'merge' }" @click="importMode = 'merge'">追加到现有数据</button>
-              <button :class="{ 'on-sell': importMode === 'replace' }" @click="importMode = 'replace'">覆盖全部数据</button>
+              <button :class="{ 'on-both': importMode === 'merge' }" :aria-pressed="importMode === 'merge'" :disabled="importBusy" @click="importMode = 'merge'">追加到现有数据</button>
+              <button :class="{ 'on-sell': importMode === 'replace' }" :aria-pressed="importMode === 'replace'" :disabled="importBusy" @click="importMode = 'replace'">覆盖当前店铺数据</button>
             </div>
             <button class="btn btn-quiet" @click="pickFile" :disabled="importBusy"><span v-if="importBusy" class="spin"></span>选择 JSON 文件并导入</button>
             <button class="btn btn-quiet" @click="pickCsv" :disabled="importBusy"><span v-if="importBusy" class="spin"></span>导入 CSV 表格</button>
@@ -894,12 +911,14 @@ async function test() {
         <div class="modal-body">
           <p class="muted set-sheet-desc">设一个当月净利润目标，首页会显示完成进度和剩余天数。按店铺、按月份分别保存；填 0 表示不设目标。</p>
           <div class="target-row">
-            <input class="input num" type="month" v-model="targetMonth" aria-label="目标月份" />
-            <input class="input num" type="number" min="0" step="100" v-model.number="targetValue" placeholder="目标净利润，如 5000" aria-label="目标金额" />
+            <input class="input num" type="month" v-model="targetMonth" :disabled="targetSaving" aria-label="目标月份" />
+            <input class="input num" type="number" min="0" step="0.01" v-model.number="targetValue" :disabled="targetSaving || targetLoading || targetLoadedMonth !== targetMonth || !targetMonth" placeholder="目标净利润，如 5000" aria-label="目标金额" />
           </div>
-          <div v-if="targetMsg" class="tip" :class="{ err: targetMsg.includes('失败') }">{{ targetMsg }}</div>
+          <div v-if="targetLoading" class="tip" role="status">正在读取该月目标…</div>
+          <div v-else-if="targetReadError" class="tip err" role="alert">{{ targetReadError }} <button class="btn btn-sm" @click="loadTarget">重试</button></div>
+          <div v-else-if="targetMsg" class="tip" :class="{ err: !targetMsg.ok }" :role="targetMsg.ok ? 'status' : 'alert'">{{ targetMsg.text }}</div>
         </div>
-        <div class="modal-foot"><button class="btn btn-ghost" @click="targetOpen = false">关闭</button><button class="btn btn-primary" :disabled="targetSaving" @click="saveTarget"><span v-if="targetSaving" class="spin"></span>保存</button></div>
+        <div class="modal-foot"><button class="btn btn-ghost" @click="targetOpen = false">关闭</button><button class="btn btn-primary" :disabled="!canSaveTarget" @click="saveTarget"><span v-if="targetSaving" class="spin"></span>{{ targetSaving ? '保存中…' : '保存' }}</button></div>
       </div>
     </div>
 

@@ -5883,3 +5883,48 @@ html[data-theme="dark"] .record-foot .modal-err {
 
 /* 错误条多占一行，弹窗主体要让出这段高度，否则底部按钮会被顶出屏幕 */
 .modal.has-err .modal-body { max-height: calc(100vh - 268px); }
+
+/* 经营概览：核算区沿用全站利润语义色与等宽数字。 */
+.ss-nums b.pos { color: var(--up); }
+.ss-nums b.neg { color: var(--down); }
+.ss-nums b { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 600px) {
+  .topbar { column-gap: 8px; }
+  .topbar-titles h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-actions { min-width: 0; gap: 6px; }
+  .topbar-actions .shop-switch { position: static; min-width: 0; flex: 0 1 auto; }
+  .topbar-actions .shop-btn { display: flex; max-width: min(128px, 100%); min-height: 32px; }
+  .topbar-actions .shop-menu { right: 12px; width: min(244px, calc(100% - 24px)); }
+  .topbar-actions .gf-presence { min-height: 32px; }
+
+  .filter-foot .date-range { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  .filter-foot .amount-range { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filter-foot .date-input, .filter-foot .amount-input { width: 100%; min-width: 0; }
+  .filter-foot .sort-group .select { min-width: 0; }
+
+  .kpi-grid, .kpi-grid.kpi-grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi-card .kpi-value { overflow-wrap: anywhere; white-space: normal; }
+  .kpi-card .kpi-label-row { flex-wrap: wrap; gap: 4px; }
+  .kpi-card .kpi-seg { margin: 0; }
+  .kpi-card .kpi-seg button { min-width: 26px; min-height: 26px; }
+  .settle-strip { grid-template-columns: minmax(0, 1fr) auto; }
+  .settle-strip .ss-nums { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .settle-strip .ss-nums b { overflow-wrap: anywhere; white-space: normal; }
+  .ht-line { flex-wrap: wrap; gap: 3px 10px; }
+
+  .gc-foot { flex-wrap: wrap; }
+  .gc-left { overflow: visible; }
+  .gc-mini-acts { margin-left: auto; }
+  .gc-mini-acts .btn { height: 34px; min-height: 34px; }
+  .gc-line .gc-profit { min-width: 0; overflow-wrap: anywhere; }
+  .gc-sub { flex: 0 0 auto; }
+  .gd-panel { max-height: 90dvh; }
+  .gd-foot { flex-wrap: wrap; padding-bottom: calc(11px + env(safe-area-inset-bottom, 0px)); }
+}
+@media (max-width: 360px) {
+  .topbar .topbar-mobile-brand { display: none; }
+  .topbar-actions .shop-btn { max-width: min(103px, 100%); padding-inline: 7px; gap: 5px; }
+  .topbar-actions .scope-pill { padding-inline: 6px; }
+  .settle-strip .ss-nums b { font-size: 13px; }
+}
