@@ -5126,3 +5126,20 @@ html[data-motion="reduce"] .filter-card .filter-body { transition: none !importa
 .group-card .gc-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-card .gc-head .seal-inline { flex: 0 0 auto; }
 .group-card .gc-count { flex: 0 0 auto; }
+
+/* 明细页顶部：解释底部导航红点（未挂成本卖单），并给出直达入口 */
+.todo-hint {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: 12px;
+  background: rgba(245, 158, 11, .10);
+  border: 1px solid rgba(245, 158, 11, .32);
+  color: #8a5a00; font-size: 12.5px; line-height: 1.4;
+}
+html[data-theme="dark"] .todo-hint { color: #fbbf24; background: rgba(245, 158, 11, .12); }
+.todo-hint svg { flex: 0 0 auto; }
+.todo-hint span { flex: 1 1 auto; min-width: 0; }
+.todo-hint .btn { flex: 0 0 auto; }
+@media (max-width: 600px) {
+  .todo-hint { flex-wrap: wrap; }
+  .todo-hint span { flex: 1 1 100%; }
+}

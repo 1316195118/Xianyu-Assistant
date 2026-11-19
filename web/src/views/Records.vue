@@ -14,6 +14,11 @@ const emit = defineEmits(['add', 'edit', 'refresh', 'notify', 'goto-group', 'bat
 
 const q = ref('')
 const type = ref('')
+// 底部导航「明细」红点的来源：这些卖单还没挂成本，利润只能按 0 算
+const todoUnlinked = ref(0)
+async function loadTodo() {
+  try { todoUnlinked.value = Number((await api.todoCount()).unlinked) || 0 } catch (e) { todoUnlinked.value = 0 }
+}
 const from = ref('')
 const to = ref('')
 let savedSort = {}
@@ -624,6 +629,9 @@ const isDiscarded = (r) => !!(r && r.discarded_at)
 const noCostSale = (r) => !!r && r.kind === 'sale' && !r.parent_id && !r.has_buy && !r.discarded_at
 // 卖单费用为 0 且到手价等于成交价：闲鱼账单还没生成（次月/3 天后出），不是真的免手续费
 const feePending = (r) => !!r.has_sell && !r.sell_fee && !r.sell_wuyou_fee && Math.abs((r.sell_net || 0) - (r.sell_price || 0)) < 0.005
+// 闲鱼同步但账单还没出：列表接口给的是「商品金额」，账单出来后才会按「实收金额」更正。
+// 只在同步记录上标，手动录入的卖单没费用不代表待结算。
+const billPending = (r) => feePending(r) && /账单尚未生成/.test(r.note || '')
 // 属于联单的记录不能在明细里单独完结/弃单，必须回联单页操作
 const inGroup = (r) => (groupsOf(r.id) || []).length > 0
 // 已完结联单里的记录等于「已对过账」，不让直接改/删，必须先回联单页重新开启
@@ -726,10 +734,11 @@ function onDocClick(e) {
 onMounted(() => {
   // 从商品利润排行跳进来时，focusNonce 的 immediate watch 已经发过请求了，别重复发
   if (!productFilter.value) load()
+  loadTodo()
   document.addEventListener('click', onDocClick)
 })
 onUnmounted(() => document.removeEventListener('click', onDocClick))
-watch(() => props.refreshKey, () => load())
+watch(() => props.refreshKey, () => { load(); loadTodo() })
 watch([type, from, to, sort, order, pageSize], () => { if (!jumping) reload(true) })
 // 金额逐键触发会打出一串请求：400ms 内只发最后一次
 let amountTimer = null
@@ -874,6 +883,14 @@ function onCardClick(r, e) {
 <template>
   <div class="page">
     <div v-if="error" class="alert-err">{{ error }} <button class="btn btn-sm" @click="load">重试</button></div>
+
+    <!-- 底部导航「明细」那个红点的说明：点进去能直接只看这些单 -->
+    <div v-if="todoUnlinked > 0 && type !== 'unlinked'" class="todo-hint">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span>有 <b>{{ todoUnlinked }}</b> 笔卖单还没挂成本，利润暂时按 0 算</span>
+      <button class="btn btn-sm" @click="type = 'unlinked'">只看这些</button>
+      <button class="btn btn-sm btn-quiet" @click="openAutoLink">一键挂成本</button>
+    </div>
 
     <!-- 筛选：三行分区，主操作 / 条件 / 工具各占一层 -->
     <section class="card filter-card" :class="{ 'filter-open': filterOpen }">
@@ -1220,7 +1237,11 @@ function onCardClick(r, e) {
                   </button>
                   <span v-else class="td-thumb-empty">—</span>
                 </td>
-                <td class="td-right num td-buy">{{ fmtMoney(rowBuyPrice(r)) }}</td>
+                <td class="td-right num td-buy">
+                  {{ fmtMoney(rowBuyPrice(r)) }}
+                  <b v-if="billPending(r)" class="fee-pending"
+                     title="闲鱼订单列表给的是商品金额；账单一般延后几天生成，出账后再点「立即同步」会按实收金额自动更正">待账单</b>
+                </td>
                 <td class="td-right num td-muted col-ship">{{ fmtMoney(r.buy_shipping + r.sell_shipping) }}</td>
                 <td class="td-right num" :class="[r.has_sell ? 'net-col' : 'td-buy', { 'is-neg': r.has_sell && rowNet(r) < 0 }]">{{ fmtMoney(rowMidValue(r)) }}</td>
                 <td class="td-right num td-muted col-fee">{{ r.has_sell ? fmtMoney((r.sell_fee || 0) + (r.sell_wuyou_fee || 0)) : '—' }}</td>
@@ -1375,7 +1396,7 @@ function onCardClick(r, e) {
             <span v-if="groupsOf(r.id).length > 2" class="group-more">+{{ groupsOf(r.id).length - 2 }}</span>
           </div>
           <div class="rc-amounts">
-            <div class="rc-amt"><span>{{ r.has_sell ? '卖出价' : '买进价' }}</span><b class="num">{{ fmtMoney(rowBuyPrice(r)) }}</b></div>
+            <div class="rc-amt"><span>{{ r.has_sell ? '卖出价' : '买进价' }}</span><b class="num" :title="billPending(r) ? '商品金额，账单出来后按实收更正' : ''">{{ fmtMoney(rowBuyPrice(r)) }}</b></div>
             <div class="rc-amt" :class="{ 'rc-amt-primary': r.has_sell, 'is-neg': r.has_sell && rowNet(r) < 0 }">
               <span>{{ rowMidLabel(r) }}</span>
               <b class="num">{{ fmtMoney(rowMidValue(r)) }}</b>
@@ -1385,7 +1406,8 @@ function onCardClick(r, e) {
             <div class="rc-amt rc-amt-fee">
               <template v-if="r.has_sell">
                 <span>卖运费+手续费</span>
-                <b v-if="feePending(r)" class="fee-pending" title="闲鱼账单要延后 3 天生成，这一单的手续费还没出；出账后再点一次「立即同步」会自动补上">待结算</b>
+                <b v-if="billPending(r)" class="fee-pending" title="闲鱼订单列表给的是商品金额；账单出来后再点「立即同步」，会按实收金额自动更正">待账单</b>
+                <b v-else-if="feePending(r)" class="fee-pending" title="这一单没有服务费">无费用</b>
                 <b v-else class="num">{{ fmtMoney(sellDeduct(r)) }}</b>
               </template>
               <template v-else>
