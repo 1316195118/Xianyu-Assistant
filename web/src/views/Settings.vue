@@ -10,7 +10,7 @@ import GoofishSync from '../components/GoofishSync.vue'
 import AlipayImport from '../components/AlipayImport.vue'
 import HelpTip from '../components/HelpTip.vue'
 import { undoAction } from '../feedback'
-import { gfPanelOpen } from '../gfState'
+import { gfPanelOpen, gfStatus } from '../gfState'
 
 const props = defineProps({ refreshKey: { type: Number, default: 0 } })
 const emit = defineEmits(['notify', 'refresh'])
@@ -104,6 +104,8 @@ const recycleOpen = ref(false)  // 回收站二级窗口（设置页只留入口
 const versionOpen = ref(false)  // 版本信息二级窗口
 const shopOpen = ref(false)     // 店铺管理二级窗口
 const gfOpen = ref(false)
+const appearanceOpen = ref(false)  // 外观与动效二级窗口
+const engineOpen = ref(false)      // 识别引擎二级窗口
 // 顶栏「去绑定」请求的入口：组件可能是懒加载的，immediate 保证挂载时请求还没丢
 watch(gfPanelOpen, (v) => {
   if (!v) return
@@ -488,424 +490,312 @@ async function test() {
 
 <template>
   <div class="page settings-page">
-    <!-- 外观 -->
-    <div class="card settings-card">
-      <div class="list-head">
-        <div>
-          <h3 class="section-title">外观<HelpTip text="跟随系统或手动固定，设置保存在本机" /></h3>
-        </div>
+    <!-- 常用 -->
+    <section class="set-group">
+      <div class="set-group-head"><b>常用</b><span>绑定账号、导入账单、设定目标</span></div>
+      <div class="card set-group-items">
+        <button class="set-row" aria-label="打开闲鱼同步" @click="gfOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg></span>
+          <span class="set-row-main"><b>闲鱼同步</b><small>扫码绑定，一键拉单与自动对账</small></span>
+          <span class="badge" :class="gfStatus.logged_in ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ gfStatus.logged_in ? '已绑定' : '待绑定' }}</span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button class="set-row" aria-label="打开支付宝账单导入" @click="aliOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg></span>
+          <span class="set-row-main"><b>支付宝账单导入</b><small>按订单号补服务费与运费</small></span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button class="set-row" aria-label="打开月度利润目标" @click="targetOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg></span>
+          <span class="set-row-main"><b>月度利润目标</b><small>首页显示本月完成进度</small></span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
       </div>
-      <div class="settings-body">
-        <div class="theme-row">
+    </section>
+
+    <!-- 外观与识别 -->
+    <section class="set-group">
+      <div class="set-group-head"><b>外观与识别</b><span>界面显示与截图识别方式</span></div>
+      <div class="card set-group-items">
+        <button class="set-row" aria-label="打开外观与动效" @click="appearanceOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg></span>
+          <span class="set-row-main"><b>外观与动效</b><small>{{ themeLabel }} · {{ motionEffective === 'reduce' ? '减少动效' : '完整动效' }}</small></span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button class="set-row" aria-label="打开识别引擎" @click="engineOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10h4M7 14h8"/></svg></span>
+          <span class="set-row-main"><b>识别引擎</b><small>本地 OCR 不联网 / 视觉大模型更准</small></span>
+          <span class="badge badge-ok"><span class="dot"></span>{{ engine === 'local' ? '本地 OCR' : '视觉大模型' }}</span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button class="set-row" aria-label="打开视觉大模型 API" @click="advancedOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l-4 3 4 3"/><path d="M16 9l4 3-4 3"/><path d="M14 5l-4 14"/></svg></span>
+          <span class="set-row-main"><b>视觉大模型 API</b><small>仅在选用视觉模型时需要配置</small></span>
+          <span class="badge" :class="meta.has_key ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ meta.has_key ? '已配置' : '未配置' }}</span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button class="set-row" aria-label="打开识别与配对说明" @click="helpOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-.9.7-1.5 1.2-1.5 2.5"/><path d="M12 17h.01"/></svg></span>
+          <span class="set-row-main"><b>识别与配对说明</b><small>买卖判定、自动配对与利润口径</small></span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- 店铺与安全 -->
+    <section class="set-group">
+      <div class="set-group-head"><b>店铺与安全</b><span>多店铺隔离与访问权限</span></div>
+      <div class="card set-group-items">
+        <button class="set-row" aria-label="管理店铺" @click="shopOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16l-1 11H5L4 9z"/><path d="M8 9V6a4 4 0 0 1 8 0v3"/></svg></span>
+          <span class="set-row-main"><b>店铺管理</b><small>新建、改名与删除店铺</small></span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button class="set-row" aria-label="打开访问密码" @click="pwdOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
+          <span class="set-row-main"><b>访问密码</b><small>局域网 / 公网部署时建议开启</small></span>
+          <span class="badge" :class="auth.enabled ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ auth.enabled ? '已开启' : '未开启' }}</span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button class="set-row" aria-label="打开只读账号设置" @click="readonlyOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.5"/></svg></span>
+          <span class="set-row-main"><b>只读账号</b><small>独立密码，只能查看不能修改</small></span>
+          <span class="badge" :class="meta.has_readonly ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ meta.has_readonly ? '已开启' : '未设置' }}</span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- 数据与维护 -->
+    <section class="set-group">
+      <div class="set-group-head"><b>数据与维护</b><span>备份、迁移与误删恢复</span></div>
+      <div class="card set-group-items">
+        <button class="set-row" aria-label="打开自动备份" @click="backupOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
+          <span class="set-row-main"><b>自动备份</b><small>定时快照 · 上次 {{ backup.last || '从未' }}</small></span>
+          <span class="badge" :class="backup.enabled ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ backup.enabled ? '已开启' : '未开启' }}</span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button class="set-row" aria-label="打开数据导出与导入" @click="dataOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M4 17v3h16v-3"/></svg></span>
+          <span class="set-row-main"><b>数据导出 / 导入</b><small>JSON / CSV / Excel，跨设备迁移</small></span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button class="set-row" aria-label="打开回收站" @click="recycleOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6l1 14h12l1-14"/><path d="M10 11v6M14 11v6"/></svg></span>
+          <span class="set-row-main"><b>回收站</b><small>近 7 天的操作，可撤销恢复</small></span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- 关于 -->
+    <section class="set-group">
+      <div class="set-group-head"><b>关于</b><span>版本与版权信息</span></div>
+      <div class="card set-group-items">
+        <button class="set-row" aria-label="查看版本信息与更新日志" @click="versionOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+          <span class="set-row-main"><b>版本信息</b><small>当前版本与更新日志</small></span>
+          <span class="ver-tag mono">{{ versionLabel }}</span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button class="set-row" aria-label="开源许可与版权声明" @click="licensesOpen = true">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg></span>
+          <span class="set-row-main"><b>开源许可与版权声明</b><small>第三方组件归属与许可证全文</small></span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ 二级窗口 ============ -->
+    <!-- 外观与动效 -->
+    <div v-if="appearanceOpen" class="modal-mask set-sheet" @click.self="appearanceOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="外观与动效">
+        <div class="modal-head"><b>外观与动效</b><button class="x" @click="appearanceOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-body">
+          <p class="muted set-sheet-desc">主题与动效偏好保存在本机，可跟随系统或手动固定。</p>
+          <div class="set-field-label">主题</div>
           <div class="seg theme-seg">
             <button v-for="o in themeOptions" :key="o.v" :class="{ 'on-theme': themeMode === o.v }" @click="pickTheme(o.v)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="o.icon" /></svg>
               {{ o.t }}
             </button>
           </div>
-          <span class="muted theme-hint">当前：{{ themeLabel }}</span>
-        </div>
-        <div class="theme-row motion-row">
+          <div class="set-field-label spaced">动效</div>
           <div class="seg theme-seg">
             <button :class="{ 'on-theme': motionMode === 'system' }" @click="pickMotion('system')">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
-              跟随系统动效
+              跟随系统
             </button>
             <button :class="{ 'on-theme': motionMode === 'reduce' }" @click="pickMotion('reduce')">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16"/><path d="M8 8l-4 4 4 4"/></svg>
               减少动效
             </button>
           </div>
-          <span class="muted theme-hint">
-            当前：{{ motionEffective === 'reduce' ? '减少动效' : '完整动效' }}<template v-if="motionMode === 'system' && sysReduce">（系统已开启）</template>
-          </span>
+          <div class="muted settings-note">当前：{{ themeLabel }} · {{ motionEffective === 'reduce' ? '减少动效' : '完整动效' }}<template v-if="motionMode === 'system' && sysReduce">（系统已开启）</template></div>
         </div>
+        <div class="modal-foot"><button class="btn btn-primary" @click="appearanceOpen = false">完成</button></div>
       </div>
-    </div>
-
-    <!-- 月度利润目标 -->
-    <div class="card settings-card settings-entry" role="button" tabindex="0"
-         aria-label="打开月度利润目标" @click="targetOpen = true"
-         @keyup.enter="targetOpen = true" @keyup.space.prevent="targetOpen = true">
-      <span class="se-icon" aria-hidden="true">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg>
-      </span>
-      <div class="se-text">
-        <h3 class="section-title">月度利润目标<HelpTip text="给当前店铺设一个当月净利润目标，首页 Hero 会显示完成进度和本月剩余天数。按店铺、按月份分别保存，填 0 表示不设目标。" /></h3>
-      </div>
-      <span class="se-arrow" aria-hidden="true">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-      </span>
     </div>
 
     <!-- 识别引擎 -->
-    <div class="card settings-card">
-      <div class="list-head">
-        <div>
-          <h3 class="section-title">识别引擎<HelpTip text="决定「上传截图」时用哪种方式识别，随时可切换并保存在本机" /></h3>
-        </div>
-      </div>
-      <div class="settings-body">
-        <div class="engine-cards">
-          <div class="engine-card" :class="{ on: engine === 'local' }" @click="selectEngine('local')">
-            <div class="ec-head">
-              <span class="ec-title">本地 OCR</span>
-              <span class="badge badge-ok"><span class="dot"></span>默认 · 推荐</span>
+    <div v-if="engineOpen" class="modal-mask set-sheet" @click.self="engineOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="识别引擎">
+        <div class="modal-head"><b>识别引擎</b><button class="x" @click="engineOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-body">
+          <p class="muted set-sheet-desc">决定「上传截图」时用哪种方式识别，随时可切换。</p>
+          <div class="engine-cards">
+            <div class="engine-card" :class="{ on: engine === 'local' }" @click="selectEngine('local')">
+              <div class="ec-head"><span class="ec-title">本地 OCR</span><span class="badge badge-ok"><span class="dot"></span>默认 · 推荐</span></div>
+              <div class="ec-desc">浏览器内 WASM 离线运行，简体中文模型已随程序内嵌。<b>无需 API Key、无需联网、图片不上传</b>，开箱即用。</div>
+              <div class="ec-foot">识别后由规则解析金额/单号/时间，字段可在表单里核对修改</div>
             </div>
-            <div class="ec-desc">浏览器内 WASM 离线运行，简体中文模型已随程序内嵌。<b>无需 API Key、无需联网、图片不上传</b>，开箱即用。</div>
-            <div class="ec-foot">识别后由规则解析金额/单号/时间，字段可在表单里核对修改</div>
-          </div>
-          <div class="engine-card" :class="{ on: engine === 'vision' }" @click="selectEngine('vision')">
-            <div class="ec-head">
-              <span class="ec-title">视觉大模型</span>
-              <span class="badge badge-buy"><span class="dot"></span>进阶</span>
+            <div class="engine-card" :class="{ on: engine === 'vision' }" @click="selectEngine('vision')">
+              <div class="ec-head"><span class="ec-title">视觉大模型</span><span class="badge badge-buy"><span class="dot"></span>进阶</span></div>
+              <div class="ec-desc">调用 OpenAI 兼容的视觉模型，对复杂排版、商品标题的<b>理解更准</b>，需自行配置 API Key。</div>
+              <div class="ec-foot">图片会发送到你配置的接口，请在启用前确认该服务商的数据条款</div>
             </div>
-            <div class="ec-desc">调用 OpenAI 兼容的视觉模型，对复杂排版、商品标题的<b>理解更准</b>，需自行配置 API Key。</div>
-            <div class="ec-foot">图片会发送到你配置的接口，请在启用前确认该服务商的数据条款</div>
           </div>
+          <div v-if="msg" class="tip" :class="{ err: !msg.ok }">{{ msg.text }}</div>
         </div>
-        <div v-if="msg" class="tip" :class="{ err: !msg.ok }">{{ msg.text }}</div>
+        <div class="modal-foot"><button class="btn btn-primary" @click="engineOpen = false">完成</button></div>
       </div>
     </div>
 
-    <!-- 进阶设置：视觉大模型 -->
-    <div class="card settings-card">
-      <div class="list-head adv-head" @click="advancedOpen = !advancedOpen">
-        <div>
-          <h3 class="section-title">进阶设置 · 视觉大模型 API<HelpTip text="仅当使用「视觉大模型」引擎时需要；本地 OCR 用户可完全忽略" /></h3>
-        </div>
-        <span class="badge" :class="meta.has_key ? 'badge-ok' : 'badge-buy'">
-          <span class="dot"></span>{{ meta.has_key ? '已配置 Key' : '未配置 Key' }}
-        </span>
-        <span class="adv-arrow" :class="{ open: advancedOpen }">{{ advancedOpen ? '收起' : '展开' }}<svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-      </div>
-
-      <div v-if="advancedOpen" class="settings-body">
-        <div class="field">
-          <label>服务商预设<HelpTip text="点一下自动填端点与模型" /></label>
-          <div class="preset-row">
-            <button v-for="p in presets" :key="p.name" class="btn btn-sm" :class="{ on: form.ocr_api_base === p.base && form.ocr_model === p.model }" @click="applyPreset(p)">{{ p.name }}</button>
+    <!-- 视觉大模型 API -->
+    <div v-if="advancedOpen" class="modal-mask set-sheet" @click.self="advancedOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="视觉大模型 API">
+        <div class="modal-head"><b>视觉大模型 API</b><button class="x" @click="advancedOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-body">
+          <p class="muted set-sheet-desc">仅当使用「视觉大模型」引擎时需要；本地 OCR 用户可完全忽略。</p>
+          <div class="field">
+            <label>服务商预设<HelpTip text="点一下自动填端点与模型" /></label>
+            <div class="preset-row">
+              <button v-for="p in presets" :key="p.name" class="btn btn-sm" :class="{ on: form.ocr_api_base === p.base && form.ocr_model === p.model }" @click="applyPreset(p)">{{ p.name }}</button>
+            </div>
+          </div>
+          <div class="field"><label>API 地址（OpenAI 兼容 /v1）</label><input class="input mono" v-model="form.ocr_api_base" placeholder="https://api.openai.com/v1" /></div>
+          <div class="field"><label>视觉模型名称<HelpTip text="需选择支持图片输入的模型，否则识别会失败" /></label><input class="input mono" v-model="form.ocr_model" placeholder="gpt-4o-mini" /></div>
+          <div class="field">
+            <label>API Key<HelpTip text="Key 仅保存在本机 xianyu.db，不会回显明文。" /></label>
+            <input class="input mono" type="password" v-model="form.ocr_api_key" autocomplete="new-password" :placeholder="meta.has_key ? `已保存 ${meta.masked_key}，留空表示不修改` : 'sk-...'" />
+            <div v-if="meta.source === 'env' && meta.env_fallback" class="hint-inline" style="margin-top:4px">当前使用环境变量中的配置。</div>
           </div>
         </div>
-        <div class="field">
-          <label>API 地址（OpenAI 兼容 /v1）</label>
-          <input class="input mono" v-model="form.ocr_api_base" placeholder="https://api.openai.com/v1" />
-        </div>
-        <div class="field">
-          <label>视觉模型名称<HelpTip text="需选择支持图片输入的模型，否则识别会失败" /></label>
-          <input class="input mono" v-model="form.ocr_model" placeholder="gpt-4o-mini" />
-        </div>
-        <div class="field">
-          <label>API Key<HelpTip text="Key 仅保存在本机 xianyu.db，不会回显明文。" /></label>
-          <input class="input mono" type="password" v-model="form.ocr_api_key" autocomplete="new-password"
-            :placeholder="meta.has_key ? `已保存 ${meta.masked_key}，留空表示不修改` : 'sk-...'" />
-          <div v-if="meta.source === 'env' && meta.env_fallback" class="hint-inline" style="margin-top:4px">当前使用环境变量中的配置。</div>
-        </div>
-        <div class="settings-actions">
-          <button class="btn btn-quiet" @click="test" :disabled="testing || saving">
-            <span v-if="testing" class="spin"></span>测试连接
-          </button>
+        <div class="modal-foot">
+          <button class="btn btn-quiet" @click="test" :disabled="testing || saving"><span v-if="testing" class="spin"></span>测试连接</button>
           <button class="btn btn-ghost btn-danger" @click="clearKey" :disabled="!meta.has_key">清除 Key</button>
           <div class="spacer"></div>
-          <button class="btn btn-primary" @click="save" :disabled="saving">
-            <span v-if="saving" class="spin"></span>保存配置
-          </button>
+          <button class="btn btn-primary" @click="save" :disabled="saving"><span v-if="saving" class="spin"></span>保存配置</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 识别与配对说明 -->
+    <div v-if="helpOpen" class="modal-mask set-sheet" @click.self="helpOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="识别与配对说明">
+        <div class="modal-head"><b>识别与配对说明</b><button class="x" @click="helpOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-body help-body">
+          <div class="help-row"><b>买进单判定</b><span>截图出现「卖家昵称」→ 我是买家 → 识别为买进侧</span></div>
+          <div class="help-row"><b>卖出单判定</b><span>截图出现「买家昵称」/「预计到手」→ 我是卖家 → 识别为卖出侧</span></div>
+          <div class="help-row"><b>自动配对</b><span>按商品名把买进侧与卖出侧合并成一条记录；同名多件货依次配对，可用「两侧一起填」或编辑调整</span></div>
+          <div class="help-row"><b>利润口径</b><span>净利润 = 成交额 − 买价 − 买运费 − 卖运费 − 软件服务费 − 无忧卖服务费。「到手价」= 成交价 − 服务费 − 无忧卖 − 卖运费，用于展示与对账，不参与净利润计算</span></div>
+          <div class="help-row"><b>同步口径</b><span>闲鱼订单列表只覆盖近 3 个月（接口固定回 40 单）；历史订单在「闲鱼同步」里把「账单基准回溯」调到 6/12/24 个月，按收入 / 支出账单补建</span></div>
+          <div class="help-row"><b>手动录入</b><span>不识别也完全可用，直接在弹窗里填写买进/卖出两侧即可</span></div>
+        </div>
+        <div class="modal-foot"><button class="btn btn-primary" @click="helpOpen = false">知道了</button></div>
       </div>
     </div>
 
     <!-- 访问密码 -->
-    <div class="card settings-card">
-      <div class="list-head adv-head" @click="pwdOpen = !pwdOpen">
-        <div>
-          <h3 class="section-title">访问密码<HelpTip text="部署在局域网/公网时建议开启，保护你的交易数据" /></h3>
-        </div>
-        <span class="badge" :class="auth.enabled ? 'badge-ok' : 'badge-buy'">
-          <span class="dot"></span>{{ auth.enabled ? '已开启' : '未开启' }}
-        </span>
-        <span class="adv-arrow" :class="{ open: pwdOpen }">{{ pwdOpen ? '收起' : '展开' }}<svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-      </div>
-      <div v-if="pwdOpen" class="settings-body">
-        <div class="notice-box">
-          开启后，所有数据接口都需要登录；登录状态保存在 HttpOnly Cookie 中，7 天有效。密码以加盐哈希存储，不保存明文。<b>忘记密码</b>可在服务器执行 <code>xianyu-stat --reset-password</code> 清除。
-        </div>
-        <div class="form-grid tight">
-          <div class="field" v-if="auth.enabled">
-            <label>当前密码</label>
-            <input class="input" type="password" v-model="pwdForm.old" autocomplete="current-password" placeholder="修改或关闭时需要" />
+    <div v-if="pwdOpen" class="modal-mask set-sheet" @click.self="pwdOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="访问密码">
+        <div class="modal-head"><b>访问密码</b><button class="x" @click="pwdOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-body">
+          <div class="notice-box">开启后，所有数据接口都需要登录；登录状态保存在 HttpOnly Cookie 中，7 天有效。密码以加盐哈希存储，不保存明文。<b>忘记密码</b>可在服务器执行 <code>xianyu-stat --reset-password</code> 清除。</div>
+          <div class="form-grid tight">
+            <div class="field" v-if="auth.enabled"><label>当前密码</label><input class="input" type="password" v-model="pwdForm.old" autocomplete="current-password" placeholder="修改或关闭时需要" /></div>
+            <div class="field"><label>新密码</label><input class="input" type="password" v-model="pwdForm.password" autocomplete="new-password" placeholder="至少 4 位" /></div>
+            <div class="field"><label>确认新密码</label><input class="input" type="password" v-model="pwdForm.password2" autocomplete="new-password" placeholder="再输入一次" /></div>
           </div>
-          <div class="field">
-            <label>新密码</label>
-            <input class="input" type="password" v-model="pwdForm.password" autocomplete="new-password" placeholder="至少 4 位" />
-          </div>
-          <div class="field">
-            <label>确认新密码</label>
-            <input class="input" type="password" v-model="pwdForm.password2" autocomplete="new-password" placeholder="再输入一次" />
-          </div>
+          <div v-if="pwdMsg" class="tip" :class="{ err: !pwdMsg.ok }">{{ pwdMsg.text }}</div>
         </div>
-        <div v-if="pwdMsg" class="tip" :class="{ err: !pwdMsg.ok }">{{ pwdMsg.text }}</div>
-        <div class="settings-actions">
-          <button class="btn btn-primary" @click="savePassword" :disabled="pwdBusy">
-            <span v-if="pwdBusy" class="spin"></span>{{ auth.enabled ? '修改密码' : '开启访问密码' }}
-          </button>
+        <div class="modal-foot">
+          <button class="btn btn-primary" @click="savePassword" :disabled="pwdBusy"><span v-if="pwdBusy" class="spin"></span>{{ auth.enabled ? '修改密码' : '开启访问密码' }}</button>
           <button v-if="auth.enabled" class="btn btn-ghost btn-danger" @click="disablePassword" :disabled="pwdBusy">关闭密码</button>
         </div>
       </div>
     </div>
 
     <!-- 自动备份 -->
-    <div class="card settings-card">
-      <div class="list-head adv-head" @click="backupOpen = !backupOpen">
-        <div>
-          <h3 class="section-title">自动备份<HelpTip text="定时生成数据库一致性快照，导入或覆盖数据前也会自动备份" /></h3>
-        </div>
-        <span class="badge" :class="backup.enabled ? 'badge-ok' : 'badge-buy'">
-          <span class="dot"></span>{{ backup.enabled ? '已开启' : '未开启' }}
-        </span>
-        <span class="adv-arrow" :class="{ open: backupOpen }">{{ backupOpen ? '收起' : '展开' }}<svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-      </div>
-      <div v-if="backupOpen" class="settings-body">
-        <div class="backup-config">
-          <label class="switch-row">
-            <input type="checkbox" v-model="backup.enabled" />
-            <span>启用定时自动备份</span>
-          </label>
-          <div class="cfg-item">
-            <label>备份周期（小时）</label>
-            <input class="input num" type="number" min="1" max="720" v-model.number="backup.interval_hours" />
+    <div v-if="backupOpen" class="modal-mask set-sheet" @click.self="backupOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="自动备份">
+        <div class="modal-head"><b>自动备份</b><button class="x" @click="backupOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-body">
+          <p class="muted set-sheet-desc">定时生成数据库一致性快照，导入或覆盖数据前也会自动备份。</p>
+          <div class="backup-config">
+            <label class="switch-row"><input type="checkbox" v-model="backup.enabled" /><span>启用定时自动备份</span></label>
+            <div class="cfg-item"><label>备份周期（小时）</label><input class="input num" type="number" min="1" max="720" v-model.number="backup.interval_hours" /></div>
+            <div class="cfg-item"><label>保留份数</label><input class="input num" type="number" min="1" max="90" v-model.number="backup.keep" /></div>
+            <div class="set-actions">
+              <button class="btn btn-sm" @click="saveBackupConfig" :disabled="backupBusy">保存设置</button>
+              <button class="btn btn-sm btn-quiet" @click="verifyBackupNow" :disabled="verifyBusy"><span v-if="verifyBusy" class="spin"></span>{{ verifyBusy ? '对账中…' : '对账' }}</button>
+              <button class="btn btn-sm btn-primary" @click="runBackupNow" :disabled="backupBusy"><span v-if="backupBusy" class="spin"></span>立即备份</button>
+            </div>
           </div>
-          <div class="cfg-item">
-            <label>保留份数</label>
-            <input class="input num" type="number" min="1" max="90" v-model.number="backup.keep" />
+          <div class="muted settings-note">备份目录：<code class="mono">{{ backup.dir }}</code> · 共 {{ backup.files.length }} 份</div>
+          <div v-if="backupMsg" class="tip" :class="{ err: !backupMsg.ok }">{{ backupMsg.text }}</div>
+          <div class="lic-table" v-if="backup.files.length">
+            <div class="lic-head back-head"><span>文件名</span><span>大小</span><span>时间</span><span>操作</span></div>
+            <div v-for="f in backup.files" :key="f.name" class="lic-row back-row">
+              <span class="lic-name mono" :title="f.name">{{ f.name }}</span>
+              <span class="muted num">{{ fmtSize(f.size) }}</span>
+              <span class="muted">{{ f.created }}</span>
+              <span><a class="link" :href="api.backupUrl(f.name)" :download="f.name">下载</a><a class="link" style="margin-left:10px;color:var(--up)" @click="deleteBackup(f.name)">删除</a></span>
+            </div>
           </div>
-          <button class="btn btn-sm" @click="saveBackupConfig" :disabled="backupBusy">保存设置</button>
-          <button class="btn btn-sm btn-quiet" @click="verifyBackupNow" :disabled="verifyBusy" title="对比数据库与最新备份的记录数">
-            <span v-if="verifyBusy" class="spin"></span>{{ verifyBusy ? '对账中…' : '对账' }}
-          </button>
-          <button class="btn btn-sm btn-primary" @click="runBackupNow" :disabled="backupBusy">
-            <span v-if="backupBusy" class="spin"></span>立即备份
-          </button>
-        </div>
-        <div class="muted settings-note">
-          备份目录：<code class="mono">{{ backup.dir }}</code> · 上次备份：{{ backup.last || '从未' }} · 共 {{ backup.files.length }} 份
-        </div>
-        <div v-if="backupMsg" class="tip" :class="{ err: !backupMsg.ok }">{{ backupMsg.text }}</div>
-        <div class="lic-table" v-if="backup.files.length">
-          <div class="lic-head back-head"><span>文件名</span><span>大小</span><span>时间</span><span>操作</span></div>
-          <div v-for="f in backup.files" :key="f.name" class="lic-row back-row">
-            <span class="lic-name mono" :title="f.name">{{ f.name }}</span>
-            <span class="muted num">{{ fmtSize(f.size) }}</span>
-            <span class="muted">{{ f.created }}</span>
-            <span>
-              <a class="link" :href="api.backupUrl(f.name)" :download="f.name">下载</a>
-              <a class="link" style="margin-left:10px;color:var(--up)" @click="deleteBackup(f.name)">删除</a>
-            </span>
+          <div v-else class="empty empty-compact">
+            <div class="empty-badge"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></div>
+            <div class="empty-title">暂无备份文件</div>
+            <div class="empty-sub">点「立即备份」生成第一份完整快照</div>
           </div>
         </div>
-        <div v-else class="empty empty-compact">
-          <div class="empty-badge"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></div>
-          <div class="empty-title">暂无备份文件</div>
-          <div class="empty-sub">点「立即备份」生成第一份完整快照</div>
-          <button class="btn btn-primary" @click="runBackupNow" :disabled="backupBusy">立即备份</button>
-        </div>
+        <div class="modal-foot"><button class="btn btn-primary" @click="backupOpen = false">完成</button></div>
       </div>
     </div>
 
-    <!-- 导出 / 导入 -->
-    <div class="card settings-card">
-      <div class="list-head adv-head" @click="dataOpen = !dataOpen">
-        <div>
-          <h3 class="section-title">数据导出 / 导入<HelpTip text="在本机与 PVE 之间同步数据，或留存完整备份" /></h3>
-        </div>
-        <span class="adv-arrow" :class="{ open: dataOpen }">{{ dataOpen ? '收起' : '展开' }}<svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-      </div>
-      <div v-if="dataOpen" class="settings-body">
-        <div class="notice-box">
-          JSON / CSV / Excel <b>只包含当前店铺</b>的明细（另含全局的运费标签与识别设置；<b>不含访问密码与 API Key</b>），可用于系统间迁移；导入同样只写入当前店铺。导入前会自动备份当前数据。
-        </div>
-        <div class="data-actions">
-          <button class="btn btn-primary" :disabled="!!exporting" @click="doExport('json')">
-            <span v-if="exporting === 'json'" class="spin"></span>{{ exporting === 'json' ? '导出中' : '导出 JSON 完整备份' }}
-          </button>
-          <button class="btn btn-quiet" :disabled="!!exporting" @click="doExport('csv')">
-            <span v-if="exporting === 'csv'" class="spin"></span>{{ exporting === 'csv' ? '导出中' : '导出 CSV 表格' }}
-          </button>
-          <button class="btn btn-quiet" @click="doExportExcel" :disabled="excelBusy">导出 Excel 表格</button>
-          <HelpTip text="JSON：完整备份，可原样导回。&#10;Excel：带表头配色、冻结首行、筛选、两位小数与合计行，可直接打印对账。&#10;CSV：无格式纯文本，适合喂给其它系统。" />
-        </div>
-
-        <div class="divider"></div>
-        <div class="import-row">
-          <div class="seg seg-sm import-mode-seg">
-            <button :class="{ 'on-both': importMode === 'merge' }" @click="importMode = 'merge'">追加到现有数据</button>
-            <button :class="{ 'on-sell': importMode === 'replace' }" @click="importMode = 'replace'">覆盖全部数据</button>
+    <!-- 数据导出 / 导入 -->
+    <div v-if="dataOpen" class="modal-mask set-sheet" @click.self="dataOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="数据导出与导入">
+        <div class="modal-head"><b>数据导出 / 导入</b><button class="x" @click="dataOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-body">
+          <div class="notice-box">JSON / CSV / Excel <b>只包含当前店铺</b>的明细（另含全局的运费标签与识别设置；<b>不含访问密码与 API Key</b>），可用于系统间迁移；导入同样只写入当前店铺。导入前会自动备份当前数据。</div>
+          <div class="set-field-label">导出</div>
+          <div class="data-actions">
+            <button class="btn btn-primary" :disabled="!!exporting" @click="doExport('json')"><span v-if="exporting === 'json'" class="spin"></span>{{ exporting === 'json' ? '导出中' : 'JSON 完整备份' }}</button>
+            <button class="btn btn-quiet" :disabled="!!exporting" @click="doExport('csv')"><span v-if="exporting === 'csv'" class="spin"></span>{{ exporting === 'csv' ? '导出中' : 'CSV 表格' }}</button>
+            <button class="btn btn-quiet" @click="doExportExcel" :disabled="excelBusy">Excel 表格</button>
           </div>
-          <button class="btn btn-quiet" @click="pickFile" :disabled="importBusy">
-            <span v-if="importBusy" class="spin"></span>选择 JSON 文件并导入
-          </button>
-          <input ref="fileInput" type="file" accept=".json,application/json" hidden @change="onImportFile" />
-          <HelpTip text="「追加」保留现有记录并添加导入内容；「覆盖」先清空再导入（会自动备份）。&#10;导入的设置不会覆盖已有的密码与 API Key。" />
-        </div>
-
-        <div v-if="dataMsg" class="tip" :class="{ err: !dataMsg.ok }">{{ dataMsg.text }}</div>
-      </div>
-    </div>
-
-    <!-- 闲鱼同步：绑定一次，之后一键拉单 + 自动对账 -->
-    <div class="card settings-card settings-entry" role="button" tabindex="0"
-         aria-label="打开闲鱼同步" @click="gfOpen = true"
-         @keyup.enter="gfOpen = true" @keyup.space.prevent="gfOpen = true">
-      <span class="se-icon" aria-hidden="true">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
-      </span>
-      <div class="se-text">
-        <h3 class="section-title">闲鱼同步<HelpTip text="绑定账号后一键拉取买卖订单，服务费与到手价按闲鱼账单自动核对" /></h3>
-      </div>
-      <span class="se-arrow" aria-hidden="true">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-      </span>
-    </div>
-
-    <div class="card settings-card settings-entry" role="button" tabindex="0"
-         aria-label="打开支付宝账单导入" @click="aliOpen = true"
-         @keyup.enter="aliOpen = true" @keyup.space.prevent="aliOpen = true">
-      <span class="se-icon" aria-hidden="true">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>
-      </span>
-      <div class="se-text">
-        <h3 class="section-title">支付宝账单导入<HelpTip text="手续费按订单号、快递费按发货时间精确对上，只补费用不新增订单" /></h3>
-      </div>
-      <span class="se-arrow" aria-hidden="true">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-      </span>
-    </div>
-
-    <!-- 回收站：收成一级入口，列表放进二级窗口 -->
-    <div class="card settings-card settings-entry" role="button" tabindex="0"
-         aria-label="管理店铺" @click="shopOpen = true"
-         @keyup.enter="shopOpen = true" @keyup.space.prevent="shopOpen = true">
-      <span class="se-icon" aria-hidden="true">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16l-1 11H5L4 9z"/><path d="M8 9V6a4 4 0 0 1 8 0v3"/></svg>
-      </span>
-      <div class="se-text">
-        <h3 class="section-title">店铺管理<HelpTip text="新建、改名、删除店铺；数据按店铺独立存放" /></h3>
-      </div>
-      <span class="se-arrow" aria-hidden="true">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-      </span>
-    </div>
-    <ShopManage v-if="shopOpen" @close="shopOpen = false" @notify="(t) => emit('notify', t)" />
-    <GoofishSync v-if="gfOpen" @close="gfOpen = false"
-                 @notify="(t) => emit('notify', t)" @refresh="emit('refresh')" />
-    <AlipayImport v-if="aliOpen" @close="aliOpen = false"
-                  @notify="(t) => emit('notify', t)" @refresh="emit('refresh')" />
-
-    <div class="card settings-card settings-entry" role="button" tabindex="0"
-         aria-label="打开回收站" @click="recycleOpen = true"
-         @keyup.enter="recycleOpen = true" @keyup.space.prevent="recycleOpen = true">
-      <span class="se-icon" aria-hidden="true">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6l1 14h12l1-14"/><path d="M10 11v6M14 11v6"/></svg>
-      </span>
-      <div class="se-text">
-        <h3 class="section-title">回收站<HelpTip text="最近 7 天的可撤销操作，随时可恢复" /></h3>
-      </div>
-      <span class="se-arrow" aria-hidden="true">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-      </span>
-    </div>
-
-    <Transition name="modal">
-      <RecyclePanel v-if="recycleOpen" @close="recycleOpen = false"
-        @notify="(t) => emit('notify', t)" @refresh="emit('refresh')" />
-    </Transition>
-
-    <!-- 只读账号 -->
-    <div class="card settings-card settings-entry" role="button" tabindex="0"
-         aria-label="打开只读账号设置" @click="readonlyOpen = true"
-         @keyup.enter="readonlyOpen = true" @keyup.space.prevent="readonlyOpen = true">
-      <span class="se-icon" aria-hidden="true">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.5"/></svg>
-      </span>
-      <div class="se-text">
-        <h3 class="section-title">只读账号<HelpTip text="用独立密码登录时只能查看数据，不能新增、修改或删除" /></h3>
-      </div>
-      <span class="badge" :class="meta.has_readonly ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ meta.has_readonly ? '已开启' : '未设置' }}</span>
-      <span class="se-arrow" aria-hidden="true">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-      </span>
-    </div>
-
-    <!-- 使用说明 -->
-    <div class="card settings-card">
-      <div class="list-head adv-head" @click="helpOpen = !helpOpen">
-        <h3 class="section-title">识别与配对说明</h3>
-        <span class="adv-arrow" :class="{ open: helpOpen }">{{ helpOpen ? '收起' : '展开' }}<svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-      </div>
-      <div v-if="helpOpen" class="settings-body help-body">
-        <div class="help-row"><b>买进单判定</b><span>截图出现「卖家昵称」→ 我是买家 → 识别为买进侧</span></div>
-        <div class="help-row"><b>卖出单判定</b><span>截图出现「买家昵称」/「预计到手」→ 我是卖家 → 识别为卖出侧</span></div>
-        <div class="help-row"><b>自动配对</b><span>按商品名把买进侧与卖出侧合并成一条记录；同名多件货依次配对，可用「两侧一起填」或编辑调整</span></div>
-        <div class="help-row"><b>利润口径</b><span>净利润 = 成交额 − 买价 − 买运费 − 卖运费 − 软件服务费 − 无忧卖服务费。「到手价」= 成交价 − 服务费 − 无忧卖 − 卖运费，用于展示与对账，不参与净利润计算</span></div>
-        <div class="help-row"><b>同步口径</b><span>闲鱼订单列表只覆盖近 3 个月（接口固定回 40 单）；历史订单在「设置 → 闲鱼同步」里把「账单基准回溯」调到 6/12/24 个月，按收入 / 支出账单补建</span></div>
-        <div class="help-row"><b>手动录入</b><span>不识别也完全可用，直接在弹窗里填写买进/卖出两侧即可</span></div>
-      </div>
-    </div>
-
-    <!-- 开源许可 / 版权 -->
-    <div class="card settings-card">
-      <div class="list-head adv-head" @click="licensesOpen = !licensesOpen">
-        <div>
-          <h3 class="section-title">开源许可与版权声明<HelpTip text="本程序随二进制分发了开源组件，此处列出归属与许可证全文" /></h3>
-        </div>
-        <span class="adv-arrow" :class="{ open: licensesOpen }">{{ licensesOpen ? '收起' : '展开' }}<svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
-      </div>
-      <div v-if="licensesOpen" class="settings-body">
-        <div class="notice-box">
-          本程序为个人本地记账工具，界面与业务逻辑为原创实现。<b>未包含</b>闲鱼的任何商标、图标、截图或界面素材；用户上传的订单截图仅在本机处理，不随程序分发。「闲鱼」为阿里巴巴集团旗下商标，此处仅作描述性用途。
-        </div>
-        <div class="lic-table">
-          <div class="lic-head"><span>类型</span><span>组件</span><span>版本</span><span>许可证</span><span>原文</span></div>
-          <div v-for="(l, i) in licenses" :key="i" class="lic-row">
-            <span class="muted">{{ l[0] }}</span>
-            <span class="lic-name" :title="l[1]">{{ l[1] }}</span>
-            <span class="mono muted">{{ l[2] }}</span>
-            <span><span class="badge badge-lic">{{ l[3] }}</span></span>
-            <span><a v-if="l[4]" class="link" :href="'/' + l[4]" target="_blank" rel="noopener">查看</a><span v-else class="muted">—</span></span>
+          <div class="divider"></div>
+          <div class="set-field-label">导入</div>
+          <div class="import-row">
+            <div class="seg seg-sm import-mode-seg">
+              <button :class="{ 'on-both': importMode === 'merge' }" @click="importMode = 'merge'">追加到现有数据</button>
+              <button :class="{ 'on-sell': importMode === 'replace' }" @click="importMode = 'replace'">覆盖全部数据</button>
+            </div>
+            <button class="btn btn-quiet" @click="pickFile" :disabled="importBusy"><span v-if="importBusy" class="spin"></span>选择 JSON 文件并导入</button>
+            <input ref="fileInput" type="file" accept=".json,application/json" hidden @change="onImportFile" />
           </div>
+          <div v-if="dataMsg" class="tip" :class="{ err: !dataMsg.ok }">{{ dataMsg.text }}</div>
         </div>
-        <div class="muted settings-note">
-          共 {{ licenses.length }} 项。完整声明亦见随程序附带的 THIRD_PARTY_NOTICES.md；Apache-2.0 与 MPL-2.0 全文可在
-          <a class="link" href="/licenses/APACHE-2.0.txt" target="_blank" rel="noopener">Apache-2.0</a> /
-          <a class="link" href="/licenses/MPL-2.0.txt" target="_blank" rel="noopener">MPL-2.0</a> 查阅。
-        </div>
+        <div class="modal-foot"><button class="btn btn-primary" @click="dataOpen = false">完成</button></div>
       </div>
     </div>
 
-    <!-- 版本信息：入口 + 二级窗口 -->
-    <div class="card settings-card settings-entry" role="button" tabindex="0"
-         aria-label="查看版本信息与更新日志" @click="versionOpen = true"
-         @keyup.enter="versionOpen = true" @keyup.space.prevent="versionOpen = true">
-      <span class="se-icon" aria-hidden="true">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-      </span>
-      <div class="se-text">
-        <h3 class="section-title">版本信息 <span class="ver-tag mono">{{ versionLabel }}</span><HelpTip text="查看当前版本、更新说明与历次编译记录" /></h3>
-      </div>
-      <span class="se-arrow" aria-hidden="true">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-      </span>
-    </div>
-
-    <Transition name="modal">
-      <VersionPanel v-if="versionOpen" @close="versionOpen = false" />
-
-    <!-- 月度利润目标：二级窗口 -->
-    <div v-if="targetOpen" class="modal-mask" @click.self="targetOpen = false">
+    <!-- 月度利润目标 -->
+    <div v-if="targetOpen" class="modal-mask set-sheet" @click.self="targetOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="月度利润目标">
-        <div class="modal-head">
-          <b>月度利润目标</b>
-          <button class="x" @click="targetOpen = false" aria-label="关闭">×</button>
-        </div>
+        <div class="modal-head"><b>月度利润目标</b><button class="x" @click="targetOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body">
           <p class="muted set-sheet-desc">设一个当月净利润目标，首页会显示完成进度和剩余天数。按店铺、按月份分别保存；填 0 表示不设目标。</p>
           <div class="target-row">
@@ -914,27 +804,17 @@ async function test() {
           </div>
           <div v-if="targetMsg" class="tip" :class="{ err: targetMsg.includes('失败') }">{{ targetMsg }}</div>
         </div>
-        <div class="modal-foot">
-          <button class="btn btn-ghost" @click="targetOpen = false">关闭</button>
-          <button class="btn btn-primary" :disabled="targetSaving" @click="saveTarget">
-            <span v-if="targetSaving" class="spin"></span>保存
-          </button>
-        </div>
+        <div class="modal-foot"><button class="btn btn-ghost" @click="targetOpen = false">关闭</button><button class="btn btn-primary" :disabled="targetSaving" @click="saveTarget"><span v-if="targetSaving" class="spin"></span>保存</button></div>
       </div>
     </div>
 
-    <!-- 只读账号：二级窗口 -->
-    <div v-if="readonlyOpen" class="modal-mask" @click.self="readonlyOpen = false">
+    <!-- 只读账号 -->
+    <div v-if="readonlyOpen" class="modal-mask set-sheet" @click.self="readonlyOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="只读账号">
-        <div class="modal-head">
-          <b>只读账号</b>
-          <button class="x" @click="readonlyOpen = false" aria-label="关闭">×</button>
-        </div>
+        <div class="modal-head"><b>只读账号</b><button class="x" @click="readonlyOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body">
           <p class="muted set-sheet-desc">设一个独立密码，用它的登录只能查看数据，不能新增、修改或删除。主密码仍拥有完整权限。</p>
-          <div class="readonly-row">
-            <input class="input" type="password" v-model="readonlyPwd" placeholder="设置只读密码（至少 4 位）" autocomplete="new-password" />
-          </div>
+          <div class="readonly-row"><input class="input" type="password" v-model="readonlyPwd" placeholder="设置只读密码（至少 4 位）" autocomplete="new-password" /></div>
           <p class="muted set-sheet-desc" v-if="meta.has_readonly">当前状态：已开启</p>
         </div>
         <div class="modal-foot">
@@ -943,6 +823,34 @@ async function test() {
         </div>
       </div>
     </div>
-    </Transition>
+
+    <!-- 开源许可 -->
+    <div v-if="licensesOpen" class="modal-mask set-sheet" @click.self="licensesOpen = false">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="开源许可与版权声明">
+        <div class="modal-head"><b>开源许可与版权声明</b><button class="x" @click="licensesOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-body">
+          <div class="notice-box">本程序为个人本地记账工具，界面与业务逻辑为原创实现。<b>未包含</b>闲鱼的任何商标、图标、截图或界面素材；用户上传的订单截图仅在本机处理，不随程序分发。「闲鱼」为阿里巴巴集团旗下商标，此处仅作描述性用途。</div>
+          <div class="lic-table">
+            <div class="lic-head"><span>类型</span><span>组件</span><span>版本</span><span>许可证</span><span>原文</span></div>
+            <div v-for="(l, i) in licenses" :key="i" class="lic-row">
+              <span class="muted">{{ l[0] }}</span><span class="lic-name" :title="l[1]">{{ l[1] }}</span>
+              <span class="mono muted">{{ l[2] }}</span><span><span class="badge badge-lic">{{ l[3] }}</span></span>
+              <span><a v-if="l[4]" class="link" :href="'/' + l[4]" target="_blank" rel="noopener">查看</a><span v-else class="muted">—</span></span>
+            </div>
+          </div>
+          <div class="muted settings-note">共 {{ licenses.length }} 项。完整声明亦见 THIRD_PARTY_NOTICES.md。</div>
+        </div>
+        <div class="modal-foot"><button class="btn btn-primary" @click="licensesOpen = false">完成</button></div>
+      </div>
+    </div>
+
+    <!-- 版本信息：独立组件自带弹窗 -->
+    <VersionPanel v-if="versionOpen" @close="versionOpen = false" />
+
+    <!-- 其余二级窗口：各自带遮罩 -->
+    <ShopManage v-if="shopOpen" @close="shopOpen = false" @notify="(t) => emit('notify', t)" />
+    <GoofishSync v-if="gfOpen" @close="gfOpen = false" @notify="(t) => emit('notify', t)" @refresh="emit('refresh')" />
+    <AlipayImport v-if="aliOpen" @close="aliOpen = false" @notify="(t) => emit('notify', t)" @refresh="emit('refresh')" />
+    <RecyclePanel v-if="recycleOpen" @close="recycleOpen = false" @notify="(t) => emit('notify', t)" @refresh="emit('refresh')" />
   </div>
 </template>
