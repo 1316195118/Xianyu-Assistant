@@ -120,6 +120,7 @@ const pwdMsg = ref(null)
 const backupOpen = ref(false)
 const backup = ref({ enabled: false, interval_hours: 24, keep: 7, last: '', dir: '', files: [] })
 const backupBusy = ref(false)
+const verifyBusy = ref(false)
 const backupMsg = ref(null)
 
 // ---------- 数据导入导出 ----------
@@ -152,6 +153,9 @@ async function clearReadonly() {
   } catch (e) { emit('notify', '清除失败：' + e.message, true) }
 }
 async function verifyBackupNow() {
+  if (verifyBusy.value) return
+  verifyBusy.value = true
+  backupMsg.value = null
   try {
     const r = await api.verifyBackup()
     backupMsg.value = {
@@ -160,7 +164,11 @@ async function verifyBackupNow() {
         : `对账不一致：数据库 ${r.items_in_db} 条 / 备份 ${r.items_in_backup === null ? '无可用备份' : r.items_in_backup + ' 条'}`,
       ok: !!r.consistent
     }
-  } catch (e) { backupMsg.value = { text: '对账失败：' + e.message, ok: false } }
+    emit('notify', backupMsg.value.text, !r.consistent)
+  } catch (e) {
+    backupMsg.value = { text: '对账失败：' + e.message, ok: false }
+    emit('notify', backupMsg.value.text, true)
+  } finally { verifyBusy.value = false }
 }
 
 async function loadAuth() {
@@ -664,7 +672,9 @@ async function test() {
             <input class="input num" type="number" min="1" max="90" v-model.number="backup.keep" />
           </div>
           <button class="btn btn-sm" @click="saveBackupConfig" :disabled="backupBusy">保存设置</button>
-          <button class="btn btn-sm btn-quiet" @click="verifyBackupNow" title="对比数据库与最新备份的记录数">对账</button>
+          <button class="btn btn-sm btn-quiet" @click="verifyBackupNow" :disabled="verifyBusy" title="对比数据库与最新备份的记录数">
+            <span v-if="verifyBusy" class="spin"></span>{{ verifyBusy ? '对账中…' : '对账' }}
+          </button>
           <button class="btn btn-sm btn-primary" @click="runBackupNow" :disabled="backupBusy">
             <span v-if="backupBusy" class="spin"></span>立即备份
           </button>

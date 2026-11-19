@@ -74,6 +74,8 @@ const useBackfill = ref(true)
 const picked = ref({})
 const err = ref('')
 const busy = ref(false)
+// 「检测连接」单独一个 busy：它和「立即同步」并存，共用一个会把另一个按钮也带上假的「检测中」
+const pingBusy = ref(false)
 const result = ref(null)
 
 const rows = computed(() => (plan.value && plan.value.rows) || [])
@@ -156,6 +158,7 @@ async function unbind() {
     await loadStatus()
   } catch (e) {
     err.value = e.message || '解绑失败'
+    emit('notify', err.value, true)
   } finally {
     busy.value = false
   }
@@ -213,17 +216,24 @@ async function changeBackfill() {
 }
 
 async function ping() {
-  if (busy.value) return
-  busy.value = true
+  if (busy.value || pingBusy.value) return
+  pingBusy.value = true
   pingMsg.value = ''
   try {
     const r = await api.goofishPing()
-    pingMsg.value = `连接正常，当前账号「${r.nick}」`
+    // 必须先刷新状态再写提示：loadStatus 里会清空 pingMsg，
+    // 顺序反了会把刚测出来的「连接正常」立刻抹掉，看起来就像没反应。
     await loadStatus()
+    const msg = `连接正常，当前账号「${r.nick || status.value.nick || '闲鱼账号'}」`
+    emit('notify', msg)
+    // 如果同步本身有失效原因，别让一句「连接正常」把它盖住
+    if (!status.value.sync_error && !status.value.expired) pingMsg.value = msg
   } catch (e) {
-    pingMsg.value = e.message || '连接已失效'
+    const msg = e.message || '连接已失效'
+    pingMsg.value = msg
+    emit('notify', msg, true)
   } finally {
-    busy.value = false
+    pingBusy.value = false
   }
 }
 
@@ -436,7 +446,9 @@ onMounted(async () => {
             <div v-if="err" class="tip err">{{ err }}</div>
 
             <div class="gf-actions">
-              <button class="btn btn-quiet" :disabled="busy" @click="ping">检测连接</button>
+              <button class="btn btn-quiet" :disabled="busy || pingBusy" @click="ping">
+                <span v-if="pingBusy" class="spin"></span>{{ pingBusy ? '检测中…' : '检测连接' }}
+              </button>
               <button class="btn btn-primary" :disabled="busy" @click="pull">
                 <span v-if="busy" class="spin"></span>{{ busy ? '拉取中' : '立即同步' }}
               </button>
