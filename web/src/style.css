@@ -5092,3 +5092,9 @@ html[data-motion="reduce"] .filter-card .filter-body { transition: none !importa
   .rec-table .group-chip svg { width: 10px; height: 10px; }
   .rec-table .group-more { font-size: 10px; }
 }
+
+/* 重绑入口：手机上账号行的文字和按钮分两行，避免挤成一团 */
+@media (max-width: 600px) {
+  .gf-account { flex-wrap: wrap; }
+  .gf-acc-text { flex: 1 1 calc(100% - 50px); }
+}

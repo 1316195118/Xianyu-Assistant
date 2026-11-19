@@ -108,7 +108,7 @@ import { themeMode } from './theme'
 import ShopSwitcher from './components/ShopSwitcher.vue'
 import { activeId as activeShopId, loadShops, globalSession, hasAnyPassword } from './shopStore'
 import { shopPickedThisSession, clearShopPicked } from './shopId'
-import { gfStatus, gfPanelOpen } from './gfState'
+import { gfStatus, gfPanelOpen, gfRebindRequest } from './gfState'
 import {
   online, connected, onRealtime, connectRealtime, disconnectRealtime, clientId
 } from './realtime'
@@ -222,8 +222,9 @@ async function loadGfStatus() {
     }
   } catch (e) { /* 未选店 / 未登录时顶栏不显示状态，不影响主流程 */ }
 }
-function openGfPanel() {
+function openGfPanel(rebind = false) {
   switchView('settings')
+  gfRebindRequest.value = !!rebind
   gfPanelOpen.value = true
 }
 const gfBad = computed(() => !!gfStatus.value.expired || !!gfStatus.value.sync_error)
@@ -240,7 +241,7 @@ function startRealtime() {
     // 闲鱼自动同步失败：Cookie 失效，主动弹醒目提示，不用等用户手动同步才发现
     if (ev.path === '/api/goofish/status' && /失败|失效/.test(ev.summary || '')) {
       notify(ev.summary || '闲鱼同步失效，请重新绑定', true,
-        { label: '去绑定', ttl: 15000, run: openGfPanel },
+        { label: '去绑定', ttl: 15000, run: () => openGfPanel(true) },
         { tone: 'error' })
       loadGfStatus()
       bump()
@@ -649,7 +650,7 @@ function goSettingsFromModal() {
             <span class="presence-text">{{ connected ? (online > 1 ? `${online} 人在线` : '实时同步') : '离线' }}</span>
           </span>
           <button class="gf-presence" :class="{ bad: gfBad, on: gfStatus.logged_in }"
-                  :title="gfTip" @click="openGfPanel" aria-label="查看闲鱼绑定状态">
+                  :title="gfTip" @click="openGfPanel(gfBad)" aria-label="查看闲鱼绑定状态">
             <i class="gf-presence-dot" aria-hidden="true"></i>
             <span class="gf-presence-text">{{ gfBad ? '待绑定' : (gfStatus.logged_in ? '闲鱼' : '去绑定') }}</span>
           </button>

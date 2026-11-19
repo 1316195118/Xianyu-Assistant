@@ -1,10 +1,10 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { api } from '../api'
 import { shops, activeId, loadShops } from '../shopStore'
 import HelpTip from './HelpTip.vue'
 import { maskCloser } from '../maskClose'
-import { gfStatus } from '../gfState'
+import { gfStatus, gfRebindRequest } from '../gfState'
 import QRCode from 'qrcode'
 // 遮罩点击守卫：在输入框里拖选文字划出弹窗松手时，不会误关弹窗
 const mask = maskCloser(() => emit('close'))
@@ -59,6 +59,8 @@ onUnmounted(stopQR)
 
 // step: bind（未绑定）/ idle（已绑定）/ loading / review / done
 const step = ref('idle')
+// 重新绑定：保留当前账号，只是换一份凭证，不用先解绑
+const rebinding = ref(false)
 const status = ref({ logged_in: false, nick: '', saved_at: '', last_sync: '', masked: '', keepalive: true, expired: false, auto_days: 0, auto_window: 30, backfill: true, syncing: false })
 const cookieInput = ref('')
 const showHelp = ref(false)
@@ -144,8 +146,9 @@ async function bind() {
   err.value = ''
   try {
     const r = await api.goofishLogin(raw)
-    emit('notify', `已绑定闲鱼账号「${r.nick}」`)
+    emit('notify', `已${rebinding.value ? '重新' : ''}绑定闲鱼账号「${r.nick}」`)
     cookieInput.value = ''
+    rebinding.value = false
     await loadStatus()
   } catch (e) {
     err.value = e.message || '绑定失败'
@@ -301,11 +304,33 @@ function backToIdle() {
   step.value = status.value.logged_in ? 'idle' : 'bind'
 }
 
+// 从顶栏「去绑定」或失效提示进来时，直接打开重新绑定表单
+function startRebind() {
+  rebinding.value = true
+  step.value = 'bind'
+  err.value = ''
+  cookieInput.value = ''
+  stopQR()
+}
+function cancelRebind() {
+  rebinding.value = false
+  step.value = 'idle'
+  err.value = ''
+}
+watch(gfRebindRequest, (v) => {
+  if (!v) return
+  gfRebindRequest.value = false
+  startRebind()
+})
 onMounted(async () => {
+  if (gfRebindRequest.value) {
+    gfRebindRequest.value = false
+    startRebind()
+  }
   if (!shops.value.length) {
     try { await loadShops() } catch (e) { /* 忽略：店铺加载失败不影响主流程 */ }
   }
-  await loadStatus()
+  if (!rebinding.value) await loadStatus()
 })
 </script>
 
@@ -322,7 +347,8 @@ onMounted(async () => {
           <!-- 未绑定 -->
           <template v-if="step === 'bind'">
             <p class="muted gf-desc">
-              正在为「{{ shopName }}」绑定。绑定后每次点「立即同步」，服务端自己拉订单和账单，不用装插件、也不用导出文件。
+              <template v-if="rebinding">正在为「{{ shopName }}」重新绑定：新的凭证会直接覆盖旧的，不用先解绑。若当前账号还能登录，继续往下填即可。</template>
+              <template v-else>正在为「{{ shopName }}」绑定。绑定后每次点「立即同步」，服务端自己拉订单和账单，不用装插件、也不用导出文件。</template>
             </p>
 
             <div class="gf-steps">
@@ -361,8 +387,9 @@ onMounted(async () => {
 
             <div class="gf-actions">
               <button class="btn btn-primary" :disabled="busy || !cookieInput.trim()" @click="bind">
-                <span v-if="busy" class="spin"></span>{{ busy ? '校验中' : '绑定并校验' }}
+                <span v-if="busy" class="spin"></span>{{ busy ? '校验中' : (rebinding ? '重新绑定并校验' : '绑定并校验') }}
               </button>
+              <button v-if="rebinding" class="btn btn-ghost" :disabled="busy" @click="cancelRebind">取消，返回</button>
             </div>
           </template>
 
@@ -376,6 +403,7 @@ onMounted(async () => {
                   上次同步：{{ status.last_sync || '还没同步过' }}
                 </div>
               </div>
+              <button class="btn btn-sm" :disabled="busy" @click="startRebind">重新绑定</button>
               <button class="btn btn-quiet btn-sm" :disabled="busy" @click="unbind">解绑</button>
             </div>
 
