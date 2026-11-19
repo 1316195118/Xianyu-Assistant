@@ -168,6 +168,18 @@ const recState = ref('idle')  // idle | recognizing | done | error
 const recMsg = ref('')
 const saving = ref(false)
 const errMsg = ref('')
+// 报错时抖一下：保存按钮回到「保存修改」看不出失败，必须有个动作让人知道
+const shaking = ref(false)
+let shakeTimer = null
+watch(errMsg, (v) => {
+  if (!v) return
+  shaking.value = false
+  clearTimeout(shakeTimer)
+  requestAnimationFrame(() => {
+    shaking.value = true
+    shakeTimer = setTimeout(() => { shaking.value = false }, 560)
+  })
+})
 const mergedHint = ref('')
 const engine = ref('local')   // local | vision
 const engineName = computed(() => engine.value === 'local' ? '本地 OCR' : '视觉大模型')
@@ -707,6 +719,11 @@ const justSaved = ref(false)
 async function save() {
   errMsg.value = ''
   if (saving.value || justSaved.value) return
+  // 已完结联单里的记录：先本地拦下，立刻给提示，不用等接口 409
+  if (isEdit.value && props.record?.id && settledItemIds.value.has(props.record.id)) {
+    errMsg.value = '这条记录在已完结的联单里，现在不能改。请先到「联单」页把那张联单点「重新开启」，再回来保存。'
+    return
+  }
   if (form.source === '寄卖' && !form.owner.trim()) {
     errMsg.value = '寄卖单必须填写归属人（这单货是谁的）'
     return
@@ -861,7 +878,7 @@ function onHeadEnd() {
 
 <template>
   <div ref="maskEl" class="modal-mask" tabindex="-1" @pointerdown="mask.onPointerDown" @click="mask.onClick" @keydown="onModalKey">
-    <div ref="panelEl" class="modal modal-wide" :class="{ 'is-readonly': readonly }">
+    <div ref="panelEl" class="modal modal-wide" :class="{ 'is-readonly': readonly, 'shake': shaking, 'has-err': !!errMsg }">
       <div class="modal-head" @touchstart.passive="onHeadDown" @touchmove="onHeadMove" @touchend="onHeadEnd">
         <h3>
           {{ readonly ? '查看商品记录' : (isEdit ? '编辑商品记录' : '上传截图 · 录入商品') }}
@@ -1252,12 +1269,15 @@ function onHeadEnd() {
           </template>
         </div>
 
-        <div v-if="errMsg" class="tip err" style="margin-top:14px">{{ errMsg }}</div>
       </div>
 
       <ImageViewer v-if="viewerSrc" :src="viewerSrc" @close="viewerSrc = ''" />
 
-      <div class="modal-foot">
+      <div class="modal-foot record-foot">
+        <div v-if="errMsg" class="modal-err" role="alert">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto;margin-top:1px"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16.5" x2="12.01" y2="16.5"/></svg>
+          <span>{{ errMsg }}</span>
+        </div>
         <span class="muted foot-hint">利润 = 成交 − 货品成本（单件成本或联单分摊） − 买运费 − 卖运费 − 服务费</span>
         <template v-if="readonly">
           <button class="btn btn-quiet" @click="emit('close')">关闭</button>

@@ -280,6 +280,7 @@ async function saveBackupConfig() {
     })
     await loadBackups()
     backupMsg.value = { text: '备份设置已保存', ok: true }
+    emit('notify', '备份设置已保存')
   } catch (e) {
     backupMsg.value = { text: '保存失败：' + e.message, ok: false }
   } finally { backupBusy.value = false }
@@ -552,6 +553,7 @@ async function clearKey() {
     await load()
     advancedOpen.value = engine.value === 'vision'
     msg.value = { text: 'API Key 已清除', ok: true }
+    emit('notify', 'API Key 已清除')
   } catch (e) { msg.value = { text: '操作失败：' + e.message, ok: false } }
 }
 

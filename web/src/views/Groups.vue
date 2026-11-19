@@ -23,6 +23,17 @@ const saving = ref(false)
 const focusedId = ref(null)   // 从明细联动过来时高亮 + 展开全部关联记录
 const expandedId = ref(null)
 const mergeOpen = ref(false)
+// 联单详情：卡片只留关键数字，其余全在这里看
+const detailGroup = ref(null)
+function openDetail(g) { detailGroup.value = g }
+function viewRow(row) {
+  if (!row || row.external || !row.item) return
+  detailGroup.value = null
+  emit('view', row.item)
+}
+async function settleFromDetail(g) { await toggleSettle(g); detailGroup.value = null }
+function editFromDetail(g) { detailGroup.value = null; openEdit(g) }
+async function delFromDetail(g) { detailGroup.value = null; await del(g) }
 
 const form = reactive({ title: '', note: '', item_ids: [] })
 const editorEl = ref(null)
@@ -573,77 +584,42 @@ async function toggleSettle(g) {
 
     <!-- 联单列表 -->
     <div v-if="sortedGroups.length" class="group-grid">
-      <section v-for="g in sortedGroups" :key="g.id" class="card group-card" :class="{ focused: focusedId === g.id, settled: isSettled(g) }" :data-group-id="g.id" :aria-label="isSettled(g) ? '已完结联单：' + g.title : g.title">
+      <section v-for="g in sortedGroups" :key="g.id" class="card group-card"
+               :class="{ focused: focusedId === g.id, settled: isSettled(g) }"
+               :data-group-id="g.id" role="button" tabindex="0"
+               :aria-label="(isSettled(g) ? '已完结联单：' : '') + g.title + '，查看详情'"
+               @click="openDetail(g)" @keydown.enter="openDetail(g)">
         <div class="gc-head">
-          <div class="gc-title">
-            <span v-if="groupSource(g)" class="src-tag" :class="'src-' + groupSource(g)">{{ groupSource(g) }}</span>
-            {{ g.title }}
-          </div>
-          <!-- 印章放在标题行的固定位置：是圆章，但不再当水印压在金额上，也不会被屏幕裁掉 -->
-          <span v-if="isSettled(g)" class="seal seal-inline seal-settled" aria-label="已完结">
-            <span class="seal-inner">
-              <span class="seal-star">★ ★ ★</span>
-              <span class="seal-main">已完结</span>
-              <span class="seal-sub">{{ stampDate(g.settled_at) }}</span>
-            </span>
+          <span class="gc-title" :title="g.title">
+            <span v-if="groupSource(g)" class="src-tag" :class="'src-' + groupSource(g)">{{ groupSource(g) }}</span>{{ g.title }}
           </span>
-          <span v-else class="seal seal-inline seal-group" aria-label="联单中">
-            <span class="seal-inner">
-              <span class="seal-star">★ ★ ★</span>
-              <span class="seal-main">联单中</span>
-              <span class="seal-sub">{{ g.stats.buy_count }}买{{ g.stats.sell_count }}卖</span>
-            </span>
-          </span>
-          <span class="gc-count muted">{{ g.stats.buy_count }} 买 / {{ g.stats.sell_count }} 卖</span>
         </div>
-        <div class="gc-profit-box" :class="g.stats.profit >= 0 ? 'pos' : 'neg'">
-          <div class="gc-profit-label">
-            <span>净利润</span>
-            <span class="gc-profit-tag">利润率 {{ (g.stats.profit_rate || 0).toFixed(1) }}%</span>
-          </div>
-          <div class="gc-profit num"><AnimatedNumber :value="g.stats.profit || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></div>
-          <!-- 销售额在下方 gc-metrics 第一格已有，这里不再重复（手机上尤其占地方） -->
-          <div class="gc-profit-hint">共 {{ g.stats.buy_count + g.stats.sell_count }} 笔买卖</div>
+
+        <div class="gc-line">
+          <b class="gc-profit num" :class="(g.stats.profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(g.stats.profit || 0) }}</b>
+          <span class="gc-sub">净利润<span class="gc-rate-i">利润率 {{ (g.stats.profit_rate || 0).toFixed(1) }}%</span></span>
         </div>
-        <div class="gc-metrics">
+
+        <div class="gc-facts">
           <div><span>销售额</span><b class="num">{{ fmtMoney(g.stats.sales) }}</b></div>
           <div><span>货品成本</span><b class="num">{{ fmtMoney(g.stats.goods) }}</b></div>
-          <div><span>运费</span><b class="num">{{ fmtMoney(g.stats.shipping) }}</b></div>
-          <!-- 服务费只显示软件服务费：无忧卖单独一行，否则两行加起来会重复计算 -->
-          <div><span>软件服务费</span><b class="num">{{ fmtMoney((g.stats.fee || 0) - (g.stats.wuyou_fee || 0)) }}</b></div>
-          <div><span>无忧卖</span><b class="num">{{ fmtMoney(g.stats.wuyou_fee) }}</b></div>
           <div><span>在库占用</span><b class="num">{{ fmtMoney(g.stats.unsold_cost) }}</b></div>
         </div>
-        <div v-if="g.note" class="gc-note muted">{{ g.note }}</div>
-        <div class="gc-items">
-          <div v-for="row in (expandedId === g.id ? groupRows(g) : groupRows(g).slice(0, 2))" :key="row.key"
-               class="gc-item" :class="{ 'is-sealed': isSettled(g), 'gc-item-ext': row.external, 'is-clickable': !row.external }"
-               @click="!row.external && emit('view', row.item)"
-               :title="row.external ? '只存在于本联单，不计入明细' : '点击查看这笔订单的详情'">
-            <span class="badge mini" :class="row.kindClass">{{ row.kindLabel }}</span>
-            <span v-if="row.source" class="src-dot" :class="'src-' + row.source" :title="'来源：' + row.source">{{ row.source }}</span>
-            <span class="cell-ellipsis" :title="row.external ? '只存在于本联单，不计入明细' : row.product">{{ row.product || '未命名' }}</span>
-            <b class="num" :class="{ muted: row.muted }">{{ fmtMoney(row.amount) }}</b>
-          </div>
-          <button v-if="groupRows(g).length > 2" class="link gc-more" :class="{ open: expandedId === g.id }" @click="expandedId = expandedId === g.id ? null : g.id">
-            {{ expandedId === g.id ? '收起' : '还有 ' + (groupRows(g).length - 2) + ' 条，展开全部' }}
-            <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-          </button>
-        </div>
-        <div class="action-row gc-actions">
-          <button class="action-primary" @click="toggleSettle(g)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4.5 4.5L19 7"/></svg>
-            {{ isSettled(g) ? '重新开启' : '完结' }}
-          </button>
-          <div class="action-icons">
-            <button class="icon-btn" :disabled="isSettled(g)" @click="openEdit(g)" aria-label="编辑"
-                    :title="isSettled(g) ? '已完结联单，请先重新开启再修改' : '编辑'">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+
+        <div class="gc-foot">
+          <span class="gc-left">
+            <span class="gc-state" :class="isSettled(g) ? 'done' : 'open'">{{ isSettled(g) ? '已完结' : '进行中' }}</span>
+            <span class="gc-count">{{ g.stats.buy_count }} 买 · {{ g.stats.sell_count }} 卖<span v-if="g.note" class="gc-note-dot" title="有备注">备注</span></span>
+          </span>
+          <!-- 和明细表行尾那三个按钮完全一致：纯文字、等宽、无边框 -->
+          <div class="gc-mini-acts" @click.stop>
+            <button class="btn btn-sm btn-ghost" :title="isSettled(g) ? '重新开启这个联单' : '把这一批货标记为完结'" @click="toggleSettle(g)">
+              {{ isSettled(g) ? '开启' : '完结' }}
             </button>
-            <button class="icon-btn icon-btn-danger" :disabled="isSettled(g)" @click="del(g)" aria-label="删除"
-                    :title="isSettled(g) ? '已完结联单，请先重新开启再删除' : '删除'">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>
-            </button>
+            <button class="btn btn-sm btn-ghost" :class="{ 'is-locked': isSettled(g) }" aria-label="编辑联单"
+                    :title="isSettled(g) ? '已完结联单，点一下会提示怎么开' : '编辑'" @click="openEdit(g)">编辑</button>
+            <button class="btn btn-sm btn-ghost btn-danger" :class="{ 'is-locked': isSettled(g) }" aria-label="删除联单"
+                    :title="isSettled(g) ? '已完结联单，点一下会提示怎么开' : '删除'" @click="del(g)">删除</button>
           </div>
         </div>
       </section>
@@ -661,6 +637,55 @@ async function toggleSettle(g) {
         <div class="skel-metrics"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span></div>
       </div>
     </div>
+
+    <!-- 联单详情：卡片上放不下的六项金额、备注、全部单据都在这里 -->
+    <Teleport to="body">
+      <div v-if="detailGroup" class="gd-mask" @click.self="detailGroup = null">
+        <div class="gd-panel" role="dialog" aria-modal="true">
+          <div class="gd-head">
+            <span class="gc-state" :class="isSettled(detailGroup) ? 'done' : 'open'">{{ isSettled(detailGroup) ? '已完结' : '进行中' }}</span>
+            <span class="gd-title" :title="detailGroup.title">{{ detailGroup.title }}</span>
+            <button class="icon-btn" aria-label="关闭" @click="detailGroup = null">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+          </div>
+          <div class="gd-body">
+            <div class="gd-profit" :class="(detailGroup.stats.profit || 0) >= 0 ? 'pos' : 'neg'">
+              <b class="num">{{ fmtMoney(detailGroup.stats.profit || 0) }}</b>
+              <span>净利润 · 利润率 {{ (detailGroup.stats.profit_rate || 0).toFixed(1) }}%</span>
+            </div>
+            <div class="gc-metrics">
+              <div><span>销售额</span><b class="num">{{ fmtMoney(detailGroup.stats.sales) }}</b></div>
+              <div><span>货品成本</span><b class="num">{{ fmtMoney(detailGroup.stats.goods) }}</b></div>
+              <div><span>运费</span><b class="num">{{ fmtMoney(detailGroup.stats.shipping) }}</b></div>
+              <div><span>软件服务费</span><b class="num">{{ fmtMoney((detailGroup.stats.fee || 0) - (detailGroup.stats.wuyou_fee || 0)) }}</b></div>
+              <div><span>无忧卖</span><b class="num">{{ fmtMoney(detailGroup.stats.wuyou_fee) }}</b></div>
+              <div><span>在库占用</span><b class="num">{{ fmtMoney(detailGroup.stats.unsold_cost) }}</b></div>
+            </div>
+            <div v-if="detailGroup.note" class="gd-note">{{ detailGroup.note }}</div>
+            <div class="gd-sub-title">联单里的单据 <span class="muted">{{ groupRows(detailGroup).length }} 笔</span></div>
+            <div class="gc-items gd-rows">
+              <button v-for="row in groupRows(detailGroup)" :key="row.key" type="button"
+                      class="gc-item" :class="{ 'is-sealed': isSettled(detailGroup), 'gc-item-ext': row.external, 'is-clickable': !row.external }"
+                      :disabled="row.external" @click="viewRow(row)"
+                      :title="row.external ? '只存在于本联单，不计入明细' : '点击查看这笔订单的详情'">
+                <span class="badge mini" :class="row.kindClass">{{ row.kindLabel }}</span>
+                <span v-if="row.source" class="src-dot" :class="'src-' + row.source">{{ row.source }}</span>
+                <span class="cell-ellipsis" :title="row.product">{{ row.product || '未命名' }}</span>
+                <b class="num" :class="{ muted: row.muted }">{{ fmtMoney(row.amount) }}</b>
+              </button>
+            </div>
+          </div>
+          <div class="gd-foot">
+            <button v-if="!isSettled(detailGroup)" class="btn btn-sm btn-danger" @click="delFromDetail(detailGroup)">删除</button>
+            <button v-if="!isSettled(detailGroup)" class="btn btn-sm" @click="editFromDetail(detailGroup)">编辑</button>
+            <button class="btn btn-sm btn-primary" @click="settleFromDetail(detailGroup)">
+              {{ isSettled(detailGroup) ? '重新开启' : '标记完结' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- 合并建议面板：挑完、改完标题再提交 -->
     <MergeSuggest v-if="mergeOpen" @close="mergeOpen = false" @done="load"

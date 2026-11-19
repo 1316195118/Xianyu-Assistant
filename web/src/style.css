@@ -5570,93 +5570,311 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
   color: var(--text-3);
 }
 
-/* 明细表：成交价列居中、利润列 */
-.rec-table thead th.col-center,
-.rec-table tbody td.col-center { text-align: center; }
-.rec-table .col-profit { width: 92px; white-space: nowrap; }
-.rec-table td.col-profit.pos { color: var(--up); font-weight: 750; }
-.rec-table td.col-profit.neg { color: var(--down); font-weight: 750; }
-
-/* 手机卡片：利润一行靠右，和金额区同一套配色 */
-.rc-profit {
-  display: flex; align-items: baseline; justify-content: flex-end; gap: 6px;
-  margin-top: 6px; padding-right: 2px; font-size: 12px;
-}
-.rc-profit span { color: var(--text-3); }
-.rc-profit b { font-size: 13px; font-weight: 750; }
-
-/* 待账单浮在金额左侧空位上、垂直居中：不占布局，金额位置永远不变 */
-.rec-table td.col-price { position: relative; padding-left: 52px; }
-.fee-pending-side {
-  position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
-  font-size: 10.5px; padding: 1px 5px;
-}
-.price-num { display: block; }
-
-/* 明细表：联单独立成列（原来挂在商品名下面，长了会把商品行挤乱） */
-.rec-table .col-group { width: 132px; max-width: 132px; }
-.rec-table .col-group .cell-groups { margin: 0; }
-.group-chip .group-chip-t {
-  max-width: 82px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.group-chip-n { color: var(--blue); font-weight: 800; margin-left: 2px; }
-
-/* 金额列：统一右对齐 + 不换行，带「待账单」的行数字也不会被顶歪；
-   两列给同样宽度，成交价和到手价的数字在同一条竖线上 */
-/* 数值列等宽：右对齐时「两个数字之间的距离 = 下一列的宽度」，
-   只有等宽才有均匀节奏。92px = 最长金额 66px + 左右内边距 20 + 余量 6，不压字。 */
-.rec-table th.col-num, .rec-table td.col-num { width: 92px; white-space: nowrap; }
-.rec-table th.col-group { width: 104px; }
-.rec-table th.col-time { width: 92px; }
-/* 时间保持单排（列宽已按 129 给足），不要换行 */
-.rec-table td.cell-time { white-space: nowrap; }
-/* 待账单独立一行、居中；金额单独一行右对齐 */
-.fee-pending-line { display: block; width: fit-content; margin: 0 auto 2px; }
-
-/* 联单列：表头与芯片一起居中，否则表头靠左、内容靠中，看着不对齐 */
-.rec-table th.col-group,
-.rec-table td.col-group { text-align: center; }
-.rec-table td.col-group .cell-groups { justify-content: center; }
-
-/* 联单列：结算状态（已结算 / 无成本）跟在联单下面，居中排一行 */
-.rec-table td.col-group .group-tags {
-  display: flex; flex-wrap: nowrap; gap: 3px; justify-content: center; margin-top: 3px;
-}
-.rec-table td.col-group .group-tags .auto-settled-chip,
-.rec-table td.col-group .group-tags .costfree-dot { font-size: 9.5px; padding: 1px 4px; }
-
-/* 时间保持单排：文本 109px + 左右内边距 20，给足 129 才不会压字 */
-.rec-table th.col-time { width: 129px; }
-
-/* 表格改成固定布局：列宽写多少就是多少，数值列才能真正等宽、间距才均匀。
-   自动布局会在总宽超出时把各列「按比例压缩」，导致 92/73/84 这种参差。 */
+/* ============================================================
+   交易明细 · 桌面表格 v2（2026-11-20 重做）
+   列宽只写在 <colgroup> 上：table-layout:fixed 只认第一行的定宽，
+   而第一行有「金额（元）」的 colspan，会把商品列算成窄条，
+   所以必须用 colgroup —— 这是唯一「写多少就是多少」的地方。
+   勾选 34 | 商品 自动 | 联单 126 | 截图 58 | 金额 84×5 | 时间 108 | 操作 162
+   1128 宽下商品列 = 278（原来是 157）
+   ============================================================ */
 @media (min-width: 901px) {
   .rec-table { table-layout: fixed; }
-  /* 运费/到手价/服务费/利润 四列等宽：右对齐时「相邻数字的间距 = 后一列宽度」，
-     所以它们相等，五个数字之间的间距就一致（成交价那格因为要放「待账单」单独加宽） */
-  .rec-table th.col-num, .rec-table td.col-num { width: 86px; }
-  .rec-table .col-price { width: 130px; }
-  .rec-table .col-group { width: 112px; }
-  .rec-table .col-shot { width: 60px; }
-  .rec-table th:last-child, .rec-table td:last-child { width: 222px; }
+  .rec-table col.cg-check { width: 34px; }
+  .rec-table col.cg-group { width: 126px; }
+  .rec-table col.cg-shot { width: 58px; }
+  .rec-table col.cg-num { width: 84px; }
+  .rec-table col.cg-time { width: 108px; }
+  .rec-table col.cg-act { width: 162px; }
+
+  /* 两级表头：上一行只做分区（金额），下一行才是列名 */
+  .rec-table thead th {
+    height: 34px; padding: 0 10px; background: var(--surface-2);
+    font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--text-3);
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  .rec-table thead tr.th-group th { height: 26px; background: #f6f7f9; }
+  .rec-table thead th.th-zone {
+    text-align: center; color: var(--text-2);
+    border-left: 1px solid var(--border); border-right: 1px solid var(--border);
+  }
+  /* 表头一律居中：数字列的表头也居中，整排标题才有同一个节奏 */
+  .rec-table thead th,
+  .rec-table thead th.th-right,
+  .rec-table thead th:last-child { text-align: center; }
+
+  /* 金额区左右两条淡线：把「单据 / 金额 / 操作」分成三段 */
+  .rec-table thead th.col-price,
+  .rec-table tbody td.col-price { border-left: 1px solid #eef0f4; }
+  .rec-table thead th.col-profit,
+  .rec-table tbody td.col-profit { border-right: 1px solid #eef0f4; }
+  .rec-table thead th.col-time,
+  .rec-table tbody td.col-time { border-left: 1px solid #eef0f4; }
+
+  .rec-table tbody tr:not(.detail-row) > td {
+    height: 58px; padding: 5px 10px; font-size: 12.5px;
+    border-bottom: 1px solid #f2f3f6;
+  }
+  .rec-table tbody tr.row-alt { background: #fcfcfd; }
+  .rec-table tbody tr.expandable { cursor: pointer; }
+  .rec-table tbody tr.expandable:hover { background: #f7f9fd; box-shadow: none; }
+  .rec-table tbody tr.selected { background: var(--blue-soft); box-shadow: none; }
+  .rec-table tbody tr.is-discarded { background: #fbfbfc; }
+
+  /* 商品列：第一行整行留给品名，第二行「卖单 · 昵称 · 标签」 */
+  .rec-table td.cell-main { max-width: none; padding: 6px 10px 6px 12px; }
+  .rec-table .cell-product { font-size: 13px; font-weight: 600; line-height: 18px; }
+  .rec-table .cell-meta {
+    display: flex; align-items: center; gap: 6px;
+    height: 18px; margin-top: 1px; overflow: hidden; flex-wrap: nowrap;
+  }
+  .rec-table .kind-text { flex: 0 0 auto; font-size: 10.5px; font-weight: 700; letter-spacing: .02em; }
+  .rec-table .kind-text.is-sell { color: #c07a12; }
+  .rec-table .kind-text.is-buy { color: #4b7bd6; }
+  .rec-table .meta-sep { flex: 0 0 auto; color: #d3d7de; font-size: 10px; }
+  .rec-table .cell-meta .cell-sub {
+    max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 11px; color: var(--text-3);
+  }
+
+  /* 联单列：芯片在上、状态在下，一律居中 */
+  .rec-table th.col-group,
+  .rec-table td.col-group { text-align: center; }
+  /* 旧规则把芯片容器锁成 18px 高，两行标题会被它裁掉 */
+  .rec-table td.col-group .cell-groups { justify-content: center; margin: 0; height: auto; }
+  /* 联单标题最多两行：一列能放下十几个字，悬停仍有完整标题 */
+  .rec-table td.col-group .group-chip {
+    max-width: 104px; padding: 2px 6px; font-size: 10.5px; height: auto; min-height: 18px;
+    align-items: flex-start; white-space: normal;
+  }
+  .rec-table td.col-group .group-chip .group-chip-t {
+    max-width: none; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; line-height: 12px; text-align: left;
+  }
+  .rec-table td.col-group .group-tags {
+    display: flex; flex-wrap: nowrap; align-items: center;
+    justify-content: center; gap: 3px; margin-top: 2px; height: 14px; overflow: hidden;
+  }
+  .rec-table td.col-group .group-tags .settled-dot,
+  .rec-table td.col-group .group-tags .discard-dot,
+  .rec-table td.col-group .group-tags .auto-settled-chip,
+  .rec-table td.col-group .group-tags .costfree-dot { font-size: 10px; padding: 0 4px; white-space: nowrap; }
+  .rec-table td.col-group .group-add-mini {
+    border: 1px dashed var(--border-strong); background: transparent; color: var(--text-3);
+    border-radius: 6px; padding: 0 7px; font-size: 12px; line-height: 18px; cursor: pointer;
+  }
+  .rec-table td.col-group .group-add-mini:hover:not(:disabled) {
+    border-color: var(--blue); color: var(--blue); background: var(--blue-soft);
+  }
+  .rec-table td.col-group .group-add-mini:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* 金额：右对齐 + 等宽 + tabular-nums，五个数字落在同一条竖线上 */
+  .rec-table th.th-right, .rec-table td.td-right { text-align: center; }
+  .rec-table tbody td.col-num,
+  .rec-table tbody td.col-price {
+    text-align: center; padding-left: 6px; padding-right: 6px;
+    white-space: nowrap; font-variant-numeric: tabular-nums; font-feature-settings: "tnum";
+  }
+  /* 到手价原来用 15px 蓝色，混在五个数字里太跳；改成同一字号、稍加粗 */
+  .rec-table .net-col { font-size: 12.5px; font-weight: 600; color: var(--text); letter-spacing: 0; }
+  .rec-table td.col-profit { font-weight: 750; }
+  .rec-table td.col-profit.pos { color: var(--up); }
+  .rec-table td.col-profit.neg { color: var(--down); }
+  .rec-table td.col-fee .fee-pending { font-size: 10.5px; padding: 1px 5px; }
+
+  /* 时间：单排、次要色 */
+  .rec-table td.cell-time { font-size: 11px; color: var(--text-3); text-align: center; }
+
+  /* 操作：三个纯文字按钮，行尾不再是一排盒子 */
+  .rec-table td.cell-actions { padding: 0 8px; }
+  .rc-actions-desktop { display: flex; align-items: center; justify-content: center; gap: 4px; }
+  .rc-actions-desktop .btn {
+    width: 46px; min-width: 0; height: 26px; min-height: 26px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11.5px; font-weight: 500; line-height: 1; color: var(--text-2);
+    background: var(--surface); border: 1px solid var(--border);
+  }
+  .rc-actions-desktop .btn:hover:not(:disabled) {
+    color: var(--text); background: var(--surface-2); border-color: var(--border-strong);
+  }
+  .rc-actions-desktop .btn-danger:hover:not(:disabled) { color: var(--up); }
+  .rc-actions-desktop .btn:disabled { opacity: .35; }
 }
 
-/* 联单芯片不能超列宽：列 104 - 左右内边距 20 = 84，超出会顶到旁边的时间列 */
-.rec-table td.col-group .group-chip { max-width: 84px; }
-.rec-table td.col-group .group-chip .group-chip-t { max-width: 46px; }
+html[data-theme="dark"] .rec-table thead tr.th-group th { background: #1a2029; }
+html[data-theme="dark"] .rec-table tbody tr.row-alt { background: #1a202a; }
+html[data-theme="dark"] .rec-table tbody tr:not(.detail-row) > td { border-bottom-color: #262e3a; }
+html[data-theme="dark"] .rec-table tbody tr.expandable:hover { background: #202836; }
+html[data-theme="dark"] .rec-table tbody tr.is-discarded { background: #191e26; }
+html[data-theme="dark"] .rec-table thead th.col-price,
+html[data-theme="dark"] .rec-table tbody td.col-price,
+html[data-theme="dark"] .rec-table thead th.col-profit,
+html[data-theme="dark"] .rec-table tbody td.col-profit,
+html[data-theme="dark"] .rec-table thead th.col-time,
+html[data-theme="dark"] .rec-table tbody td.col-time { border-color: #2a323e; }
+html[data-theme="dark"] .rec-table .kind-text.is-sell { color: #e0a94a; }
+html[data-theme="dark"] .rec-table .kind-text.is-buy { color: #7ea8ff; }
+html[data-theme="dark"] .rec-table .meta-sep { color: #4a5464; }
 
-/* 联单列里的状态标签统一字号（已完结 / 已弃单 / 已结算 / 无成本） */
-.rec-table td.col-group .group-tags .settled-dot,
-.rec-table td.col-group .group-tags .discard-dot {
-  font-size: 9.5px; padding: 1px 4px; white-space: nowrap;
+/* ============================================================
+   联单卡 v2（2026-11-20）
+   卡片只留「标题 / 净利润 / 销售额·成本·在库 / 笔数」，
+   六项金额、备注、全部单据收进详情面板，点卡片打开。
+   三列布局：宽屏一屏能看 9~12 张。
+   ============================================================ */
+.group-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: stretch; }
+@media (max-width: 1360px) { .group-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 860px) { .group-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; } }
+
+.group-card {
+  height: 100%; padding: 13px 14px 10px; cursor: pointer;
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.group-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow); }
+.group-card:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.group-card.settled { border-color: var(--border); }
+
+.gc-head { display: flex; align-items: flex-start; gap: 8px; }
+/* 标题占满整行、最多两行：右边的空白不再浪费，长标题也能读全 */
+.gc-title {
+  flex: 1 1 auto; min-width: 0; font-size: 14px; font-weight: 700; line-height: 19px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  overflow-wrap: anywhere;
+}
+/* 旧规则（.group-card .gc-title）把标题锁成了单行 nowrap，这里必须同权重覆盖 */
+.group-card .gc-title {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  white-space: normal; overflow: hidden;
+}
+.gc-title .src-tag { margin-right: 5px; vertical-align: 1px; }
+.gc-state {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+}
+.gc-state::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.gc-state.open { color: #1f8a4c; background: #eaf7ef; }
+.gc-state.done { color: var(--text-3); background: var(--surface-2); }
+
+/* 利润率靠卡片右边缘：金额几位数都不会把徽章推来推去，整列卡片对得齐 */
+.gc-line { display: flex; align-items: baseline; gap: 8px; margin-top: 9px; min-width: 0; }
+.gc-line .gc-sub { margin-left: auto; }
+.gc-line .gc-profit { font-size: 23px; font-weight: 800; line-height: 1.2; letter-spacing: -.5px; margin: 0; }
+.gc-line .gc-profit.pos { color: var(--up); }
+.gc-line .gc-profit.neg { color: var(--down); }
+.gc-sub { display: flex; align-items: baseline; gap: 6px; font-size: 10.5px; color: var(--text-3); min-width: 0; }
+.gc-rate-i {
+  font-style: normal; padding: 1px 6px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);
 }
 
-/* 联单列「＋」：代替原来操作列里的「联单」按钮，节省横向空间 */
-.rec-table td.col-group .group-add-mini {
-  border: 1px dashed var(--border-strong); background: transparent; color: var(--text-3);
-  border-radius: 6px; padding: 0 6px; font-size: 12px; line-height: 18px; cursor: pointer;
+.gc-facts {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 10px;
+  margin-top: 9px; padding-top: 8px; border-top: 1px dashed var(--border);
 }
-.rec-table td.col-group .group-add-mini:hover:not(:disabled) {
-  border-color: var(--blue); color: var(--blue); background: var(--blue-soft);
+.gc-facts > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.gc-facts span { font-size: 10.5px; color: var(--text-3); }
+.gc-facts b { font-size: 12.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.gc-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 9px; }
+.gc-left { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
+.gc-count { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.gc-note-dot {
+  margin-left: 6px; padding: 0 5px; border-radius: 4px;
+  background: var(--surface-2); border: 1px solid var(--border); font-size: 10px;
 }
-.rec-table td.col-group .group-add-mini:disabled { opacity: .4; cursor: not-allowed; }
+.gc-mini-acts { display: flex; align-items: center; gap: 4px; }
+/* 与明细表行尾一致：42×24 纯文字，无边框，悬停才出底色 */
+.gc-mini-acts .btn {
+  width: 46px; min-width: 0; height: 26px; min-height: 26px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11.5px; font-weight: 500; line-height: 1; color: var(--text-2);
+  background: var(--surface); border: 1px solid var(--border);
+}
+.gc-mini-acts .btn:hover:not(:disabled) {
+  color: var(--text); background: var(--surface-2); border-color: var(--border-strong);
+}
+.gc-mini-acts .btn-danger:hover:not(:disabled) { color: var(--up); }
+.gc-mini-acts .btn:disabled { opacity: .35; }
+
+/* ---------- 联单详情面板 ---------- */
+.gd-mask {
+  position: fixed; inset: 0; z-index: 130; display: flex; align-items: center; justify-content: center;
+  padding: 22px; background: rgba(16, 20, 28, .44);
+}
+.gd-panel {
+  width: min(560px, 100%); max-height: 84vh; display: flex; flex-direction: column;
+  background: var(--surface); border-radius: 16px; box-shadow: var(--shadow-lg); overflow: hidden;
+}
+.gd-head { display: flex; align-items: center; gap: 9px; padding: 13px 14px; border-bottom: 1px solid var(--border); }
+.gd-title {
+  flex: 1 1 auto; min-width: 0; font-size: 14.5px; font-weight: 750;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gd-body { padding: 14px; overflow: auto; }
+.gd-profit { display: flex; align-items: baseline; gap: 9px; margin-bottom: 12px; }
+.gd-profit b { font-size: 28px; font-weight: 850; letter-spacing: -.8px; }
+.gd-profit.pos b { color: var(--up); }
+.gd-profit.neg b { color: var(--down); }
+.gd-profit span { font-size: 11px; color: var(--text-3); }
+.gd-note {
+  margin-top: 10px; padding: 8px 10px; border-radius: 8px;
+  background: var(--surface-2); font-size: 11.5px; color: var(--text-2); line-height: 1.5;
+}
+.gd-sub-title { display: flex; align-items: baseline; gap: 6px; margin: 14px 0 4px; font-size: 12px; font-weight: 700; }
+.gd-sub-title .muted { font-weight: 400; font-size: 11px; }
+.gd-rows .gc-item {
+  width: 100%; border: 0; background: transparent; text-align: left; font: inherit;
+  cursor: pointer; padding: 6px 4px; border-radius: 7px;
+}
+.gd-rows .gc-item:hover { background: var(--surface-2); }
+.gd-rows .gc-item:disabled { cursor: default; }
+.gd-foot {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 11px 14px; border-top: 1px solid var(--border); background: var(--surface-2);
+}
+
+@media (max-width: 600px) {
+  .gd-mask { padding: 0; align-items: flex-end; }
+  .gd-panel { width: 100%; max-height: 90vh; border-radius: 16px 16px 0 0; }
+  .gc-line .gc-profit { font-size: 21px; }
+  .group-card { padding: 12px 13px 9px; }
+}
+
+html[data-theme="dark"] .gc-state.open { color: #46d19c; background: #16342a; }
+html[data-theme="dark"] .gc-state.done { color: #78859a; background: #232b36; }
+html[data-theme="dark"] .gc-settle { background: var(--surface); }
+html[data-theme="dark"] .gd-mask { background: rgba(0, 0, 0, .55); }
+
+/* ============================================================
+   保存失败要看得见：错误条固定在操作栏上方，并让弹窗抖一下
+   ============================================================ */
+.record-foot { flex-wrap: wrap; }
+.record-foot .modal-err {
+  flex: 1 1 100%; order: -1; margin-bottom: 2px;
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 9px 12px; border-radius: 10px;
+  background: #fdecea; border: 1px solid #f3c7c2; color: #a5391f;
+  font-size: 12.5px; font-weight: 600; line-height: 1.45;
+}
+html[data-theme="dark"] .record-foot .modal-err {
+  background: #3a221f; border-color: #5a3230; color: #ffb4a2;
+}
+@keyframes modalShake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-4px); }
+  40%, 60% { transform: translateX(4px); }
+}
+.modal.shake { animation: modalShake .5s ease both; }
+@media (prefers-reduced-motion: reduce) { .modal.shake { animation: none; } }
+
+/* 锁住的功能键：看着是灰的，但仍可点击 —— 点下去会给一句「为什么不能改」，
+   直接 disabled 只会让人以为点了没反应 */
+.rc-actions-desktop .btn.is-locked,
+.gc-mini-acts .btn.is-locked { color: var(--text-3); border-color: var(--border); background: var(--surface-2); }
+.rc-actions-desktop .btn.is-locked:hover:not(:disabled),
+.gc-mini-acts .btn.is-locked:hover:not(:disabled) { color: var(--text-2); border-color: var(--border-strong); }
+.icon-btn.is-locked, .rsa-btn.is-locked { opacity: .45; }
+
+/* 错误条多占一行，弹窗主体要让出这段高度，否则底部按钮会被顶出屏幕 */
+.modal.has-err .modal-body { max-height: calc(100vh - 268px); }

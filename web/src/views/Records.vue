@@ -497,6 +497,8 @@ const hasFilters = computed(() => !!(q.value.trim() || type.value || from.value 
 // 展开行 colspan 需随「自定义列」隐藏情况变化，固定 8 会错位
 // 固定列：勾选 / 商品 / 联单 / 成交价 / 到手价 / 利润 / 操作 = 7，其余按自定义列开关加
 const visibleColCount = computed(() => 7 + (showCols.value.shot ? 1 : 0) + (showCols.value.shipping ? 1 : 0) + (showCols.value.fee ? 1 : 0) + (showCols.value.time ? 1 : 0))
+// 「金额（元）」分组表头跨的列数：成交价 / 到手价 / 利润固定，运费、服务费跟着自定义列走
+const moneyColSpan = computed(() => 3 + (showCols.value.shipping ? 1 : 0) + (showCols.value.fee ? 1 : 0))
 const activeFilterCount = computed(() => [q.value.trim(), type.value, from.value, to.value, minAmount.value, maxAmount.value].filter(v => v !== '' && v != null).length)
 const filteredProfit = computed(() => Number(sum.value?.total_profit) || 0)
 function toggleAll() {
@@ -1210,24 +1212,43 @@ function onCardClick(r, e) {
       <!-- 桌面表格 -->
       <div class="table-wrap desktop-only" :class="{ 'is-resorting': resorting }">
         <table class="rec-table" :class="{ 'hide-shot': !showCols.shot, 'hide-shipping': !showCols.shipping, 'hide-fee': !showCols.fee, 'hide-time': !showCols.time }">
+          <!-- 列宽写在 colgroup 上：table-layout:fixed 只认第一行的定宽，
+               而第一行有「金额（元）」的 colspan，会让商品列被算成窄条。
+               colgroup 是唯一能保证「写多少就是多少」的地方。 -->
+          <colgroup>
+            <col class="cg-check" />
+            <col class="cg-prod" />
+            <col class="cg-group" />
+            <col v-if="showCols.shot" class="cg-shot" />
+            <col class="cg-num" />
+            <col v-if="showCols.shipping" class="cg-num" />
+            <col class="cg-num" />
+            <col v-if="showCols.fee" class="cg-num" />
+            <col class="cg-num" />
+            <col v-if="showCols.time" class="cg-time" />
+            <col class="cg-act" />
+          </colgroup>
           <thead>
-            <tr>
-              <th class="col-check"><input type="checkbox" :checked="allChecked" @change="toggleAll" /></th>
-              <th class="col-prod">商品</th>
-              <th class="col-group" title="这条记录属于哪张联单；点一下直达">联单</th>
-              <th class="col-shot">截图</th>
+            <tr class="th-group">
+              <th rowspan="2" class="col-check"><input type="checkbox" :checked="allChecked" @change="toggleAll" /></th>
+              <th rowspan="2" class="col-prod">商品 / 交易对象</th>
+              <th rowspan="2" class="col-group">联单 · 状态</th>
+              <th v-if="showCols.shot" rowspan="2" class="col-shot">截图</th>
+              <th :colspan="moneyColSpan" class="th-zone">金额（元）</th>
+              <th v-if="showCols.time" rowspan="2" class="col-time" title="交易时间">交易时间</th>
+              <th rowspan="2" class="col-act">操作</th>
+            </tr>
+            <tr class="th-sub">
               <th class="th-right col-price" title="卖单取卖出成交价，买单取买进价">成交价</th>
-              <th class="th-right col-num col-ship" title="买运费 + 卖运费">运费</th>
+              <th v-if="showCols.shipping" class="th-right col-num col-ship" title="买运费 + 卖运费">运费</th>
               <th class="th-right col-num" title="卖单：到手价（卖价−运费−服务费）；买单：总成本（买价+运费）">到手价</th>
-              <th class="th-right col-num col-fee" title="软件服务费 + 无忧卖服务费">服务费</th>
+              <th v-if="showCols.fee" class="th-right col-num col-fee" title="软件服务费 + 无忧卖服务费">服务费</th>
               <th class="th-right col-num col-profit" title="成交价 − 货品成本 − 卖运费 − 服务费（买单没有利润，显示 —）">利润</th>
-              <th class="col-time" title="交易时间">时间</th>
-              <th class="th-right">操作</th>
             </tr>
           </thead>
           <tbody>
-            <template v-for="r in items" :key="r.id">
-              <tr :data-rid="r.id" :class="{ selected: selected.includes(r.id), expandable: true, 'is-discarded': isDiscarded(r), 'row-flash': flashId === r.id, 'row-leaving': leaving.includes(r.id) }" @click="expanded = expanded === r.id ? null : r.id">
+            <template v-for="(r, idx) in items" :key="r.id">
+              <tr :data-rid="r.id" :class="{ selected: selected.includes(r.id), expandable: true, 'row-alt': idx % 2 === 1, 'is-discarded': isDiscarded(r), 'row-flash': flashId === r.id, 'row-leaving': leaving.includes(r.id) }" @click="expanded = expanded === r.id ? null : r.id">
                 <td class="col-check" @click.stop><input type="checkbox" :checked="selected.includes(r.id)" @change="toggleOne(r.id)" /></td>
                 <td class="cell-main">
                   <span v-if="isDiscarded(r)" class="seal seal-row seal-discard" aria-hidden="true">
@@ -1245,10 +1266,12 @@ function onCardClick(r, e) {
                     </span>
                   </span>
                   <div class="cell-product cell-ellipsis" :title="r.product">
-                    <span class="badge mini rc-kind" :class="r.has_sell ? 'badge-sell' : 'badge-buy'">{{ r.has_sell ? '卖单' : '买单' }}</span>
                     {{ r.product || '未命名商品' }}
                   </div>
                   <div class="cell-meta">
+                    <!-- 买卖类型从商品名前的色块挪到这里：第一行整行留给商品名 -->
+                    <span class="kind-text" :class="r.has_sell ? 'is-sell' : 'is-buy'">{{ r.has_sell ? '卖单' : '买单' }}</span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
                     <span class="cell-sub">{{ counterpartyOf(r) || '—' }}</span>
 
                     <span v-if="r.source === '寄卖'" class="consign-tag" :title="'寄卖单' + (r.owner ? ' · 归属 ' + r.owner : '')">寄卖单</span>
@@ -1262,7 +1285,6 @@ function onCardClick(r, e) {
                     <span v-for="g in groupsOf(r.id).slice(0, 1)" :key="'g'+g.id" class="group-chip"
                           @click.stop="emit('goto-group', g.id)"
                           :title="'查看联单：' + g.title + (groupsOf(r.id).length > 1 ? '（还有 ' + (groupsOf(r.id).length - 1) + ' 张）' : '')">
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
                       <span class="group-chip-t">{{ g.title }}</span>
                       <span v-if="groupsOf(r.id).length > 1" class="group-chip-n">+{{ groupsOf(r.id).length - 1 }}</span>
                     </span>
@@ -1279,7 +1301,7 @@ function onCardClick(r, e) {
                     <span v-if="r.cost_free && r.source !== '寄卖' && r.source !== '代采'" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
                   </div>
                 </td>
-                <td class="col-shot">
+                <td v-if="showCols.shot" class="col-shot">
                   <button v-if="r.attachment" type="button" class="td-thumb" @click.stop="openImage(r)"
                           title="查看订单截图" aria-label="查看订单截图">
                     <img :src="thumbUrl(r, 160)" alt="订单截图" loading="lazy" decoding="async" />
@@ -1287,34 +1309,33 @@ function onCardClick(r, e) {
                   <span v-else class="td-thumb-empty">—</span>
                 </td>
                 <td class="td-right num td-buy col-price">
-                  <!-- 待账单浮在金额左侧的空位上（垂直居中），数字位置固定不动 -->
-                  <b v-if="billPending(r)" class="fee-pending fee-pending-side"
-                     title="闲鱼订单列表给的是商品金额；账单一般延后几天生成，出账后再点「立即同步」会按实收金额自动更正">待账单</b>
                   <span class="price-num">{{ fmtMoney(rowBuyPrice(r)) }}</span>
                 </td>
-                <td class="td-right num td-muted col-num col-ship">{{ fmtMoney(r.buy_shipping + r.sell_shipping) }}</td>
+                <td v-if="showCols.shipping" class="td-right num td-muted col-num col-ship">{{ fmtMoney(r.buy_shipping + r.sell_shipping) }}</td>
                 <td class="td-right num col-num" :class="[r.has_sell ? 'net-col' : 'td-buy', { 'is-neg': r.has_sell && rowNet(r) < 0 }]">{{ fmtMoney(rowMidValue(r)) }}</td>
-                <td class="td-right num td-muted col-num col-fee">{{ r.has_sell ? fmtMoney((r.sell_fee || 0) + (r.sell_wuyou_fee || 0)) : '—' }}</td>
+                <td v-if="showCols.fee" class="td-right num td-muted col-num col-fee">
+                  <!-- 待账单挂在服务费上：账单没出，这一格才是真的没数 -->
+                  <b v-if="billPending(r)" class="fee-pending"
+                     title="闲鱼订单列表给的是商品金额；账单一般延后几天生成，出账后再点「立即同步」会按实收金额自动更正">待账单</b>
+                  <template v-else>{{ r.has_sell ? fmtMoney((r.sell_fee || 0) + (r.sell_wuyou_fee || 0)) : '—' }}</template>
+                </td>
                 <td class="td-right num col-num col-profit td-profit"
                     :class="r.has_sell ? ((r.profit || 0) >= 0 ? 'pos' : 'neg') : 'td-muted'"
                     :title="!r.has_sell ? '买单还没卖出去，没有利润' : (r.discarded_at ? '已弃单，不计入统计' : '成交价 − 货品成本 − 卖运费 − 服务费')">
                   {{ r.has_sell ? fmtMoney(r.profit || 0) : '—' }}
                 </td>
-                <td class="muted nowrap cell-time col-time">{{ shortTime(r.deal_time) }}</td>
+                <td v-if="showCols.time" class="muted nowrap cell-time col-time">{{ shortTime(r.deal_time) }}</td>
                 <td class="td-right nowrap cell-actions rc-actions-desktop" @click.stop>
                   <button class="btn btn-sm btn-ghost btn-discard" :class="{ 'is-on': r.discarded_at }"
                           :disabled="!!discarding"
                           :title="r.discarded_at ? '已弃单，点此取消弃单' : (inGroup(r) ? '这条在联单里，请先移出联单再弃单' : '作废这一条：不占在库、不计成本与利润')"
                           @click="toggleDiscard(r)">
-                    <svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2.5 11 13"/><path d="M21.5 2.5 15 21.5l-4-8.5-8.5-4z"/></svg>
                     {{ r.discarded_at ? '恢复' : '弃单' }}
                   </button>
-                  <button class="btn btn-sm btn-ghost" :disabled="groupSettled(r)" :title="groupSettled(r) ? '所在联单已完结，请先在「联单」页重新开启' : ''" @click="editRecord(r)">
-                    <svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+                  <button class="btn btn-sm btn-ghost" :class="{ 'is-locked': groupSettled(r) }" :title="groupSettled(r) ? '所在联单已完结，点一下会提示怎么开' : '编辑'" @click="editRecord(r)">
                     编辑
                   </button>
-                  <button class="btn btn-sm btn-ghost btn-danger" :disabled="groupSettled(r)" :title="groupSettled(r) ? '所在联单已完结，请先在「联单」页重新开启' : ''" @click="del(r)">
-                    <svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg>
+                  <button class="btn btn-sm btn-ghost btn-danger" :class="{ 'is-locked': groupSettled(r) }" :title="groupSettled(r) ? '所在联单已完结，点一下会提示怎么开' : '删除'" @click="del(r)">
                     删除
                   </button>
                 </td>
@@ -1388,7 +1409,7 @@ function onCardClick(r, e) {
           @touchstart.capture.passive="onTouchStart(r, $event)" @touchmove.capture="onTouchMove"
           @touchend.capture.passive="onTouchEnd" @touchcancel.capture.passive="onTouchEnd">
           <div class="rec-swipe-actions" @touchstart.stop @click.stop>
-            <button class="rsa-btn" :disabled="groupSettled(r)" @click="closeSwipe(); editRecord(r)" aria-label="编辑此记录" :title="groupSettled(r) ? '所在联单已完结，不可编辑' : '编辑'">
+            <button class="rsa-btn" :class="{ 'is-locked': groupSettled(r) }" @click="closeSwipe(); editRecord(r)" aria-label="编辑此记录" :title="groupSettled(r) ? '所在联单已完结，点一下会提示怎么开' : '编辑'">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
               <span>编辑</span>
             </button>
@@ -1515,11 +1536,11 @@ function onCardClick(r, e) {
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
                 <span class="icon-btn-t">联单</span>
               </button>
-              <button class="icon-btn" :disabled="groupSettled(r)" @touchstart.stop @click="editRecord(r)" aria-label="编辑" :title="groupSettled(r) ? '所在联单已完结，不可编辑' : '编辑'">
+              <button class="icon-btn" :class="{ 'is-locked': groupSettled(r) }" @touchstart.stop @click="editRecord(r)" aria-label="编辑" :title="groupSettled(r) ? '所在联单已完结，点一下会提示怎么开' : '编辑'">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
                 <span class="icon-btn-t">编辑</span>
               </button>
-              <button class="icon-btn icon-btn-danger" :disabled="groupSettled(r)" @touchstart.stop @click="del(r)" aria-label="删除" :title="groupSettled(r) ? '所在联单已完结，不可删除' : '删除'">
+              <button class="icon-btn icon-btn-danger" :class="{ 'is-locked': groupSettled(r) }" @touchstart.stop @click="del(r)" aria-label="删除" :title="groupSettled(r) ? '所在联单已完结，点一下会提示怎么开' : '删除'">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>
                 <span class="icon-btn-t">删除</span>
               </button>
