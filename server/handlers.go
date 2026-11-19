@@ -415,7 +415,11 @@ func handleTrend(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	// 与总账口径一致：成本在「卖出」时结转，不在「进货」时先记一笔。
 	// 否则进货月利润被压成负数、不进货的月份利润率虚高，和「已售成本」的说法也对不上。
-	alloc := loadGroupAlloc(shopID(r))
+	sid := shopID(r)
+	if r.URL.Query().Get("all") == "1" {
+		sid = -1
+	}
+	alloc := loadGroupAlloc(sid)
 	byMonth := map[string]*trendBucket{}
 	var noTime trendBucket
 	for rows.Next() {
@@ -551,8 +555,13 @@ func buildWhere(r *http.Request) (string, []interface{}) {
 
 	// 店铺隔离的第一道条件：明细列表的 COUNT 与分页取数共用这个 where，
 	// 放在数组首位而不是末尾拼接，后续任何新条件都不会把它挤掉。
-	conds = append(conds, "shop_id = ?")
-	args = append(args, shopID(r))
+	// all=1 时放开店铺条件（概览「全部店铺合计」视图用，仅统计接口传入）。
+	if r.URL.Query().Get("all") == "1" {
+		conds = append(conds, "1=1")
+	} else {
+		conds = append(conds, "shop_id = ?")
+		args = append(args, shopID(r))
+	}
 
 	// 按归一化商品名精确过滤：从「商品利润排行」点进来时用。
 	// 排行里同名的不同写法（大小写/空格/标点差异）已经聚合成一行，
@@ -1250,12 +1259,12 @@ type Stats struct {
 	TotalGoods    float64 `json:"total_goods"`     // 已售货品成本（卖单带走的单件成本）
 	TotalInvest   float64 `json:"total_invest"`    // 总投入 = 所有买单（买价 + 买运费）
 	// 在库按库龄分档，看哪批货压得久
-	Stock30  float64 `json:"stock_30"`
-	Stock60  float64 `json:"stock_60"`
-	Stock90  float64 `json:"stock_90"`
-	StockOld float64 `json:"stock_old"`
-	ProfitMargin  float64 `json:"profit_margin"`   // 利润率 = 利润 / 销售额（%）
-	AvgProfit     float64 `json:"avg_profit"`      // 已成交单笔平均利润
+	Stock30      float64 `json:"stock_30"`
+	Stock60      float64 `json:"stock_60"`
+	Stock90      float64 `json:"stock_90"`
+	StockOld     float64 `json:"stock_old"`
+	ProfitMargin float64 `json:"profit_margin"` // 利润率 = 利润 / 销售额（%）
+	AvgProfit    float64 `json:"avg_profit"`    // 已成交单笔平均利润
 	// 完成单口径（仅统计已完结联单内的明细）
 	SettledSales  float64 `json:"settled_sales"`  // 完结单成交额
 	SettledCost   float64 `json:"settled_cost"`   // 完结单总成本
@@ -1276,11 +1285,23 @@ type Stats struct {
 func handleStats(w http.ResponseWriter, r *http.Request) {
 	where, args := buildWhere(r) // shop-scope: buildWhere 内部已带 shop_id 条件
 
+	all := r.URL.Query().Get("all") == "1"
+	sid := shopID(r)
+	if all {
+		sid = -1
+	}
 	// 已完结联单的明细 id 集合（用于「完成单净利润」统计）
 	settledSet := map[int64]bool{}
-	// 必须限定本店：settledSet 直接决定「完成单净利润」的统计口径。
-	if sRows, e := db.Query(`SELECT DISTINCT gi.item_id FROM group_items gi
-        JOIN link_groups g ON g.id=gi.group_id WHERE g.settled_at<>'' AND g.shop_id=?`, shopID(r)); e == nil {
+	var sRows *sql.Rows
+	var e error
+	if sid < 0 {
+		sRows, e = db.Query(`SELECT DISTINCT gi.item_id FROM group_items gi
+            JOIN link_groups g ON g.id=gi.group_id WHERE g.settled_at<>''`)
+	} else {
+		sRows, e = db.Query(`SELECT DISTINCT gi.item_id FROM group_items gi
+            JOIN link_groups g ON g.id=gi.group_id WHERE g.settled_at<>'' AND g.shop_id=?`, sid)
+	}
+	if e == nil {
 		for sRows.Next() {
 			var iid int64
 			if sRows.Scan(&iid) == nil {
@@ -1292,7 +1313,7 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 
 	// 联单内卖单的成本分摊：整单买单按卖单成交价占比落到单件上。
 	// 与商品利润排行同一口径，否则首页净利润会因为联单卖单成本是 0 而虚高。
-	alloc := loadGroupAlloc(shopID(r))
+	alloc := loadGroupAlloc(sid)
 
 	rows, err := db.Query("SELECT "+itemCols+" FROM items WHERE "+where, args...)
 	if err != nil {
@@ -1303,8 +1324,16 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	var s Stats
 	// 在联单里的明细 id：判断「无成本卖单」要用——联单里的卖单算联单的账，不算无成本。
 	var inGroupSet = map[int64]bool{}
-	if gRows, ge := db.Query(`SELECT DISTINCT gi.item_id FROM group_items gi
-        JOIN link_groups g ON g.id=gi.group_id WHERE g.shop_id=?`, shopID(r)); ge == nil {
+	var gRows *sql.Rows
+	var ge error
+	if sid < 0 {
+		gRows, ge = db.Query(`SELECT DISTINCT gi.item_id FROM group_items gi
+        JOIN link_groups g ON g.id=gi.group_id`)
+	} else {
+		gRows, ge = db.Query(`SELECT DISTINCT gi.item_id FROM group_items gi
+        JOIN link_groups g ON g.id=gi.group_id WHERE g.shop_id=?`, sid)
+	}
+	if ge == nil {
 		for gRows.Next() {
 			var iid int64
 			if gRows.Scan(&iid) == nil {
@@ -1605,15 +1634,15 @@ func handleRecordsExists(w http.ResponseWriter, r *http.Request) {
 
 type productProfitRow struct {
 	Product  string  `json:"product"`
-	Norm     string  `json:"norm"`      // 归一化商品名：明细页用 product_norm 精确过滤，避免同名不同写法漏单
-	Sales    float64 `json:"sales"`     // 成交价合计
-	Cost     float64 `json:"cost"`      // 已售成本（货品 + 卖运费 + 服务费）
-	Profit   float64 `json:"profit"`    // 利润 = 销售额 − 已售成本
-	Margin   float64 `json:"margin"`    // 利润率（%）
-	Sold     int     `json:"sold"`      // 成交单数
-	Stock    float64 `json:"stock"`     // 该商品还在库的进货成本
-	StockQty int     `json:"stock_qty"` // 在库批次数
-	Unlinked int     `json:"unlinked"`  // 其中没有成本单的卖单数（成本按 0 计，利润虚高）
+	Norm     string  `json:"norm"`            // 归一化商品名：明细页用 product_norm 精确过滤，避免同名不同写法漏单
+	Sales    float64 `json:"sales"`           // 成交价合计
+	Cost     float64 `json:"cost"`            // 已售成本（货品 + 卖运费 + 服务费）
+	Profit   float64 `json:"profit"`          // 利润 = 销售额 − 已售成本
+	Margin   float64 `json:"margin"`          // 利润率（%）
+	Sold     int     `json:"sold"`            // 成交单数
+	Stock    float64 `json:"stock"`           // 该商品还在库的进货成本
+	StockQty int     `json:"stock_qty"`       // 在库批次数
+	Unlinked int     `json:"unlinked"`        // 其中没有成本单的卖单数（成本按 0 计，利润虚高）
 	CostFree int     `json:"cost_free_count"` // 其中用户主动标记「无成本」（代卖/寄卖/赠送）的卖单数
 }
 
@@ -1677,8 +1706,17 @@ func loadGroupAlloc(sid int64) map[int64]float64 {
 		return out
 	}
 	members := map[int64][]int64{}
-	mRows, err := db.Query(`SELECT gi.group_id, gi.item_id FROM group_items gi
-        JOIN link_groups g ON g.id=gi.group_id WHERE g.shop_id=?`, sid)
+	shopCond := "WHERE g.shop_id=?"
+	var mRows *sql.Rows
+	var err error
+	if sid < 0 {
+		mRows, err = db.Query(`SELECT gi.group_id, gi.item_id FROM group_items gi
+            JOIN link_groups g ON g.id=gi.group_id`)
+	} else {
+		mRows, err = db.Query(`SELECT gi.group_id, gi.item_id FROM group_items gi
+            JOIN link_groups g ON g.id=gi.group_id WHERE g.shop_id=?`, sid)
+	}
+	_ = shopCond
 	if err != nil {
 		return out
 	}
@@ -1694,7 +1732,12 @@ func loadGroupAlloc(sid int64) map[int64]float64 {
 	}
 
 	idx := map[int64]Item{}
-	iRows, err := db.Query("SELECT "+itemCols+" FROM items WHERE shop_id=?", sid)
+	var iRows *sql.Rows
+	if sid < 0 {
+		iRows, err = db.Query("SELECT " + itemCols + " FROM items")
+	} else {
+		iRows, err = db.Query("SELECT "+itemCols+" FROM items WHERE shop_id=?", sid)
+	}
 	if err != nil {
 		return out
 	}

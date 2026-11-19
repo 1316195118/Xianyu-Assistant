@@ -723,7 +723,7 @@ function goSettingsFromModal() {
              入场动画交给 .page 的 CSS animation 重放。
              旧写法用 <Transition mode="out-in">，只要 leave 的 transitionend
              因页面切到后台等原因丢失，新视图就永远等不到插入时机，整页空白。 -->
-        <Overview v-if="view === 'overview'" :key="'ov-' + activeShopId" :refreshKey="refreshKey" @add="openAdd" @goto-records="gotoRecords" @goto-record="gotoRecord" @goto-product="gotoProduct" @goto-settings="switchView('settings')" @goto-calc="calcOpen = true" @goto-report="reportOpen = true" />
+        <Overview v-if="view === 'overview'" :key="'ov-' + activeShopId" :refreshKey="refreshKey" @add="openAdd" @goto-records="gotoRecords" @goto-record="gotoRecord" @goto-product="gotoProduct" @goto-settings="switchView('settings')" @goto-calc="calcOpen = true" @goto-report="reportOpen = true" @notify="notify" />
         <Records v-else-if="view === 'records'" :key="'rc-' + activeShopId" :refreshKey="refreshKey" :highlightId="highlightId" :focusQuery="focusQuery" :focusNorm="focusNorm" :focusType="focusType" :focusNonce="focusNonce" @add="openAdd" @edit="openEdit" @refresh="bump" @notify="notify" @goto-group="gotoGroup" @batch="openBatch" />
         <Groups v-else-if="view === 'groups'" :key="'gp-' + activeShopId" :refreshKey="refreshKey" :focusGroupId="focusGroupId" @notify="notify" @edit="openEdit" @view="openViewRecord" @focused="focusGroupId = null" />
         <Settings v-else :key="'st-' + activeShopId" :refreshKey="refreshKey" @notify="notify" @refresh="bump" />

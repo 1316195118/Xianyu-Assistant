@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api } from '../api'
 import { localRecognize } from '../ocr'
 import { shops, activeId } from '../shopStore'
@@ -262,7 +262,11 @@ function close() {
   rows.value.forEach((r) => { try { URL.revokeObjectURL(r.thumb) } catch (e) { /* ignore */ } })
   emit('close')
 }
+const onEscKey = (e) => { if (e.key === 'Escape') close() }
+onMounted(() => document.addEventListener('keydown', onEscKey))
+
 onUnmounted(() => {
+  document.removeEventListener('keydown', onEscKey)
   rows.value.forEach((r) => { try { URL.revokeObjectURL(r.thumb) } catch (e) { /* ignore */ } })
 })
 </script>

@@ -547,7 +547,7 @@ async function batchDel() {
     title: '批量删除记录？',
     message: `将删除选中的 ${selected.value.length} 条记录。`,
     detail: '此操作不可恢复。',
-    confirmText: `删除 ${selected.value.length} 条`, danger: true
+    confirmText: `删除 ${selected.value.length} 单`, danger: true
   })
   if (!ok) return
   try {
@@ -556,7 +556,7 @@ async function batchDel() {
     selected.value = []
     // 定位的那条也在删除列表里时清掉定位，否则列表会空
     if (deletedIds.includes(focusId.value)) focusId.value = 0
-    emit('notify', `已删除 ${res.deleted} 条`, false, undoAction(res.undo_token, {
+    emit('notify', `已删除 ${res.deleted} 单`, false, undoAction(res.undo_token, {
       after: load,
       notify: (t) => emit('notify', t),
       doneText: '已撤销批量删除'
@@ -999,7 +999,7 @@ function onCardClick(r, e) {
     <!-- 批量操作条 -->
     <div v-if="selected.length" class="bulk-bar">
       <span class="bb-ico" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4.5 4.5L19 7"/></svg></span>
-      <span class="bb-text">已选 <b>{{ selected.length }}</b> 条</span>
+      <span class="bb-text">已选 <b>{{ selected.length }}</b> 单</span>
       <div class="bulk-edit">
         <select class="select" v-model="batchField" title="要批量修改的字段">
           <option value="note">备注</option><option value="buy_shipping">买运费金额</option>
@@ -1130,7 +1130,7 @@ function onCardClick(r, e) {
             <span class="muted">估算只是把利润算得接近真实，随时能在编辑里改</span>
             <button class="btn btn-sm btn-quiet" @click="estimateMode = false">返回挂接</button>
             <button class="btn btn-sm btn-primary" :disabled="autoBusy || !estimatePicked.length" @click="submitEstimate">
-              <span v-if="autoBusy" class="spin"></span>确认填成本 {{ estimatePicked.length }} 条
+              <span v-if="autoBusy" class="spin"></span>确认填成本 {{ estimatePicked.length }} 单
             </button>
           </div>
           <div v-else class="cp-foot al-foot">

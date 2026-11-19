@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { api } from '../api'
 import { maskCloser } from '../maskClose'
+import { confirm } from '../confirm'
 // 遮罩点击守卫：在输入框里拖选文字划出弹窗松手时，不会误关弹窗
 const mask = maskCloser(() => close)
 
@@ -80,17 +81,30 @@ function onHeadEnd() {
   setTimeout(() => { if (panelEl.value) panelEl.value.style.transition = '' }, 260)
 }
 
+const acting = ref('')
 async function restore(o) {
+  if (acting.value) return
+  acting.value = 'restore:' + o.token
   try {
     await api.undo(o.token)
     emit('notify', '已恢复：' + o.label)
     emit('refresh')
     await load()
   } catch (e) { emit('notify', '恢复失败：' + e.message, true) }
+  finally { acting.value = '' }
 }
 async function discard(o) {
+  if (acting.value) return
+  const ok = await confirm({
+    title: '彻底删除撤销记录',
+    message: '删除后这条撤销记录就无法再恢复了。',
+    confirmText: '删除', danger: true
+  })
+  if (!ok) return
+  acting.value = 'discard:' + o.token
   try { await api.discardUndo(o.token); emit('notify', '已彻底删除该撤销记录'); await load() }
   catch (e) { emit('notify', '删除失败：' + e.message, true) }
+  finally { acting.value = '' }
 }
 const fmt = (s) => String(s || '').replace('T', ' ').slice(0, 16)
 </script>
@@ -122,8 +136,12 @@ const fmt = (s) => String(s || '').replace('T', ' ').slice(0, 16)
               <b>{{ o.label }}</b>
               <small class="muted">{{ fmt(o.created_at) }} · {{ Math.round((o.size || 0) / 1024) }} KB</small>
             </div>
-            <button v-if="!o.consumed" class="btn btn-sm btn-primary" @click="restore(o)">恢复</button>
-            <button class="btn btn-sm btn-ghost" @click="discard(o)">删除</button>
+            <button v-if="!o.consumed" class="btn btn-sm btn-primary" :disabled="!!acting" @click="restore(o)">
+              <span v-if="acting === 'restore:' + o.token" class="spin"></span>恢复
+            </button>
+            <button class="btn btn-sm btn-ghost btn-danger" :disabled="!!acting" @click="discard(o)">
+              <span v-if="acting === 'discard:' + o.token" class="spin"></span>删除
+            </button>
           </div>
         </div>
       </div>

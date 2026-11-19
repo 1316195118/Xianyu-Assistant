@@ -5194,3 +5194,52 @@ html[data-motion="reduce"] .chart-swap { animation: none !important; }
 html[data-motion="reduce"] .chart-dot,
 html[data-motion="reduce"] .donut-seg,
 html[data-motion="reduce"] .gf-progress i { transition: none !important; }
+
+
+/* ============================================================
+   审计批次：弹窗入场统一 + 深色模式配色补漏
+   ============================================================ */
+@keyframes maskIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes panelIn { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
+.modal-mask, .ali-mask, .cp-mask { animation: maskIn .2s ease both; }
+.modal-mask .modal, .ali-modal, .report-panel { animation: panelIn .26s var(--ease) both; }
+.insight-click { cursor: pointer; }
+.insight-click:hover { background: var(--surface-2); }
+
+/* 手机端：闲鱼同步 / 支付宝 / 店铺管理 / 回收站 / 版本信息统一底部 sheet */
+@media (max-width: 600px) {
+  .modal-mask:has(.gf-modal), .modal-mask:has(.shop-manage-modal),
+  .modal-mask:has(.recycle-modal), .modal-mask:has(.version-modal), .ali-mask {
+    align-items: flex-end; padding: 0;
+  }
+  .modal-mask:has(.gf-modal) .modal, .modal-mask:has(.shop-manage-modal) .modal,
+  .modal-mask:has(.recycle-modal) .modal, .modal-mask:has(.version-modal) .modal,
+  .ali-modal {
+    border-radius: 18px 18px 0 0; max-height: 88vh;
+    display: flex; flex-direction: column;
+  }
+  .modal-mask:has(.gf-modal) .modal-body, .modal-mask:has(.shop-manage-modal) .modal-body,
+  .modal-mask:has(.recycle-modal) .modal-body, .modal-mask:has(.version-modal) .modal-body { max-height: none; flex: 1 1 auto; }
+}
+
+/* 深色模式补漏：浅色底硬编码的区块换深色 */
+html[data-theme="dark"] .tip { background: rgba(245, 158, 11, .12); border-color: rgba(245, 158, 11, .3); color: #fbbf24; }
+html[data-theme="dark"] .tip.err { background: rgba(224, 73, 46, .12); border-color: rgba(224, 73, 46, .3); color: #ff9a8a; }
+html[data-theme="dark"] .engine-card.on { background: rgba(245, 158, 11, .10); }
+html[data-theme="dark"] .group-chip { background: rgba(77, 114, 224, .16); border-color: rgba(120, 150, 235, .35); }
+html[data-theme="dark"] .group-chip:hover { background: rgba(77, 114, 224, .28); }
+html[data-theme="dark"] .notice-box { background: rgba(245, 158, 11, .09); }
+html[data-theme="dark"] .backup-warn { background: rgba(224, 73, 46, .12); }
+html[data-theme="dark"] .kpi-tag { background: rgba(255, 255, 255, .06); }
+html[data-theme="dark"] .badge-ok { background: rgba(46, 160, 67, .16); }
+html[data-theme="dark"] .badge-buy { background: rgba(77, 114, 224, .16); }
+@media (prefers-reduced-motion: reduce) {
+  .modal-mask, .ali-mask, .cp-mask, .modal-mask .modal, .ali-modal, .report-panel { animation: none !important; }
+}
+html[data-motion="reduce"] .modal-mask, html[data-motion="reduce"] .ali-mask, html[data-motion="reduce"] .cp-mask,
+html[data-motion="reduce"] .modal-mask .modal, html[data-motion="reduce"] .ali-modal, html[data-motion="reduce"] .report-panel { animation: none !important; }
+
+/* 概览顶部「统计范围」切换 */
+.shop-scope { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 2px 6px; }
+.shop-scope .chips { display: inline-flex; gap: 6px; }
+.shop-scope .scope-note { font-size: 11px; }

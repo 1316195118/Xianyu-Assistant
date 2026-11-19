@@ -154,6 +154,7 @@ const dataMsg = ref(null)
 const excelBusy = ref(false)
 const exporting = ref('')   // '' | 'json' | 'csv'：导出期间的按钮忙碌态
 const fileInput = ref(null)
+const csvInput = ref(null)
 const readonlyPwd = ref('')
 const helpOpen = ref(false)      // 识别与配对说明：默认收起
 const readonlyOpen = ref(false)  // 只读账号二级窗口
@@ -352,6 +353,82 @@ function doExportExcel() {
   })
 }
 function pickFile() { fileInput.value?.click() }
+
+// CSV 导入：把常见表头（中文或英文）映射成记录字段，再走和 JSON 一样的导入通道。
+const CSV_COLS = {
+  '商品名称': 'product', '商品': 'product', 'product': 'product',
+  '卖出价': 'sell_price', '成交价': 'sell_price', 'sell_price': 'sell_price',
+  '到手价': 'sell_net', 'sell_net': 'sell_net',
+  '卖出时间': 'sell_time', '交易时间': 'sell_time', 'sell_time': 'sell_time',
+  '卖出订单号': 'sell_order_no', '订单号': 'sell_order_no', 'sell_order_no': 'sell_order_no',
+  '买家': 'sell_counterparty', 'sell_counterparty': 'sell_counterparty',
+  '买进价': 'buy_price', 'buy_price': 'buy_price',
+  '买进时间': 'buy_time', 'buy_time': 'buy_time',
+  '买进订单号': 'buy_order_no', 'buy_order_no': 'buy_order_no',
+  '卖家': 'buy_counterparty', 'buy_counterparty': 'buy_counterparty',
+  '买运费': 'buy_shipping', 'buy_shipping': 'buy_shipping',
+  '卖运费': 'sell_shipping', 'sell_shipping': 'sell_shipping',
+  '软件服务费': 'sell_fee', 'sell_fee': 'sell_fee',
+  '无忧卖服务费': 'sell_wuyou_fee', 'sell_wuyou_fee': 'sell_wuyou_fee',
+  '备注': 'note', 'note': 'note', '件数': 'quantity', 'quantity': 'quantity'
+}
+function parseCsv(text) {
+  const rows = []
+  for (const line of text.replace(/\r/g, '').split('\n')) {
+    if (!line.trim()) continue
+    const cells = []
+    let cur = '', inQ = false
+    for (const ch of line) {
+      if (ch === '"') { inQ = !inQ; continue }
+      if (ch === ',' && !inQ) { cells.push(cur); cur = ''; continue }
+      cur += ch
+    }
+    cells.push(cur)
+    rows.push(cells)
+  }
+  return rows
+}
+function pickCsv() { csvInput.value?.click() }
+async function onCsvFile(e) {
+  const f = e.target.files?.[0]
+  if (!f) return
+  e.target.value = ''
+  dataMsg.value = null
+  try {
+    const rows = parseCsv(await f.text())
+    if (rows.length < 2) { dataMsg.value = { text: 'CSV 里没有数据行', ok: false }; return }
+    const headers = rows[0].map((h) => String(h).trim())
+    const keys = headers.map((h) => CSV_COLS[h] || CSV_COLS[h.toLowerCase()] || '')
+    const items = []
+    for (let i = 1; i < rows.length; i++) {
+      const it = {}
+      rows[i].forEach((cell, ci) => {
+        const k = keys[ci]
+        if (!k || cell === '') return
+        const v = String(cell).trim()
+        if (['buy_price', 'sell_price', 'sell_net', 'buy_shipping', 'sell_shipping', 'sell_fee', 'sell_wuyou_fee', 'quantity'].includes(k)) {
+          it[k] = Number(v) || 0
+        } else { it[k] = v }
+      })
+      if (!it.product && !it.sell_price && !it.buy_price) continue
+      it.product = it.product || '未命名商品'
+      if (!it.sell_time && !it.buy_time) {
+        const t = new Date().toISOString().slice(0, 19).replace('T', ' ')
+        if (it.sell_price) it.sell_time = t; else it.buy_time = t
+      }
+      items.push(it)
+    }
+    if (!items.length) { dataMsg.value = { text: '没有识别到可导入的列（需要 商品名称 + 金额 这类表头）', ok: false }; return }
+    importBusy.value = true
+    const r = await api.importData(importMode.value, { items })
+    emit('notify', `CSV 导入完成：新增/合并 ${r.count ?? items.length} 单`)
+    emit('refresh')
+    await load()
+  } catch (err) {
+    dataMsg.value = { text: 'CSV 导入失败：' + (err.message || err), ok: false }
+  } finally { importBusy.value = false }
+}
+
 async function onImportFile(e) {
   const f = e.target.files?.[0]
   if (!f) return
@@ -625,7 +702,7 @@ async function test() {
     <!-- 外观与动效 -->
     <div v-if="appearanceOpen" class="modal-mask set-sheet" @click.self="appearanceOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="外观与动效">
-        <div class="modal-head"><b>外观与动效</b><button class="x" @click="appearanceOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-head"><h3>外观与动效</h3><button class="x" @click="appearanceOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body">
           <p class="muted set-sheet-desc">主题与动效偏好保存在本机，可跟随系统或手动固定。</p>
           <div class="set-field-label">主题</div>
@@ -655,7 +732,7 @@ async function test() {
     <!-- 识别引擎 -->
     <div v-if="engineOpen" class="modal-mask set-sheet" @click.self="engineOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="识别引擎">
-        <div class="modal-head"><b>识别引擎</b><button class="x" @click="engineOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-head"><h3>识别引擎</h3><button class="x" @click="engineOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body">
           <p class="muted set-sheet-desc">决定「上传截图」时用哪种方式识别，随时可切换。</p>
           <div class="engine-cards">
@@ -679,7 +756,7 @@ async function test() {
     <!-- 视觉大模型 API -->
     <div v-if="advancedOpen" class="modal-mask set-sheet" @click.self="advancedOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="视觉大模型 API">
-        <div class="modal-head"><b>视觉大模型 API</b><button class="x" @click="advancedOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-head"><h3>视觉大模型 API</h3><button class="x" @click="advancedOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body">
           <p class="muted set-sheet-desc">仅当使用「视觉大模型」引擎时需要；本地 OCR 用户可完全忽略。</p>
           <div class="field">
@@ -708,7 +785,7 @@ async function test() {
     <!-- 识别与配对说明 -->
     <div v-if="helpOpen" class="modal-mask set-sheet" @click.self="helpOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="识别与配对说明">
-        <div class="modal-head"><b>识别与配对说明</b><button class="x" @click="helpOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-head"><h3>识别与配对说明</h3><button class="x" @click="helpOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body help-body">
           <div class="help-row"><b>买进单判定</b><span>截图出现「卖家昵称」→ 我是买家 → 识别为买进侧</span></div>
           <div class="help-row"><b>卖出单判定</b><span>截图出现「买家昵称」/「预计到手」→ 我是卖家 → 识别为卖出侧</span></div>
@@ -724,7 +801,7 @@ async function test() {
     <!-- 访问密码 -->
     <div v-if="pwdOpen" class="modal-mask set-sheet" @click.self="pwdOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="访问密码">
-        <div class="modal-head"><b>访问密码</b><button class="x" @click="pwdOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-head"><h3>访问密码</h3><button class="x" @click="pwdOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body">
           <div class="notice-box">开启后，所有数据接口都需要登录；登录状态保存在 HttpOnly Cookie 中，7 天有效。密码以加盐哈希存储，不保存明文。<b>忘记密码</b>可在服务器执行 <code>xianyu-stat --reset-password</code> 清除。</div>
           <div class="form-grid tight">
@@ -744,7 +821,7 @@ async function test() {
     <!-- 自动备份 -->
     <div v-if="backupOpen" class="modal-mask set-sheet" @click.self="backupOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="自动备份">
-        <div class="modal-head"><b>自动备份</b><button class="x" @click="backupOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-head"><h3>自动备份</h3><button class="x" @click="backupOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body">
           <p class="muted set-sheet-desc">定时生成数据库一致性快照，导入或覆盖数据前也会自动备份。</p>
           <div class="backup-config">
@@ -781,7 +858,7 @@ async function test() {
     <!-- 数据导出 / 导入 -->
     <div v-if="dataOpen" class="modal-mask set-sheet" @click.self="dataOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="数据导出与导入">
-        <div class="modal-head"><b>数据导出 / 导入</b><button class="x" @click="dataOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-head"><h3>数据导出 / 导入</h3><button class="x" @click="dataOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body">
           <div class="notice-box">JSON / CSV / Excel <b>只包含当前店铺</b>的明细（另含全局的运费标签与识别设置；<b>不含访问密码与 API Key</b>），可用于系统间迁移；导入同样只写入当前店铺。导入前会自动备份当前数据。</div>
           <div class="set-field-label">导出</div>
@@ -798,7 +875,9 @@ async function test() {
               <button :class="{ 'on-sell': importMode === 'replace' }" @click="importMode = 'replace'">覆盖全部数据</button>
             </div>
             <button class="btn btn-quiet" @click="pickFile" :disabled="importBusy"><span v-if="importBusy" class="spin"></span>选择 JSON 文件并导入</button>
+            <button class="btn btn-quiet" @click="pickCsv" :disabled="importBusy"><span v-if="importBusy" class="spin"></span>导入 CSV 表格</button>
             <input ref="fileInput" type="file" accept=".json,application/json" hidden @change="onImportFile" />
+            <input ref="csvInput" type="file" accept=".csv,text/csv" hidden @change="onCsvFile" />
           </div>
           <div v-if="dataMsg" class="tip" :class="{ err: !dataMsg.ok }">{{ dataMsg.text }}</div>
         </div>
@@ -809,7 +888,7 @@ async function test() {
     <!-- 月度利润目标 -->
     <div v-if="targetOpen" class="modal-mask set-sheet" @click.self="targetOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="月度利润目标">
-        <div class="modal-head"><b>月度利润目标</b><button class="x" @click="targetOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-head"><h3>月度利润目标</h3><button class="x" @click="targetOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body">
           <p class="muted set-sheet-desc">设一个当月净利润目标，首页会显示完成进度和剩余天数。按店铺、按月份分别保存；填 0 表示不设目标。</p>
           <div class="target-row">
@@ -825,7 +904,7 @@ async function test() {
     <!-- 只读账号 -->
     <div v-if="readonlyOpen" class="modal-mask set-sheet" @click.self="readonlyOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="只读账号">
-        <div class="modal-head"><b>只读账号</b><button class="x" @click="readonlyOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-head"><h3>只读账号</h3><button class="x" @click="readonlyOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body">
           <p class="muted set-sheet-desc">设一个独立密码，用它的登录只能查看数据，不能新增、修改或删除。主密码仍拥有完整权限。</p>
           <div class="readonly-row"><input class="input" type="password" v-model="readonlyPwd" placeholder="设置只读密码（至少 4 位）" autocomplete="new-password" /></div>
@@ -841,7 +920,7 @@ async function test() {
     <!-- 开源许可 -->
     <div v-if="licensesOpen" class="modal-mask set-sheet" @click.self="licensesOpen = false">
       <div class="modal" role="dialog" aria-modal="true" aria-label="开源许可与版权声明">
-        <div class="modal-head"><b>开源许可与版权声明</b><button class="x" @click="licensesOpen = false" aria-label="关闭">×</button></div>
+        <div class="modal-head"><h3>开源许可与版权声明</h3><button class="x" @click="licensesOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body">
           <div class="notice-box">本程序为个人本地记账工具，界面与业务逻辑为原创实现。<b>未包含</b>闲鱼的任何商标、图标、截图或界面素材；用户上传的订单截图仅在本机处理，不随程序分发。「闲鱼」为阿里巴巴集团旗下商标，此处仅作描述性用途。</div>
           <div class="lic-table">

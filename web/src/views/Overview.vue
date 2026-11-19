@@ -9,7 +9,7 @@ import ProductProfit from '../components/ProductProfit.vue'
 import AdvicePanel from '../components/AdvicePanel.vue'
 
 const props = defineProps({ refreshKey: { type: Number, default: 0 } })
-const emit = defineEmits(['add', 'goto-records', 'goto-record', 'goto-product', 'goto-settings', 'goto-calc', 'goto-report'])
+const emit = defineEmits(['add', 'goto-records', 'goto-record', 'goto-product', 'goto-settings', 'goto-calc', 'goto-report', 'notify'])
 
 // 备份提醒：超过 7 天没备份（或从未备份）就在首页提一句
 const backupLast = ref('')
@@ -46,6 +46,7 @@ const salesFoot = computed(() => {
   return '所有登记卖单，按成交价计，未扣服务费'
 })
 
+const allShops = ref(false)
 const stats = ref(null)
 const period = ref('month')
 const periods = [{ v: 'month', t: '月' }, { v: 'quarter', t: '季' }, { v: 'week', t: '周' }]
@@ -98,9 +99,11 @@ async function load() {
   const seq = ++loadSeq
   loading.value = true; error.value = ''
   try {
+    const scope = allShops.value ? { all: '1' } : {}
     const [s, l, t, gs] = await Promise.all([
-      api.stats(), api.list({ page: 1, page_size: 6, sort: 'created', order: 'desc' }), api.trend({ period: period.value }),
-      api.groupsBrief().catch(() => null)
+      api.stats(scope), api.list({ page: 1, page_size: 6, sort: 'created', order: 'desc' }),
+      api.trend({ period: period.value, ...scope }),
+      allShops.value ? Promise.resolve(null) : api.groupsBrief().catch(() => null)
     ])
     if (seq !== loadSeq) return
     stats.value = s; recent.value = l.items; trend.value = t.months || []
@@ -113,6 +116,22 @@ async function load() {
   finally { if (seq === loadSeq) loading.value = false }
 }
 onMounted(load)
+// 月底目标提醒：剩 3 天内且没达标，提示一次（按月份去重，会话内不再弹）
+setTimeout(() => {
+  try {
+    if (allShops.value) return
+    const t = monthTarget.value || 0
+    if (t <= 0) return
+    const d = daysLeft.value || 0
+    if (d > 3 || d < 0) return
+    const p = month.value?.profit || 0
+    if (p >= t) return
+    const key = 'xy-target-nudge-' + (month.value?.month || '')
+    if (sessionStorage.getItem(key)) return
+    sessionStorage.setItem(key, '1')
+    emit('notify', `本月目标还差 ${fmtMoney(t - p)}，剩 ${d} 天`, false, null, { tone: 'warn' })
+  } catch (e) { /* ignore */ }
+}, 1500)
 // 备份状态：只取「上次备份时间」，用来在首页提醒
 onMounted(async () => {
   try { backupLast.value = (await api.getBackups()).last || '' } catch (e) { backupLast.value = '' }
@@ -129,6 +148,7 @@ async function loadTarget() {
 onMounted(loadTarget)
 watch(() => props.refreshKey, loadTarget)
 watch(() => props.refreshKey, load)
+watch(allShops, load)
 watch(period, () => load())
 
 // 最近记录沿用明细口径：买单 / 卖单（已完结联单内额外显示「完结单」徽标）；
@@ -333,12 +353,22 @@ const chart = computed(() => {
   <div class="page ov-page">
     <div v-if="error" class="alert-err">{{ error }} <button class="btn btn-sm" @click="load">重试</button></div>
 
+    <!-- 店铺范围：单店 / 全部店铺合计 -->
+    <div class="shop-scope">
+      <span class="muted">统计范围</span>
+      <div class="chips">
+        <button class="chip" :class="{ on: !allShops }" @click="allShops = false">当前店铺</button>
+        <button class="chip" :class="{ on: allShops }" @click="allShops = true">全部店铺合计</button>
+      </div>
+      <span v-if="allShops" class="muted scope-note">合并所有店铺；目标与联单明细仍按店铺独立</span>
+    </div>
+
     <!-- Hero：本月经营。完结单核算已经在下面单独一条，这里放"这个月做得怎么样" -->
     <section class="card hero-card">
       <div class="hero-main">
         <div class="hero-label">
           本月净利润
-          <HelpTip class="hero-formula-tip" width="320" text="净利润 = 本月销售额 − 已售成本。已售成本只算已卖出部分的货品成本 + 运费 + 服务费；没卖出的进货算在「在库成本」里。联单里的成本按卖单成交价占比分摊；代卖 / 寄卖这类本来就没成本的，在明细里标「无成本」。" />
+          <HelpTip class="hero-formula-tip" width="320" text="净利润 = 本月销售额 − 已售成本（只算已卖出部分的货品成本 + 运费 + 服务费）。分摊与「无成本」等细节见下方「利润口径说明」。" />
           <span class="hero-tag">{{ monthLabel }}</span>
           <button class="hero-calc" @click="emit('goto-calc')" title="定价速算：按成本算售价，或按售价算利润">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2.5" width="16" height="19" rx="2.5"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="12" x2="9" y2="12"/><line x1="12" y1="12" x2="13" y2="12"/><line x1="16" y1="12" x2="17" y2="12"/><line x1="8" y1="17" x2="9" y2="17"/><line x1="12" y1="17" x2="13" y2="17"/><line x1="16" y1="17" x2="17" y2="17"/></svg>
@@ -355,7 +385,7 @@ const chart = computed(() => {
         </div>
       </div>
       <div class="hero-side">
-        <div class="hero-metric"><span class="muted">本月成交</span><b class="num">{{ fmtNum(month?.count || 0) }} 单</b></div>
+        <div class="hero-metric"><span class="muted">本月成交 </span><b class="num">{{ fmtNum(month?.count || 0) }} 单</b></div>
         <div class="hero-metric">
           <span class="muted">环比上月利润</span>
           <b class="num" :class="(monthDelta?.mom || 0) >= 0 ? 'pos' : 'neg'">
@@ -370,7 +400,7 @@ const chart = computed(() => {
           </b>
         </div>
       </div>
-      <div v-if="monthTarget > 0" class="hero-target">
+      <div v-if="showTarget" class="hero-target">
         <div class="ht-line">
           <span>本月目标 {{ fmtMoney(monthTarget) }}<template v-if="daysLeft"> · 剩 {{ daysLeft }} 天</template></span>
           <b class="num">{{ targetPct.toFixed(0) }}%</b>
@@ -573,7 +603,7 @@ const chart = computed(() => {
                  @goto-product="(p) => emit('goto-product', p)"
                  @goto-records="(p) => emit('goto-records', p)" />
 
-    <InsightsPanel :refreshKey="refreshKey" />
+    <InsightsPanel :refreshKey="refreshKey" @goto-product="(p) => emit('goto-product', p)" />
 
     <ProductProfit :refreshKey="refreshKey" @open-product="(p) => emit('goto-product', p)" />
 

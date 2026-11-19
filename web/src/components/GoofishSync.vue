@@ -6,6 +6,7 @@ import HelpTip from './HelpTip.vue'
 import { maskCloser } from '../maskClose'
 import { gfStatus, gfRebindRequest } from '../gfState'
 import { onRealtime } from '../realtime'
+import { confirm } from '../confirm'
 import QRCode from 'qrcode'
 // 遮罩点击守卫：在输入框里拖选文字划出弹窗松手时，不会误关弹窗
 const mask = maskCloser(() => emit('close'))
@@ -56,7 +57,7 @@ function stopQR() {
   qrOpen.value = false
   qrImg.value = ''
 }
-onUnmounted(() => { stopQR(); if (offProgress) offProgress() })
+onUnmounted(() => { stopQR(); if (offProgress) offProgress(); document.removeEventListener('keydown', onKey) })
 
 // step: bind（未绑定）/ idle（已绑定）/ loading / review / done
 const step = ref('idle')
@@ -163,6 +164,12 @@ async function bind() {
 
 async function unbind() {
   if (busy.value) return
+  const ok = await confirm({
+    title: '解绑闲鱼账号',
+    message: '解绑后自动同步和订单拉取都会停止，需要重新粘贴 Cookie 或扫码才能恢复。',
+    confirmText: '解绑', danger: true
+  })
+  if (!ok) return
   busy.value = true
   try {
     await api.goofishLogout()
@@ -328,7 +335,9 @@ watch(gfRebindRequest, (v) => {
   gfRebindRequest.value = false
   startRebind()
 })
+const onKey = (e) => { if (e.key === 'Escape' && !qrOpen.value) emit('close') }
 onMounted(async () => {
+  document.addEventListener('keydown', onKey)
   offProgress = onRealtime((ev) => {
     if (!ev || ev.kind !== 'progress') return
     if (ev.shop_id && activeId.value && ev.shop_id !== activeId.value) return
@@ -364,9 +373,9 @@ onMounted(async () => {
 
             <div class="gf-steps">
               <div class="gf-step"><b>1</b><span>电脑浏览器打开 <code>www.goofish.com</code> 并登录</span></div>
-              <div class="gf-step"><b>2</b><span>按 <kbd>F12</kbd>，切到「Network / 网络」面板</span></div>
+              <div class="gf-step"><b>2</b><span>按 <kbd>F12</kbd>，切到「网络」面板（Network）</span></div>
               <div class="gf-step"><b>3</b><span>随便点一下「我买到的」，找到任意 <code>mtop</code> 请求</span></div>
-              <div class="gf-step"><b>4</b><span>在「Request Headers」里找到 <code>Cookie:</code>，整行复制</span></div>
+              <div class="gf-step"><b>4</b><span>在「请求标头」（Request Headers）里找到 <code>Cookie:</code>，整行复制</span></div>
             </div>
 
             <div class="gf-field">

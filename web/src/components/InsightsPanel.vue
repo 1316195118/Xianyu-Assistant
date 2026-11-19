@@ -6,6 +6,7 @@ import { fmtMoney } from '../utils'
 // 必须随 refreshKey 重拉：本面板的数据全部来自服务端聚合，
 // 只在 onMounted 取一次的话，切换店铺后会一直显示上一家店的洞察。
 const props = defineProps({ refreshKey: { type: Number, default: 0 } })
+const emit = defineEmits(['goto-product'])
 
 const data = ref(null)
 const failed = ref(false)
@@ -59,7 +60,10 @@ const staleThreshold = computed(() => data.value?.stale_threshold || 60)
     <template v-if="tops.length !== 1">
       <div class="insight-title muted">净利润 Top 5 商品</div>
       <div class="insight-top">
-        <div v-for="(p, i) in tops" :key="p.product" class="insight-row insight-row-bar">
+        <div v-for="(p, i) in tops" :key="p.product" class="insight-row insight-row-bar insight-click"
+           role="button" tabindex="0" :title="'查看「' + p.product + '」的全部单据'"
+           @click="emit('goto-product', { name: p.product, norm: p.norm || '' })"
+           @keyup.enter="emit('goto-product', { name: p.product, norm: p.norm || '' })">
           <span class="insight-rank">{{ i + 1 }}</span>
           <span class="cell-ellipsis">
             {{ p.product }}

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { api } from '../api'
 import { fmtMoney } from '../utils'
 import { maskCloser } from '../maskClose'
+import { onMounted, onUnmounted } from 'vue'
 // 遮罩点击守卫：在输入框里拖选文字划出弹窗松手时，不会误关弹窗
 const mask = maskCloser(() => close)
 
@@ -98,6 +99,10 @@ async function undo() {
 }
 
 function reset() { step.value = 'pick'; plan.value = null; result.value = null; picked.value = {} }
+const onEscKey = (e) => { if (e.key === 'Escape') close() }
+onMounted(() => document.addEventListener('keydown', onEscKey))
+onUnmounted(() => document.removeEventListener('keydown', onEscKey))
+
 function close() { emit('close') }
 const kindText = (r) => r.kind === 'fee' ? '手续费' : (r.kind === 'both' ? '手续费+快递' : '快递费')
 // 运费被改写时把原值标出来，避免「怎么变了」却看不出来

@@ -4,7 +4,7 @@
  * 复用现有 /api/stats（支持 from/to）与 /api/records，不新增后端逻辑。
  * 报告口径与系统统计完全一致（销售额、已售成本、净利润、运费、服务费、利润率）。
  */
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { api } from '../api'
 import { fmtMoney, fmtNum } from '../utils'
 import { activeShop } from '../shopStore'
@@ -32,6 +32,10 @@ function range() {
   const start = new Date(now.getFullYear(), now.getMonth(), 1)
   return { from: fmt(start), to: fmt(now) }
 }
+
+const onEscKey = (e) => { if (e.key === 'Escape') emit('close') }
+watch(() => props.open, (v) => { if (v) document.addEventListener('keydown', onEscKey); else document.removeEventListener('keydown', onEscKey) })
+onUnmounted(() => document.removeEventListener('keydown', onEscKey))
 
 async function generate() {
   loading.value = true; err.value = ''; report.value = ''; copied.value = false
@@ -69,10 +73,53 @@ async function copy() {
     await navigator.clipboard.writeText(report.value)
     copied.value = true
     setTimeout(() => { copied.value = false }, 2000)
+    return true
   } catch (e) {
     // 剪贴板不可用时退回选中文本
     err.value = '复制失败，请手动选中文本复制'
+    return false
   }
+}
+
+async function copyAndClose() {
+  const ok = await copy()
+  if (ok) setTimeout(() => emit('close'), 260)
+}
+
+// 分享长图：把文字报告画到 Canvas 上导出 PNG，方便直接发微信
+const sharing = ref(false)
+async function shareImage() {
+  if (!report.value || sharing.value) return
+  sharing.value = true
+  try {
+    const css = getComputedStyle(document.documentElement)
+    const bg = (css.getPropertyValue('--surface') || '#ffffff').trim()
+    const fg = (css.getPropertyValue('--text') || '#1b1b1f').trim()
+    const muted = (css.getPropertyValue('--text-3') || '#8a8f98').trim()
+    const lines = report.value.split('\n')
+    const W = 760, pad = 42, lineH = 46, topGap = 66
+    const H = topGap + lines.length * lineH + 90
+    const c = document.createElement('canvas')
+    c.width = W * 2; c.height = H * 2
+    const g = c.getContext('2d')
+    g.scale(2, 2)
+    g.fillStyle = bg
+    g.fillRect(0, 0, W, H)
+    g.fillStyle = '#f5a800'
+    g.fillRect(0, 0, W, 10)
+    g.font = 'bold 32px "PingFang SC", "Microsoft YaHei", sans-serif'
+    g.fillStyle = fg
+    lines.forEach((ln, i) => { g.fillText(ln, pad, topGap + i * lineH) })
+    g.font = '22px "PingFang SC", "Microsoft YaHei", sans-serif'
+    g.fillStyle = muted
+    g.fillText('由「鱼助手」生成 · ' + new Date().toLocaleDateString('zh-CN'), pad, H - 34)
+    const a = document.createElement('a')
+    a.download = `经营小结-${periodLabel.value}.png`
+    a.href = c.toDataURL('image/png')
+    a.click()
+  } catch (e) {
+    err.value = '生成图片失败：' + (e.message || e)
+  } finally { sharing.value = false }
 }
 </script>
 
@@ -93,6 +140,10 @@ async function copy() {
             <span v-if="loading" class="spin"></span>{{ loading ? '生成中' : '生成报告' }}
           </button>
           <button v-if="report" class="btn btn-sm" @click="copy">{{ copied ? '✓ 已复制' : '复制' }}</button>
+          <button v-if="report" class="btn btn-sm" :disabled="sharing" @click="shareImage">
+            <span v-if="sharing" class="spin"></span>{{ sharing ? '生成中' : '分享长图' }}
+          </button>
+          <button v-if="report" class="btn btn-sm btn-quiet" :disabled="loading" @click="copyAndClose">复制并关闭</button>
         </div>
         <div v-if="err" class="alert-err">{{ err }}</div>
         <textarea v-if="report" class="rp-text" :value="report" readonly spellcheck="false"></textarea>
