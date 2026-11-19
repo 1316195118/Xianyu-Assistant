@@ -5067,6 +5067,10 @@ body:has(.ali-mask) .to-top { display: none !important; }
   .rec-table .discard-dot { color: var(--up); font-size: 10px; font-weight: 700; }
   /* 操作列：四个按钮统一间距、带文字（只有图标看不出是弃单还是删除） */
   .rc-actions-desktop { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+  /* 操作列是 sticky（带不透明底），里面的内容一旦超宽就会盖住左边的时间；
+     这里锁死内部不换行、不溢出，宁可按钮内文字省略也不越界 */
+  .rec-table th:last-child, .rec-table td:last-child { overflow: hidden; }
+  .rc-actions-desktop .btn { flex: 0 0 auto; }
   .rc-actions-desktop .btn {
     font-size: 11.5px; gap: 3px; min-width: 54px; padding: 5px 8px;
     justify-content: center; white-space: nowrap; line-height: 1.2;
@@ -5636,3 +5640,7 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
   .rec-table .col-shot { width: 60px; }
   .rec-table th:last-child, .rec-table td:last-child { width: 222px; }
 }
+
+/* 联单芯片不能超列宽：列 104 - 左右内边距 20 = 84，超出会顶到旁边的时间列 */
+.rec-table td.col-group .group-chip { max-width: 84px; }
+.rec-table td.col-group .group-chip .group-chip-t { max-width: 46px; }

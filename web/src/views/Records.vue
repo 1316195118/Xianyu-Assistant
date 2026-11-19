@@ -1302,7 +1302,7 @@ function onCardClick(r, e) {
                           :title="r.discarded_at ? '已弃单，点此取消弃单' : (inGroup(r) ? '这条在联单里，请先移出联单再弃单' : '作废这一条：不占在库、不计成本与利润')"
                           @click="toggleDiscard(r)">
                     <svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2.5 11 13"/><path d="M21.5 2.5 15 21.5l-4-8.5-8.5-4z"/></svg>
-                    {{ r.discarded_at ? '取消弃单' : '弃单' }}
+                    {{ r.discarded_at ? '恢复' : '弃单' }}
                   </button>
                   <button class="btn btn-sm btn-ghost btn-group-add"
                           :disabled="groupSettled(r) || !!r.discarded_at"
@@ -1508,7 +1508,7 @@ function onCardClick(r, e) {
                       @touchstart.stop @click="toggleDiscard(r)"
                       :aria-label="r.discarded_at ? '取消弃单' : '弃单'" :title="r.discarded_at ? '取消弃单' : '作废这一条（不占在库、不计成本）'">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2.5 11 13"/><path d="M21.5 2.5 15 21.5l-4-8.5-8.5-4z"/></svg>
-                <span class="icon-btn-t">{{ r.discarded_at ? '取消弃单' : '弃单' }}</span>
+                <span class="icon-btn-t">{{ r.discarded_at ? '恢复' : '弃单' }}</span>
               </button>
               <button class="icon-btn" :disabled="groupSettled(r) || !!r.discarded_at"
                       @touchstart.stop @click="openGroupPicker(r.id)"
