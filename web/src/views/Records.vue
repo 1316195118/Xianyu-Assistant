@@ -1321,6 +1321,11 @@ function onCardClick(r, e) {
                     <div class="dg-items">
                       <div class="dg-item"><span>单件成本</span><b>{{ unitCostText(r) }}</b></div>
                       <div class="dg-item"><span>本条成本</span><b>{{ fmtMoney(r.cost || 0) }}</b></div>
+                      <div v-if="r.has_sell" class="dg-item">
+                        <span>本单利润</span>
+                        <b :class="(r.profit || 0) >= 0 ? 'pos' : 'neg'"
+                           title="成交价 − 货品成本 − 卖运费 − 服务费">{{ fmtMoney(r.profit || 0) }}<em v-if="r.discarded_at" class="dg-note">已弃单，不计入</em></b>
+                      </div>
                       <div v-if="r.has_buy" class="dg-item"><span>买运费 / 标签</span><b>{{ fmtMoney(r.buy_shipping) }} {{ r.buy_ship_tag || '' }}</b></div>
                       <div v-if="r.has_sell" class="dg-item"><span>卖运费 / 标签</span><b>{{ fmtMoney(r.sell_shipping) }} {{ r.sell_ship_tag || '' }}</b></div>
                       <div v-if="r.has_sell" class="dg-item"><span>软件服务费</span><b>{{ feePending(r) ? '待结算' : fmtMoney(r.sell_fee || 0) }}</b></div>
@@ -1510,6 +1515,7 @@ function onCardClick(r, e) {
                  手填的单件成本、联单分摊的成本、本条合计成本分三行写清楚。 -->
             <div><span>单件成本</span><b>{{ unitCostText(r) }}</b></div>
             <div><span>本条成本</span><b>{{ fmtMoney(r.cost || 0) }}</b></div>
+            <div v-if="r.has_sell"><span>本单利润</span><b :class="(r.profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(r.profit || 0) }}<em v-if="r.discarded_at" class="dg-note">已弃单</em></b></div>
             <!-- 只显示这条记录真有的那一侧：买单不列卖订单号/买家昵称，
                  卖单不列买订单号/卖家昵称，避免一屏「—」还容易看错边 -->
             <div v-if="r.has_buy"><span>买订单号</span><b class="mono">{{ r.buy_order_no || '—' }}</b></div>

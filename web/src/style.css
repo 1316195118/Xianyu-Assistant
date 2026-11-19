@@ -5553,3 +5553,9 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
   .filter-foot .amount-range svg { display: none; }
   .filter-foot .amount-input { width: 100%; }
 }
+
+/* 详情里「本单利润」后面的灰色注脚（已弃单等） */
+.dg-item .dg-note {
+  margin-left: 6px; font-style: normal; font-size: 10.5px; font-weight: 600;
+  color: var(--text-3);
+}

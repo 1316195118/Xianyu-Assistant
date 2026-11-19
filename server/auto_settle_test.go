@@ -153,3 +153,57 @@ func TestAutoSettledSale(t *testing.T) {
 		}
 	}
 }
+
+// 「已结算」分类只列卖单：完结联单里的买进单不该混进来。
+func TestSettledTabExcludesPurchases(t *testing.T) {
+	os.Setenv("DB_PATH", t.TempDir()+"/settledtab.db")
+	defer os.Unsetenv("DB_PATH")
+	if err := initDB(); err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer func() {
+		if db != nil {
+			db.Close()
+			db = nil
+		}
+	}()
+
+	ts := "2026-04-01 10:00:00"
+	pid, err := insertItem(&Item{Product: "成套机", BuyPrice: 900, BuyShipping: 10, BuyTime: ts}, defaultShopID, ts)
+	if err != nil {
+		t.Fatalf("insert buy: %v", err)
+	}
+	if _, err := insertItem(&Item{Product: "成套机", ParentID: pid, SellPrice: 1300, SellNet: 1280,
+		SellTime: ts, UnitCost: 910}, defaultShopID, ts); err != nil {
+		t.Fatalf("insert sell: %v", err)
+	}
+
+	res, err := db.Exec("INSERT INTO link_groups(shop_id,title,note,created_at,updated_at) VALUES(?,?,?,?,?)",
+		defaultShopID, "成套机一批", "", ts, ts)
+	if err != nil {
+		t.Fatalf("group: %v", err)
+	}
+	gid, _ := res.LastInsertId()
+	if err := setGroupItems(gid, []int64{pid}, defaultShopID); err != nil {
+		t.Fatalf("setGroupItems: %v", err)
+	}
+	if _, err := db.Exec("UPDATE link_groups SET settled_at=? WHERE id=?", ts, gid); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	handleRecords(rr, httptest.NewRequest("GET", "/api/records?type=settled", nil))
+	var out struct {
+		Total int    `json:"total"`
+		Items []Item `json:"items"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if out.Total != 1 {
+		t.Fatalf("已结算分类条数=%d want 1（只该有卖单）", out.Total)
+	}
+	if !out.Items[0].HasSell {
+		t.Errorf("已结算分类里混进了买进单: %+v", out.Items[0].Product)
+	}
+}

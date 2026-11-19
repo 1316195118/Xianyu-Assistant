@@ -724,7 +724,9 @@ func buildWhere(r *http.Request) (string, []interface{}) {
             WHERE gi2.group_id=gi.group_id AND i2.shop_id=` + strconv.FormatInt(shopID(r), 10) + ` AND ` + purchaseCond + `))`
 		conds = append(conds, "NOT ("+purchaseWhere(shopID(r))+")", "parent_id=0", "unit_cost<=0", "NOT ("+groupWithBuy+")", "COALESCE(cost_free,0)=0", live)
 	case "settled":
-		conds = append(conds, settledAny, "discarded_at=''")
+		// 只列卖单：已完结联单里的买单虽然也「结算了」，但用户看的是「这单赚了多少」，
+		// 把进货单混进来会让条数和完结单数对不上（之前 7 条 vs 6 单就是这么来的）。
+		conds = append(conds, settledAny, hasSell, "discarded_at=''")
 	case "discarded":
 		conds = append(conds, "discarded_at<>''")
 	case "":
