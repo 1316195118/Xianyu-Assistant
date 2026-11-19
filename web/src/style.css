@@ -5524,3 +5524,32 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
   .consign-tools .search-wrap .input { font-size: 13px; }
   .consign-tools .consign-dates .date-input { width: auto; flex: 1; }
 }
+
+/* ============================================================
+   明细页筛选底栏：日期 / 价格框收到 28px，和排序、导入按钮同高
+   金额筛选已简化为「最低价 — 最高价」，不再有单独的精确金额框
+   ============================================================ */
+.filter-foot .input,
+.filter-foot .select {
+  height: 28px; min-height: 0; font-size: 12.5px; line-height: 1; padding: 0 8px;
+}
+.filter-foot .btn { height: 28px; min-height: 0; padding-top: 0; padding-bottom: 0; font-size: 12.5px; }
+.filter-foot .date-input::-webkit-calendar-picker-indicator {
+  width: 13px; height: 13px; opacity: .5; padding: 0; margin-left: 2px;
+}
+@media (min-width: 601px) {
+  .filter-foot .date-range,
+  .filter-foot .amount-range { display: flex; align-items: center; gap: 6px; }
+  .filter-foot .date-input { width: 112px; }
+  .filter-foot .amount-input { width: 86px; }
+}
+@media (max-width: 600px) {
+  .filter-foot .input, .filter-foot .select { height: 38px; min-height: 0; font-size: 13px; }
+  .filter-foot .btn { height: 38px; min-height: 0; }
+  /* 价格只剩两个框：单给它两列，别沿用日期那套三列栅格留个空位 */
+  .filter-foot .amount-range {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%;
+  }
+  .filter-foot .amount-range svg { display: none; }
+  .filter-foot .amount-input { width: 100%; }
+}

@@ -25,7 +25,7 @@ let savedSort = {}
 try { savedSort = JSON.parse(localStorage.getItem('xy_sort') || '{}') } catch (e) {}
 const sort = ref(savedSort.sort || 'time')
 const order = ref(savedSort.order || 'desc')
-const amount = ref('')      // 精确金额（买价/卖价/到手/成本 任一）
+// 价格区间：只留最低价 / 最高价（原来还有「精确金额」，太绕，去掉了）
 const minAmount = ref('')
 const maxAmount = ref('')
 const batchField = ref('note')
@@ -102,7 +102,6 @@ function params(extra = {}) {
   if (focusId.value) p.focus = focusId.value
   if (from.value) p.from = from.value
   if (to.value) p.to = to.value
-  if (amount.value !== '') p.amount = amount.value
   if (minAmount.value !== '') p.min_amount = minAmount.value
   if (maxAmount.value !== '') p.max_amount = maxAmount.value
   return { ...p, ...extra }
@@ -471,7 +470,7 @@ function clearSearch() {
 }
 function clearFilters() {
   q.value = ''; type.value = ''; from.value = ''; to.value = ''
-  amount.value = ''; minAmount.value = ''; maxAmount.value = ''
+  minAmount.value = ''; maxAmount.value = ''
   sort.value = 'time'; order.value = 'desc'; activeRange.value = 0
   productFilter.value = null
   focusId.value = 0
@@ -492,10 +491,10 @@ watch([sort, order], () => {
 
 const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize.value))
 const allChecked = computed(() => items.value.length > 0 && items.value.every(i => selected.value.includes(i.id)))
-const hasFilters = computed(() => !!(q.value.trim() || type.value || from.value || to.value || amount.value || minAmount.value || maxAmount.value))
+const hasFilters = computed(() => !!(q.value.trim() || type.value || from.value || to.value || minAmount.value || maxAmount.value))
 // 展开行 colspan 需随「自定义列」隐藏情况变化，固定 8 会错位
 const visibleColCount = computed(() => 5 + (showCols.value.shot ? 1 : 0) + (showCols.value.shipping ? 1 : 0) + (showCols.value.fee ? 1 : 0) + (showCols.value.time ? 1 : 0))
-const activeFilterCount = computed(() => [q.value.trim(), type.value, from.value, to.value, amount.value, minAmount.value, maxAmount.value].filter(v => v !== '' && v != null).length)
+const activeFilterCount = computed(() => [q.value.trim(), type.value, from.value, to.value, minAmount.value, maxAmount.value].filter(v => v !== '' && v != null).length)
 const filteredProfit = computed(() => Number(sum.value?.total_profit) || 0)
 function toggleAll() {
   if (allChecked.value) selected.value = []
@@ -967,16 +966,12 @@ function onCardClick(r, e) {
             </div>
             <div class="amount-range">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 10h6M9 14h6"/></svg>
-              <input class="input amount-input" type="number" step="0.01" v-model="amount"
-                     placeholder="金额" title="精确金额：买进价 / 卖出价 / 到手价 / 成本 任一相等即命中"
-                     @input="onSearchInput" @keyup.enter="reload(true)" />
-              <span class="muted amount-or">或范围</span>
-              <input class="input amount-input" type="number" step="0.01" v-model="minAmount"
-                     placeholder="最低" title="金额范围下限（同一项金额落在区间内）"
+              <input class="input amount-input" type="number" min="0" step="0.01" v-model="minAmount"
+                     placeholder="最低价" title="价格区间下限：买进价 / 卖出价 / 到手价 / 成本 任一项落在区间内即命中"
                      @input="onSearchInput" @keyup.enter="reload(true)" />
               <span class="muted">—</span>
-              <input class="input amount-input" type="number" step="0.01" v-model="maxAmount"
-                     placeholder="最高" title="金额范围上限"
+              <input class="input amount-input" type="number" min="0" step="0.01" v-model="maxAmount"
+                     placeholder="最高价" title="价格区间上限"
                      @input="onSearchInput" @keyup.enter="reload(true)" />
             </div>
             <div class="sort-group">
