@@ -5650,3 +5650,13 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
 .rec-table td.col-group .group-tags .discard-dot {
   font-size: 9.5px; padding: 1px 4px; white-space: nowrap;
 }
+
+/* 联单列「＋」：代替原来操作列里的「联单」按钮，节省横向空间 */
+.rec-table td.col-group .group-add-mini {
+  border: 1px dashed var(--border-strong); background: transparent; color: var(--text-3);
+  border-radius: 6px; padding: 0 6px; font-size: 12px; line-height: 18px; cursor: pointer;
+}
+.rec-table td.col-group .group-add-mini:hover:not(:disabled) {
+  border-color: var(--blue); color: var(--blue); background: var(--blue-soft);
+}
+.rec-table td.col-group .group-add-mini:disabled { opacity: .4; cursor: not-allowed; }

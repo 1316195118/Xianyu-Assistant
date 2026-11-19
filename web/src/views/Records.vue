@@ -1267,7 +1267,10 @@ function onCardClick(r, e) {
                       <span v-if="groupsOf(r.id).length > 1" class="group-chip-n">+{{ groupsOf(r.id).length - 1 }}</span>
                     </span>
                   </div>
-                  <span v-else class="td-muted">—</span>
+                  <button v-else type="button" class="group-add-mini"
+                          :disabled="groupSettled(r) || !!r.discarded_at"
+                          :title="r.discarded_at ? '已弃单的记录不能加入联单' : '把这条记录加入联单'"
+                          @click.stop="openGroupPicker(r.id)">＋</button>
                   <!-- 结算状态跟联单放在一起：都属于「这单归到哪、算没算完」 -->
                   <div v-if="isDiscarded(r) || groupSettled(r) || autoSettled(r) || (r.cost_free && r.source !== '寄卖' && r.source !== '代采')" class="group-tags">
                     <span v-if="isDiscarded(r)" class="discard-dot" title="已弃单：不占在库、不计成本与利润">已弃单</span>
@@ -1305,13 +1308,6 @@ function onCardClick(r, e) {
                           @click="toggleDiscard(r)">
                     <svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2.5 11 13"/><path d="M21.5 2.5 15 21.5l-4-8.5-8.5-4z"/></svg>
                     {{ r.discarded_at ? '恢复' : '弃单' }}
-                  </button>
-                  <button class="btn btn-sm btn-ghost btn-group-add"
-                          :disabled="groupSettled(r) || !!r.discarded_at"
-                          :title="r.discarded_at ? '已弃单的记录不能加入联单' : (groupSettled(r) ? '所在联单已完结，请先在「联单」页重新开启' : '把这条记录加入某个联单')"
-                          @click="openGroupPicker(r.id)">
-                    <svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
-                    联单
                   </button>
                   <button class="btn btn-sm btn-ghost" :disabled="groupSettled(r)" :title="groupSettled(r) ? '所在联单已完结，请先在「联单」页重新开启' : ''" @click="editRecord(r)">
                     <svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
