@@ -10,6 +10,7 @@ import GoofishSync from '../components/GoofishSync.vue'
 import AlipayImport from '../components/AlipayImport.vue'
 import HelpTip from '../components/HelpTip.vue'
 import { undoAction } from '../feedback'
+import { gfPanelOpen } from '../gfState'
 
 const props = defineProps({ refreshKey: { type: Number, default: 0 } })
 const emit = defineEmits(['notify', 'refresh'])
@@ -103,6 +104,12 @@ const recycleOpen = ref(false)  // 回收站二级窗口（设置页只留入口
 const versionOpen = ref(false)  // 版本信息二级窗口
 const shopOpen = ref(false)     // 店铺管理二级窗口
 const gfOpen = ref(false)
+// 顶栏「去绑定」请求的入口：组件可能是懒加载的，immediate 保证挂载时请求还没丢
+watch(gfPanelOpen, (v) => {
+  if (!v) return
+  gfOpen.value = true
+  gfPanelOpen.value = false
+}, { immediate: true })
 const aliOpen = ref(false)   // 支付宝账单导入       // 闲鱼同步二级窗口
 // 入口直接读 index.html 里的 xy-version meta（编译时注入，无需额外请求）
 const versionLabel = computed(() => {
@@ -510,7 +517,7 @@ async function test() {
             </button>
           </div>
           <span class="muted theme-hint">
-            当前：{{ motionEffective === 'reduce' ? '减少动效' : '完整动效' }}<template v-if="motionMode === 'system' && sysReduce">（系统已开启减少动态效果）</template>
+            当前：{{ motionEffective === 'reduce' ? '减少动效' : '完整动效' }}<template v-if="motionMode === 'system' && sysReduce">（系统已开启）</template>
           </span>
         </div>
       </div>

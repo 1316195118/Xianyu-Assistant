@@ -4,6 +4,7 @@ import { api } from '../api'
 import { shops, activeId, loadShops } from '../shopStore'
 import HelpTip from './HelpTip.vue'
 import { maskCloser } from '../maskClose'
+import { gfStatus } from '../gfState'
 import QRCode from 'qrcode'
 // 遮罩点击守卫：在输入框里拖选文字划出弹窗松手时，不会误关弹窗
 const mask = maskCloser(() => emit('close'))
@@ -116,6 +117,13 @@ async function loadStatus() {
   try {
     const s = await api.goofishStatus()
     status.value = s
+    // 同步给顶栏常驻状态点：别的页面也能看到失效，不用先进设置页
+    gfStatus.value = {
+      logged_in: !!s.logged_in,
+      expired: !!s.expired,
+      sync_error: s.sync_error || '',
+      nick: s.nick || ''
+    }
     // 恢复上次保存的账单回溯开关（后端按店铺持久化）
     useBackfill.value = s.backfill !== false
     step.value = s.logged_in ? 'idle' : 'bind'

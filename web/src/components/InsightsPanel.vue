@@ -55,23 +55,25 @@ const staleThreshold = computed(() => data.value?.stale_threshold || 60)
       </div>
     </div>
 
-    <div class="insight-title muted">净利润 Top 5 商品</div>
-    <div class="insight-top">
-      <div v-for="(p, i) in tops" :key="p.product" class="insight-row insight-row-bar">
-        <span class="insight-rank">{{ i + 1 }}</span>
-        <span class="cell-ellipsis">
-          {{ p.product }}
-          <i v-if="p.settled" class="insight-done">已完结</i>
-        </span>
-        <b class="num" :class="p.profit >= 0 ? 'pos' : 'neg'">{{ fmtMoney(p.profit) }}</b>
-        <!-- 只有一条时这条满宽的进度条会像卡片下边框，反而不像「对比」，索性不画 -->
-        <div v-if="tops.length > 1" class="insight-bar">
-          <div class="insight-bar-fill" :class="p.profit >= 0 ? 'pos' : 'neg'" :style="{ width: Math.max(2, Math.abs(p.profit || 0) / maxProfit * 100) + '%' }"></div>
+    <!-- 只有一条时既没有「排行」可言，那块也显得空；留 0 条时的说明，藏掉 1 条的榜单 -->
+    <template v-if="tops.length !== 1">
+      <div class="insight-title muted">净利润 Top 5 商品</div>
+      <div class="insight-top">
+        <div v-for="(p, i) in tops" :key="p.product" class="insight-row insight-row-bar">
+          <span class="insight-rank">{{ i + 1 }}</span>
+          <span class="cell-ellipsis">
+            {{ p.product }}
+            <i v-if="p.settled" class="insight-done">已完结</i>
+          </span>
+          <b class="num" :class="p.profit >= 0 ? 'pos' : 'neg'">{{ fmtMoney(p.profit) }}</b>
+          <div class="insight-bar">
+            <div class="insight-bar-fill" :class="p.profit >= 0 ? 'pos' : 'neg'" :style="{ width: Math.max(2, Math.abs(p.profit || 0) / maxProfit * 100) + '%' }"></div>
+          </div>
+        </div>
+        <div v-if="!tops.length" class="muted insight-empty">
+          暂无已完结且盈利的商品。同步进来的纯卖单没有买进成本，不参与排名；补上买价或关联买进单后才会进榜。
         </div>
       </div>
-      <div v-if="!tops.length" class="muted insight-empty">
-        暂无已完结且盈利的商品。同步进来的纯卖单没有买进成本，不参与排名；补上买价或关联买进单后才会进榜。
-      </div>
-    </div>
+    </template>
   </section>
 </template>

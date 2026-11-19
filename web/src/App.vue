@@ -108,6 +108,7 @@ import { themeMode } from './theme'
 import ShopSwitcher from './components/ShopSwitcher.vue'
 import { activeId as activeShopId, loadShops, globalSession, hasAnyPassword } from './shopStore'
 import { shopPickedThisSession, clearShopPicked } from './shopId'
+import { gfStatus, gfPanelOpen } from './gfState'
 import {
   online, connected, onRealtime, connectRealtime, disconnectRealtime, clientId
 } from './realtime'
@@ -209,6 +210,29 @@ function bumpCoalesced() {
   if (bumpTimer) clearTimeout(bumpTimer)
   bumpTimer = setTimeout(() => { bumpTimer = null; bump() }, 300)
 }
+// 顶栏闲鱼状态点：在任意页面都能看到绑定是否失效，点一下直达绑定弹窗
+async function loadGfStatus() {
+  try {
+    const s = await api.goofishStatus()
+    gfStatus.value = {
+      logged_in: !!s.logged_in,
+      expired: !!s.expired,
+      sync_error: s.sync_error || '',
+      nick: s.nick || ''
+    }
+  } catch (e) { /* 未选店 / 未登录时顶栏不显示状态，不影响主流程 */ }
+}
+function openGfPanel() {
+  switchView('settings')
+  gfPanelOpen.value = true
+}
+const gfBad = computed(() => !!gfStatus.value.expired || !!gfStatus.value.sync_error)
+const gfTip = computed(() => {
+  if (gfBad.value) return '闲鱼同步失效：' + (gfStatus.value.sync_error || '请重新绑定') + '，点击去绑定'
+  if (gfStatus.value.logged_in) return `闲鱼已绑定「${gfStatus.value.nick}」，点击查看同步状态`
+  return '闲鱼未绑定，点击去绑定'
+})
+
 function startRealtime() {
   connectRealtime()
   offRealtime = onRealtime((ev) => {
@@ -216,8 +240,9 @@ function startRealtime() {
     // 闲鱼自动同步失败：Cookie 失效，主动弹醒目提示，不用等用户手动同步才发现
     if (ev.path === '/api/goofish/status' && /失败|失效/.test(ev.summary || '')) {
       notify(ev.summary || '闲鱼同步失效，请重新绑定', true,
-        { label: '去绑定', ttl: 15000, run: () => switchView('settings') },
+        { label: '去绑定', ttl: 15000, run: openGfPanel },
         { tone: 'error' })
+      loadGfStatus()
       bump()
       return
     }
@@ -244,12 +269,14 @@ watch(activeShopId, () => {
   highlightId.value = 0
   bump()
   loadTodoCount()
+  loadGfStatus()
   connectRealtime()
 })
 
 onMounted(() => {
   slowBootTimer = setTimeout(() => { if (authChecking.value) slowBoot.value = true }, 6000)
   loadTodoCount()
+  loadGfStatus()
   checkAuth()
   loadShops()
   startRealtime()
@@ -621,6 +648,11 @@ function goSettingsFromModal() {
             <i class="presence-dot" aria-hidden="true"></i>
             <span class="presence-text">{{ connected ? (online > 1 ? `${online} 人在线` : '实时同步') : '离线' }}</span>
           </span>
+          <button class="gf-presence" :class="{ bad: gfBad, on: gfStatus.logged_in }"
+                  :title="gfTip" @click="openGfPanel" aria-label="查看闲鱼绑定状态">
+            <i class="gf-presence-dot" aria-hidden="true"></i>
+            <span class="gf-presence-text">{{ gfBad ? '待绑定' : (gfStatus.logged_in ? '闲鱼已连' : '闲鱼未连') }}</span>
+          </button>
           <button class="topbar-cmd" @click="cmdOpen = true" title="命令面板 (Ctrl / ⌘ + K)" aria-label="打开命令面板">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
             <kbd>⌘K</kbd>

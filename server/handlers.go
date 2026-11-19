@@ -413,6 +413,9 @@ func handleTrend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
+	// 与总账口径一致：成本在「卖出」时结转，不在「进货」时先记一笔。
+	// 否则进货月利润被压成负数、不进货的月份利润率虚高，和「已售成本」的说法也对不上。
+	alloc := loadGroupAlloc(shopID(r))
 	byMonth := map[string]*trendBucket{}
 	var noTime trendBucket
 	for rows.Next() {
@@ -444,17 +447,24 @@ func handleTrend(w http.ResponseWriter, r *http.Request) {
 		feeAll := it.SellFee + it.SellWuyouFee
 		switch it.Kind {
 		case "purchase":
-			cost = it.BuyPrice + it.BuyShipping
+			// 进货只是把货变成库存，不产生已售成本；卖出去时才结转。
 		case "sale":
+			qty := it.Quantity
+			if qty < 1 {
+				qty = 1
+			}
 			sales = it.SellPrice
-			cost = it.SellShipping + feeAll
+			cost = round2(effectiveUnitCost(it, alloc)*float64(qty)) + it.SellShipping + feeAll
 		case "standalone":
 			sales = it.SellPrice
 			cost = it.BuyPrice + it.BuyShipping + it.SellShipping + feeAll
 		}
 		b.Sales += sales
 		b.Cost += cost
-		b.Count++
+		// 「本月成交」是卖单口径，进货不能算一单成交
+		if it.HasSell {
+			b.Count++
+		}
 	}
 	keys := make([]string, 0, len(byMonth))
 	for k := range byMonth {
