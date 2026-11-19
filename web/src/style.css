@@ -4964,3 +4964,11 @@ html[data-motion="reduce"] .trend-svg.chart-in-b .chart-dot-neg { animation: non
   .gf-presence { padding: 6px; }
   .gf-presence-text { display: none; }
 }
+
+/* 手机顶栏只保留一个状态点：实时同步那个圆点用户点不了也看不懂，
+   两个并排的小圆点根本分不清。闲鱼这个带文字，一眼就知道是什么。 */
+@media (max-width: 600px) {
+  .presence { display: none !important; }
+  .gf-presence { padding: 4px 8px; }
+  .gf-presence-text { display: inline; }
+}

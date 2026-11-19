@@ -651,7 +651,7 @@ function goSettingsFromModal() {
           <button class="gf-presence" :class="{ bad: gfBad, on: gfStatus.logged_in }"
                   :title="gfTip" @click="openGfPanel" aria-label="查看闲鱼绑定状态">
             <i class="gf-presence-dot" aria-hidden="true"></i>
-            <span class="gf-presence-text">{{ gfBad ? '待绑定' : (gfStatus.logged_in ? '闲鱼已连' : '闲鱼未连') }}</span>
+            <span class="gf-presence-text">{{ gfBad ? '待绑定' : (gfStatus.logged_in ? '闲鱼' : '去绑定') }}</span>
           </button>
           <button class="topbar-cmd" @click="cmdOpen = true" title="命令面板 (Ctrl / ⌘ + K)" aria-label="打开命令面板">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
