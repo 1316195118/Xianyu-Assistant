@@ -581,19 +581,26 @@ async function toggleSettle(g) {
     <!-- 联单列表 -->
     <div v-if="sortedGroups.length" class="group-grid">
       <section v-for="g in sortedGroups" :key="g.id" class="card group-card" :class="{ focused: focusedId === g.id, settled: isSettled(g) }" :data-group-id="g.id" :aria-label="isSettled(g) ? '已完结联单：' + g.title : g.title">
-        <!-- 完结状态：整卡唯一一枚大印章水印，叠在内容之上 -->
-        <div v-if="isSettled(g)" class="gc-stamp" aria-hidden="true">
-          <div class="gc-stamp-inner">
-            <span class="gc-stamp-star">★ ★ ★</span>
-            <span class="gc-stamp-main">已完结</span>
-            <span class="gc-stamp-sub">{{ stampDate(g.settled_at) }}</span>
-          </div>
-        </div>
         <div class="gc-head">
           <div class="gc-title">
             <span v-if="groupSource(g)" class="src-tag" :class="'src-' + groupSource(g)">{{ groupSource(g) }}</span>
             {{ g.title }}
           </div>
+          <!-- 印章放在标题行的固定位置：是圆章，但不再当水印压在金额上，也不会被屏幕裁掉 -->
+          <span v-if="isSettled(g)" class="seal seal-inline seal-settled" aria-label="已完结">
+            <span class="seal-inner">
+              <span class="seal-star">★ ★ ★</span>
+              <span class="seal-main">已完结</span>
+              <span class="seal-sub">{{ stampDate(g.settled_at) }}</span>
+            </span>
+          </span>
+          <span v-else class="seal seal-inline seal-group" aria-label="联单中">
+            <span class="seal-inner">
+              <span class="seal-star">★ ★ ★</span>
+              <span class="seal-main">联单中</span>
+              <span class="seal-sub">{{ g.stats.buy_count }}买{{ g.stats.sell_count }}卖</span>
+            </span>
+          </span>
           <span class="gc-count muted">{{ g.stats.buy_count }} 买 / {{ g.stats.sell_count }} 卖</span>
         </div>
         <div class="gc-profit-box" :class="g.stats.profit >= 0 ? 'pos' : 'neg'">

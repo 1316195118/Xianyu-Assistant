@@ -5098,3 +5098,31 @@ html[data-motion="reduce"] .filter-card .filter-body { transition: none !importa
   .gf-account { flex-wrap: wrap; }
   .gf-acc-text { flex: 1 1 calc(100% - 50px); }
 }
+
+/* ============================================================
+   视觉巡检收尾：层级与可读性
+   ============================================================ */
+/* 完结单核算：原来数字比 KPI 小一圈，看着像禁用状态 */
+.ss-nums span { font-size: 11.5px; }
+.ss-nums b { font-size: 18px; color: var(--text); }
+@media (min-width: 901px) { .ss-nums b { font-size: 19px; } }
+@media (max-width: 600px) { .ss-nums { gap: 18px; } }
+
+/* 明细表格图标加深，悬停再高亮；「数据汇总」做成正常区块标题 */
+.rc-actions-desktop .btn { color: var(--text-2); }
+.rc-actions-desktop .btn:hover { color: var(--text); background: var(--surface-2); }
+@media (min-width: 901px) {
+  .sum-caption { font-size: 14px; color: var(--text); margin: 6px 2px 0; }
+  .sum-caption small { font-size: 12px; }
+}
+
+/* 设置页分组标题：标题与说明都加深一点 */
+.set-group-head b { font-size: 14px; color: var(--text); }
+.set-group-head span { font-size: 12px; color: var(--text-2); }
+
+/* 联单卡：保留圆章，但从「压在金额上的水印」改为标题行内的固定位置 */
+.gc-stamp { display: none !important; }
+.group-card .gc-head { display: flex; align-items: center; gap: 10px; }
+.group-card .gc-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-card .gc-head .seal-inline { flex: 0 0 auto; }
+.group-card .gc-count { flex: 0 0 auto; }
