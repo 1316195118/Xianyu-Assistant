@@ -4350,10 +4350,12 @@ html[data-theme="dark"] .product-bar { color: #9dbcff; background: rgba(47,107,2
 .rec-table td:last-child {
   position: sticky; right: 0; z-index: 2;
   background: var(--surface);
-  box-shadow: -8px 0 12px -8px rgba(20, 26, 40, .18);
+  /* 以前这里有一道 -8px 阴影，表格不横向滚动时会变成一条突兀的竖线，去掉 */
 }
 .rec-table thead th:last-child { background: var(--surface-2); }
 .rec-table tbody tr:hover td:last-child { background: var(--surface-2); }
+.rec-table tbody tr.selected td:last-child { background: var(--blue-soft); }
+.rec-table tbody tr.is-discarded td:last-child { background: inherit; }
 
 /* 批量挂成本的选单面板 */
 .cp-mask {
@@ -5578,8 +5580,9 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
 .rc-profit span { color: var(--text-3); }
 .rc-profit b { font-size: 13px; font-weight: 750; }
 
-/* 待账单标签移到金额前面时，间隔放在右侧 */
-.fee-pending-lead { margin-right: 5px; }
+/* 待账单独立成行、在格子里居中；金额单独一行右对齐，两者互不影响 */
+.fee-pending-line { display: block; width: fit-content; margin: 0 auto 1px; }
+.price-num { display: block; }
 
 /* 明细表：联单独立成列（原来挂在商品名下面，长了会把商品行挤乱） */
 .rec-table .col-group { width: 132px; max-width: 132px; }

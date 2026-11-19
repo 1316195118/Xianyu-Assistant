@@ -1279,10 +1279,10 @@ function onCardClick(r, e) {
                   <span v-else class="td-thumb-empty">—</span>
                 </td>
                 <td class="td-right num td-buy col-price">
-                  <!-- 待账单放金额前面：先说明这个数是商品金额，再看数 -->
-                  <b v-if="billPending(r)" class="fee-pending fee-pending-lead"
+                  <!-- 待账单单独一行居中：不跟金额抢位置，金额永远右对齐在同一条线上 -->
+                  <b v-if="billPending(r)" class="fee-pending fee-pending-line"
                      title="闲鱼订单列表给的是商品金额；账单一般延后几天生成，出账后再点「立即同步」会按实收金额自动更正">待账单</b>
-                  {{ fmtMoney(rowBuyPrice(r)) }}
+                  <span class="price-num">{{ fmtMoney(rowBuyPrice(r)) }}</span>
                 </td>
                 <td class="td-right num td-muted col-ship">{{ fmtMoney(r.buy_shipping + r.sell_shipping) }}</td>
                 <td class="td-right num col-price" :class="[r.has_sell ? 'net-col' : 'td-buy', { 'is-neg': r.has_sell && rowNet(r) < 0 }]">{{ fmtMoney(rowMidValue(r)) }}</td>
