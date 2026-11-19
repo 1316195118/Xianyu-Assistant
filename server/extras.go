@@ -486,6 +486,10 @@ func handleStatsExtras(w http.ResponseWriter, r *http.Request) {
 		if it.Kind == "discarded" {
 			continue
 		}
+		if it.Source == "代采" {
+			// 代采是帮别人买的：既不进利润榜，也不占在库 / 周转
+			continue
+		}
 		if it.Source == "寄卖" {
 			// 寄卖单只进利润榜（成本为 0，利润即销售额），不参与周转 / 在库 / 滞销 / 销售总额
 			a := byProduct[it.Product]
@@ -1278,7 +1282,7 @@ func resetLoginLimiter() {
 // ---------- 寄卖（归属人）统计 ----------
 
 // handleConsignStats GET /api/consign/stats?from=&to=
-// 按归属人聚合寄卖单：区间内卖了多少、多少单、卖了什么；同时给出累计已结 / 待结。
+// 代卖（寄卖）+ 代采 两本账：区间内卖了多少 / 买了多少，累计已结与待结/应付。
 func handleConsignStats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		writeError(w, 405, "方法不允许")
@@ -1286,36 +1290,6 @@ func handleConsignStats(w http.ResponseWriter, r *http.Request) {
 	}
 	from := strings.TrimSpace(r.URL.Query().Get("from"))
 	to := strings.TrimSpace(r.URL.Query().Get("to"))
-	rows, err := db.Query("SELECT "+itemCols+" FROM items WHERE shop_id=? AND source='寄卖' AND discarded_at='' ORDER BY sell_time DESC", shopID(r))
-	if err != nil {
-		writeError(w, 500, "寄卖统计失败")
-		return
-	}
-	defer rows.Close()
-
-	type consignItem struct {
-		ID           int64   `json:"id"`
-		Product      string  `json:"product"`
-		SellPrice    float64 `json:"sell_price"`
-		SellNet      float64 `json:"sell_net"`
-		SellFee      float64 `json:"sell_fee"`
-		SellShipping float64 `json:"sell_shipping"`
-		SellTime     string  `json:"sell_time"`
-		Counterparty string  `json:"counterparty"`
-	}
-	type consignOwner struct {
-		Owner   string        `json:"owner"`
-		Orders  int           `json:"orders"`
-		Sales   float64       `json:"sales"`
-		Net     float64       `json:"net"`
-		Fee     float64       `json:"fee"`
-		Settled float64       `json:"settled"` // 累计已结（不限区间）
-		Pending float64       `json:"pending"` // 累计待结 = 累计净额 − 已结
-		Items   []consignItem `json:"items"`
-	}
-	agg := map[string]*consignOwner{}
-	order := []string{}
-	allNet := map[string]float64{}
 	inRange := func(t string) bool {
 		d := t
 		if len(d) > 10 {
@@ -1329,80 +1303,185 @@ func handleConsignStats(w http.ResponseWriter, r *http.Request) {
 		}
 		return true
 	}
+
+	type sellItem struct {
+		ID           int64   `json:"id"`
+		Product      string  `json:"product"`
+		SellPrice    float64 `json:"sell_price"`
+		SellNet      float64 `json:"sell_net"`
+		SellFee      float64 `json:"sell_fee"`
+		SellShipping float64 `json:"sell_shipping"`
+		SellTime     string  `json:"sell_time"`
+		Counterparty string  `json:"counterparty"`
+	}
+	type buyItem struct {
+		ID           int64   `json:"id"`
+		Product      string  `json:"product"`
+		BuyPrice     float64 `json:"buy_price"`
+		BuyShipping  float64 `json:"buy_shipping"`
+		BuyTime      string  `json:"buy_time"`
+		Counterparty string  `json:"counterparty"`
+	}
+	type sellOwner struct {
+		Owner   string     `json:"owner"`
+		Orders  int        `json:"orders"`
+		Sales   float64    `json:"sales"`
+		Net     float64    `json:"net"`
+		Fee     float64    `json:"fee"`
+		Settled float64    `json:"settled"`
+		Pending float64    `json:"pending"`
+		Items   []sellItem `json:"items"`
+	}
+	type buyOwner struct {
+		Owner   string    `json:"owner"`
+		Orders  int       `json:"orders"`
+		Amount  float64   `json:"amount"`
+		Settled float64   `json:"settled"`
+		Pending float64   `json:"pending"`
+		Items   []buyItem `json:"items"`
+	}
+
+	// 已结算金额：按 owner + kind 分组（sell=我付给寄卖人，buy=代采人还给我）
+	settledSell := map[string]float64{}
+	settledBuy := map[string]float64{}
+	if sr, e := db.Query(`SELECT owner, kind, COALESCE(SUM(amount),0) FROM consign_settlements
+        WHERE shop_id=? GROUP BY owner, kind`, shopID(r)); e == nil {
+		for sr.Next() {
+			var n, k string
+			var v float64
+			if sr.Scan(&n, &k, &v) == nil {
+				n = strings.TrimSpace(n)
+				if k == "buy" {
+					settledBuy[n] += v
+				} else {
+					settledSell[n] += v
+				}
+			}
+		}
+		sr.Close()
+	}
+
+	rows, err := db.Query("SELECT "+itemCols+" FROM items WHERE shop_id=? AND source IN ('寄卖','代采') AND discarded_at='' ORDER BY COALESCE(sell_time, buy_time) DESC", shopID(r))
+	if err != nil {
+		writeError(w, 500, "寄卖统计失败")
+		return
+	}
+	defer rows.Close()
+
+	sellAgg := map[string]*sellOwner{}
+	sellOrder := []string{}
+	buyAgg := map[string]*buyOwner{}
+	buyOrder := []string{}
+	allSellNet := map[string]float64{}
+	allBuyAmount := map[string]float64{}
+
 	for rows.Next() {
 		it, e := scanItem(rows)
-		if e != nil || it.Kind == "discarded" || it.Source != "寄卖" {
+		if e != nil || it.Kind == "discarded" {
 			continue
 		}
 		name := strings.TrimSpace(it.Owner)
 		if name == "" {
 			name = "未指定归属"
 		}
-		allNet[name] += it.SellNet
-		if !inRange(it.SellTime) {
-			continue
-		}
-		o := agg[name]
-		if o == nil {
-			o = &consignOwner{Owner: name}
-			agg[name] = o
-			order = append(order, name)
-		}
-		o.Orders++
-		o.Sales += it.SellPrice
-		o.Net += it.SellNet
-		o.Fee += it.SellFee + it.SellWuyouFee + it.SellShipping
-		o.Items = append(o.Items, consignItem{
-			ID: it.ID, Product: it.Product, SellPrice: it.SellPrice, SellNet: it.SellNet,
-			SellFee: it.SellFee + it.SellWuyouFee, SellShipping: it.SellShipping,
-			SellTime: it.SellTime, Counterparty: it.SellCounterparty,
-		})
-	}
-
-	// 已结算金额（不限区间，用于算待结）
-	settled := map[string]float64{}
-	if sr, e := db.Query(`SELECT owner, COALESCE(SUM(amount),0) FROM consign_settlements
-        WHERE shop_id=? GROUP BY owner`, shopID(r)); e == nil {
-		for sr.Next() {
-			var n string
-			var v float64
-			if sr.Scan(&n, &v) == nil {
-				settled[strings.TrimSpace(n)] = v
+		if it.Source == "寄卖" {
+			allSellNet[name] += it.SellNet
+			if !inRange(it.SellTime) {
+				continue
 			}
+			o := sellAgg[name]
+			if o == nil {
+				o = &sellOwner{Owner: name}
+				sellAgg[name] = o
+				sellOrder = append(sellOrder, name)
+			}
+			o.Orders++
+			o.Sales += it.SellPrice
+			o.Net += it.SellNet
+			o.Fee += it.SellFee + it.SellWuyouFee + it.SellShipping
+			o.Items = append(o.Items, sellItem{
+				ID: it.ID, Product: it.Product, SellPrice: it.SellPrice, SellNet: it.SellNet,
+				SellFee: it.SellFee + it.SellWuyouFee, SellShipping: it.SellShipping,
+				SellTime: it.SellTime, Counterparty: it.SellCounterparty,
+			})
+		} else if it.Source == "代采" {
+			// 代采是「我垫钱帮人买」：垫付 = 买进价 + 买入运费。
+			// 没买进信息的单据（卖单被误标代采）不产生应付，跳过免得出现 0 元条目。
+			if !it.HasBuy {
+				continue
+			}
+			amount := it.BuyPrice + it.BuyShipping
+			allBuyAmount[name] += amount
+			if !inRange(it.BuyTime) {
+				continue
+			}
+			o := buyAgg[name]
+			if o == nil {
+				o = &buyOwner{Owner: name}
+				buyAgg[name] = o
+				buyOrder = append(buyOrder, name)
+			}
+			o.Orders++
+			o.Amount += amount
+			o.Items = append(o.Items, buyItem{
+				ID: it.ID, Product: it.Product, BuyPrice: it.BuyPrice, BuyShipping: it.BuyShipping,
+				BuyTime: it.BuyTime, Counterparty: it.BuyCounterparty,
+			})
 		}
-		sr.Close()
 	}
 
-	out := make([]consignOwner, 0, len(agg))
-	var totalOrders int
-	var totalSales, totalNet, totalPending, totalSettled float64
-	for _, k := range order {
-		v := agg[k]
+	owners := make([]sellOwner, 0, len(sellAgg))
+	var tOrders int
+	var tSales, tNet, tPending, tSettled float64
+	for _, k := range sellOrder {
+		v := sellAgg[k]
 		v.Sales = round2(v.Sales)
 		v.Net = round2(v.Net)
 		v.Fee = round2(v.Fee)
-		v.Settled = round2(settled[k])
-		v.Pending = round2(allNet[k] - settled[k])
+		v.Settled = round2(settledSell[k])
+		v.Pending = round2(allSellNet[k] - settledSell[k])
 		if v.Pending < 0 {
 			v.Pending = 0
 		}
-		out = append(out, *v)
-		totalOrders += v.Orders
-		totalSales += v.Sales
-		totalNet += v.Net
-		totalPending += v.Pending
-		totalSettled += v.Settled
+		owners = append(owners, *v)
+		tOrders += v.Orders
+		tSales += v.Sales
+		tNet += v.Net
+		tPending += v.Pending
+		tSettled += v.Settled
 	}
+	buyers := make([]buyOwner, 0, len(buyAgg))
+	var bOrders int
+	var bAmount, bPending, bSettled float64
+	for _, k := range buyOrder {
+		v := buyAgg[k]
+		v.Amount = round2(v.Amount)
+		v.Settled = round2(settledBuy[k])
+		v.Pending = round2(allBuyAmount[k] - settledBuy[k])
+		if v.Pending < 0 {
+			v.Pending = 0
+		}
+		buyers = append(buyers, *v)
+		bOrders += v.Orders
+		bAmount += v.Amount
+		bPending += v.Pending
+		bSettled += v.Settled
+	}
+
 	writeJSON(w, map[string]interface{}{
-		"owners": out,
+		"owners": owners,
+		"buyers": buyers,
 		"total": map[string]interface{}{
-			"orders": totalOrders, "sales": round2(totalSales), "net": round2(totalNet),
-			"pending": round2(totalPending), "settled": round2(totalSettled),
+			"orders": tOrders, "sales": round2(tSales), "net": round2(tNet),
+			"pending": round2(tPending), "settled": round2(tSettled),
+			"buy_orders": bOrders, "buy_amount": round2(bAmount),
+			"buy_pending": round2(bPending), "buy_settled": round2(bSettled),
 		},
 	})
 }
 
-// handleConsignSettle POST /api/consign/settle {owner, amount, note}
+// handleConsignSettle POST /api/consign/settle {owner, kind, amount, note}
+// kind=sell：我付给寄卖人；kind=buy：代采人把垫付的钱还给我。
 func handleConsignSettle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		writeError(w, 405, "方法不允许")
@@ -1410,6 +1489,7 @@ func handleConsignSettle(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		Owner  string  `json:"owner"`
+		Kind   string  `json:"kind"`
 		Amount float64 `json:"amount"`
 		Note   string  `json:"note"`
 	}
@@ -1419,8 +1499,12 @@ func handleConsignSettle(w http.ResponseWriter, r *http.Request) {
 	}
 	owner := strings.TrimSpace(in.Owner)
 	if owner == "" {
-		writeError(w, 400, "缺少寄卖人")
+		writeError(w, 400, "缺少归属人")
 		return
+	}
+	kind := in.Kind
+	if kind != "buy" {
+		kind = "sell"
 	}
 	amount := round2(in.Amount)
 	if amount <= 0 {
@@ -1428,29 +1512,38 @@ func handleConsignSettle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ts := nowStr()
-	if _, err := db.Exec(`INSERT INTO consign_settlements(shop_id, owner, amount, note, settled_at, created_at)
-        VALUES(?,?,?,?,?,?)`, shopID(r), owner, amount, strings.TrimSpace(in.Note), ts, ts); err != nil {
+	if _, err := db.Exec(`INSERT INTO consign_settlements(shop_id, owner, kind, amount, note, settled_at, created_at)
+        VALUES(?,?,?,?,?,?,?)`, shopID(r), owner, kind, amount, strings.TrimSpace(in.Note), ts, ts); err != nil {
 		writeError(w, 500, "保存结算记录失败")
 		return
 	}
-	realtimeHub.publish("POST", "/api/consign/settle", "", "寄卖结算："+owner, shopID(r))
-	writeJSON(w, map[string]interface{}{"ok": true, "owner": owner, "amount": amount, "settled_at": ts})
+	action := "寄卖结算："
+	if kind == "buy" {
+		action = "代采收款："
+	}
+	realtimeHub.publish("POST", "/api/consign/settle", "", action+owner, shopID(r))
+	writeJSON(w, map[string]interface{}{"ok": true, "owner": owner, "kind": kind, "amount": amount, "settled_at": ts})
 }
 
-// handleConsignSettlements GET /api/consign/settlements?owner=&from=&to=
+// handleConsignSettlements GET /api/consign/settlements?owner=&kind=&from=&to=
 func handleConsignSettlements(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		writeError(w, 405, "方法不允许")
 		return
 	}
 	owner := strings.TrimSpace(r.URL.Query().Get("owner"))
+	kind := strings.TrimSpace(r.URL.Query().Get("kind"))
 	from := strings.TrimSpace(r.URL.Query().Get("from"))
 	to := strings.TrimSpace(r.URL.Query().Get("to"))
-	q := `SELECT id, owner, amount, note, settled_at FROM consign_settlements WHERE shop_id=?`
+	q := `SELECT id, owner, kind, amount, note, settled_at FROM consign_settlements WHERE shop_id=?`
 	args := []interface{}{shopID(r)}
 	if owner != "" {
 		q += " AND owner=?"
 		args = append(args, owner)
+	}
+	if kind == "buy" || kind == "sell" {
+		q += " AND kind=?"
+		args = append(args, kind)
 	}
 	if from != "" {
 		q += " AND substr(settled_at,1,10)>=?"
@@ -1470,6 +1563,7 @@ func handleConsignSettlements(w http.ResponseWriter, r *http.Request) {
 	type row struct {
 		ID        int64   `json:"id"`
 		Owner     string  `json:"owner"`
+		Kind      string  `json:"kind"`
 		Amount    float64 `json:"amount"`
 		Note      string  `json:"note"`
 		SettledAt string  `json:"settled_at"`
@@ -1477,7 +1571,7 @@ func handleConsignSettlements(w http.ResponseWriter, r *http.Request) {
 	out := []row{}
 	for rows.Next() {
 		var v row
-		if rows.Scan(&v.ID, &v.Owner, &v.Amount, &v.Note, &v.SettledAt) == nil {
+		if rows.Scan(&v.ID, &v.Owner, &v.Kind, &v.Amount, &v.Note, &v.SettledAt) == nil {
 			v.Amount = round2(v.Amount)
 			out = append(out, v)
 		}
@@ -1492,7 +1586,7 @@ func handleConsignOwners(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "方法不允许")
 		return
 	}
-	rows, err := db.Query(`SELECT DISTINCT owner FROM items WHERE shop_id=? AND owner<>'' ORDER BY owner`, shopID(r))
+	rows, err := db.Query(`SELECT DISTINCT owner FROM items WHERE shop_id=? AND owner<>'' AND source IN ('寄卖','代采') ORDER BY owner`, shopID(r))
 	if err != nil {
 		writeError(w, 500, "读取归属列表失败")
 		return

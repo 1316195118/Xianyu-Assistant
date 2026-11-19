@@ -86,16 +86,20 @@ const blank = () => ({
 })
 const form = reactive(blank())
 
-// ---------- 归属人（寄卖人）候选：输入单字自动匹配，点输入框看全部 ----------
-// 归属只属于寄卖单：来源不是「寄卖」时自动清空，避免挂错人
+// ---------- 归属人（寄卖人 / 代采委托人）候选：输入单字自动匹配，点输入框看全部 ----------
+// 归属只属于「别人的货」：寄卖（代卖别人的货）、代采（垫钱帮别人买）。
+// 来源切到自己的货时自动清空，避免挂错人。
 watch(() => form.source, (v) => {
   if (hydrating) return
   if (v === '寄卖') {
     // 寄卖是别人的货：默认无成本，用户之后仍可手动改回来
     form.cost_free = true
     form.unit_cost = 0
+  } else if (v === '代采') {
+    // 代采是我先垫钱买：成本要如实填（后面按垫付金额向归属人收），只保留归属
+    form.cost_free = false
   } else {
-    // 归属只属于寄卖单；离开寄卖时把自动加的「无成本」也撤掉（用户仍可手动勾）
+    // 离开「别人的货」时撤掉归属与自动加的「无成本」（用户仍可手动勾）
     form.owner = ''
     form.cost_free = false
   }
@@ -707,6 +711,15 @@ async function save() {
     errMsg.value = '寄卖单必须填写归属人（这单货是谁的）'
     return
   }
+  if (form.source === '代采' && !form.owner.trim()) {
+    errMsg.value = '代采单必须填写归属人（这是替谁买的）'
+    return
+  }
+  // 代采的应付金额 = 买进价 + 买入运费，两个都空就没有金额可以找归属人收
+  if (form.source === '代采' && !(Number(form.buy_price) > 0) && !(Number(form.buy_shipping) > 0)) {
+    errMsg.value = '代采单要填买进价（垫了多少钱），不然没金额可以找归属人收'
+    return
+  }
   if (!validate()) return
   saving.value = true
   // 服务费兜底：识别漏抓手续费行但成交价>到手价时，用差额反推总服务费，
@@ -1034,19 +1047,20 @@ function onHeadEnd() {
 
         <!-- 货物来源：买卖两侧都可能有（卖单可能是代卖/回收来的货），放在顶层 -->
         <div class="field" style="margin-top:12px">
-          <label>货物来源<HelpTip text="这批货是怎么来的：自采=自己采购，回收=从回收商收，寄卖=代卖别人的货（无进货成本），闲鱼=从闲鱼买入。闲鱼同步进来的单据自动记为「闲鱼」，卖单也能单独标。" /></label>
+          <label>货物来源<HelpTip text="这批货是怎么来的：自采=自己采购，回收=从回收商收，寄卖=代卖别人的货（无进货成本，卖出后钱归寄卖人），代采=垫钱帮别人买（成本归委托人），闲鱼=从闲鱼买入。寄卖 / 代采都不计入自己的经营口径，只在「寄卖」页单独记账。闲鱼同步进来的单据自动记为「闲鱼」，卖单也能单独标。" /></label>
           <select class="select" v-model="form.source">
             <option value="">未标注</option>
             <option value="自采">自采</option>
             <option value="回收">回收</option>
             <option value="寄卖">寄卖</option>
+            <option value="代采">代采</option>
             <option value="闲鱼">闲鱼</option>
           </select>
         </div>
 
-        <!-- 归属：寄卖单必填寄卖人；其它卖单可选填。输入单字自动匹配，点击输入框列出全部 -->
+        <!-- 归属：寄卖 / 代采必填对方是谁；其它来源可选填。输入单字自动匹配，点击输入框列出全部 -->
         <div class="field" style="margin-top:12px">
-          <label>归属<HelpTip text="这单货是谁的。寄卖时填寄卖人（如「张三」），之后能在「寄卖」页单独查他寄卖了多少钱、多少单、卖了什么；其它卖单也能选填。输入关键字自动匹配，点输入框看全部已有归属。" /></label>
+          <label>归属{{ form.source === '寄卖' || form.source === '代采' ? '（必填）' : '' }}<HelpTip text="这单货是谁的。寄卖填寄卖人、代采填委托人（如「张三」），之后能在「寄卖」页单独查他寄卖了多少钱 / 应还你多少钱、多少单、卖了什么；其它单据也能选填。输入关键字自动匹配，点输入框看全部已有归属。" /></label>
           <div class="owner-pick">
             <input class="input" v-model="form.owner" placeholder="输入或选择归属人，如 张三"
                    autocomplete="off" @focus="ownerOpen = true" @input="ownerOpen = true" @blur="ownerBlur" />

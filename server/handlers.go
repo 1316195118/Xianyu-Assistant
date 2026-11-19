@@ -437,8 +437,8 @@ func handleTrend(w http.ResponseWriter, r *http.Request) {
 		if it.Kind == "discarded" {
 			continue
 		}
-		// 寄卖不计入经营趋势（货是别人的）
-		if it.Source == "寄卖" {
+		// 寄卖 / 代采不计入经营趋势（货是别人的）
+		if isExternalGoods(it.Source) {
 			continue
 		}
 		key := it.DealTime
@@ -553,6 +553,11 @@ type ItemInput struct {
 
 	// 乐观锁：编辑时带上打开弹窗看到的 updated_at。为空则跳过检查（向后兼容）。
 	ExpectedUpdatedAt string `json:"expected_updated_at"`
+}
+
+// isExternalGoods：货不是自己的（寄卖代卖 / 代采代买），不计入自己的经营口径。
+func isExternalGoods(source string) bool {
+	return source == "寄卖" || source == "代采"
 }
 
 func buildWhere(r *http.Request) (string, []interface{}) {
@@ -1370,8 +1375,8 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 			s.DiscardedCount++
 			continue
 		}
-		// 寄卖：货是别人的，不进任何利润 / 成本 / 运费 / 服务费口径
-		if it.Source == "寄卖" {
+		// 寄卖 / 代采：货是别人的，不进任何利润 / 成本 / 运费 / 服务费口径
+		if isExternalGoods(it.Source) {
 			continue
 		}
 		s.TotalCount++
@@ -1882,6 +1887,10 @@ func computeProductProfit(sid int64) []productProfitRow {
 		if e != nil || it.Kind == "discarded" {
 			continue
 		}
+		// 代采是帮别人买的，既不是在库也不是自己的成本，整条跳过
+		if it.Source == "代采" {
+			continue
+		}
 		switch it.Kind {
 		case "purchase":
 			// 没进联单也没单独完结的，算这个商品的在库成本
@@ -1912,7 +1921,7 @@ func computeProductProfit(sid int64) []productProfitRow {
 			//   - 已经在联单里、且联单有买进单的，成本由联单核算，不该重复提示；
 			//   - 自己填了单件成本的，本来就有成本。
 			// 与明细页 type=unlinked 的 SQL 同一口径，排行/建议上的数字和点进去的条数才对得上。
-			if it.Source != "寄卖" && it.ParentID == 0 && it.SettledAt == "" && it.UnitCost <= 0 && !it.CostFree && !groupedWithBuy[it.ID] {
+			if !isExternalGoods(it.Source) && it.ParentID == 0 && it.SettledAt == "" && it.UnitCost <= 0 && !it.CostFree && !groupedWithBuy[it.ID] {
 				p.Unlinked++
 			}
 		case "standalone":

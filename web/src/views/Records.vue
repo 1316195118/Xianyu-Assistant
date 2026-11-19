@@ -1233,9 +1233,10 @@ function onCardClick(r, e) {
                     <span class="cell-sub">{{ counterpartyOf(r) || '—' }}</span>
                     <span v-if="isDiscarded(r)" class="discard-dot">已弃单</span>
                     <span v-if="r.source === '寄卖'" class="consign-tag" :title="'寄卖单' + (r.owner ? ' · 归属 ' + r.owner : '')">寄卖单</span>
-                    <span v-if="r.owner && r.source !== '寄卖'" class="owner-chip" :title="'归属：' + r.owner">{{ r.owner }}</span>
+                    <span v-if="r.source === '代采'" class="consign-tag daicai-tag" :title="'代采单' + (r.owner ? ' · 替 ' + r.owner + ' 买' : '')">代采单</span>
+                    <span v-if="r.owner && r.source !== '寄卖' && r.source !== '代采'" class="owner-chip" :title="'归属：' + r.owner">{{ r.owner }}</span>
                     <span v-if="groupSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
-                    <span v-if="r.cost_free && r.source !== '寄卖'" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
+                    <span v-if="r.cost_free && r.source !== '寄卖' && r.source !== '代采'" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
                     <span v-if="groupsOf(r.id).length" class="cell-groups">
                       <span v-for="g in groupsOf(r.id).slice(0, 2)" :key="'g'+g.id" class="group-chip" @click.stop="emit('goto-group', g.id)" :title="'查看联动单：'+g.title">
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
@@ -1400,6 +1401,13 @@ function onCardClick(r, e) {
                   <span class="seal-star">★ ★ ★</span>
                   <span class="seal-main">寄卖单</span>
                   <span class="seal-sub">{{ r.owner || '代卖' }}</span>
+                </span>
+              </span>
+              <span v-else-if="r.source === '代采'" class="seal seal-inline seal-daicai" :title="'代采单' + (r.owner ? ' · 替 ' + r.owner + ' 买' : '')">
+                <span class="seal-inner">
+                  <span class="seal-star">★ ★ ★</span>
+                  <span class="seal-main">代采单</span>
+                  <span class="seal-sub">{{ r.owner || '代买' }}</span>
                 </span>
               </span>
               <span v-else-if="inGroup(r)" class="seal seal-inline seal-group"

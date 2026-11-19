@@ -540,6 +540,7 @@ func createConsignTables() error {
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         shop_id     INTEGER NOT NULL DEFAULT 1,
         owner       TEXT NOT NULL,
+        kind        TEXT NOT NULL DEFAULT 'sell',
         amount      REAL NOT NULL DEFAULT 0,
         note        TEXT NOT NULL DEFAULT '',
         settled_at  TEXT NOT NULL,
@@ -548,6 +549,12 @@ func createConsignTables() error {
 	if err != nil {
 		return err
 	}
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_consign_settle_owner ON consign_settlements(shop_id, owner, settled_at)")
+	// 旧库补 kind 列（sell=代卖结算，buy=代采收款）
+	var kn int
+	db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('consign_settlements') WHERE name='kind'").Scan(&kn)
+	if kn == 0 {
+		db.Exec("ALTER TABLE consign_settlements ADD COLUMN kind TEXT NOT NULL DEFAULT 'sell'")
+	}
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_consign_settle_owner ON consign_settlements(shop_id, owner, kind, settled_at)")
 	return nil
 }

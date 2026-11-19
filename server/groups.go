@@ -357,7 +357,7 @@ type GroupExternal struct {
 }
 
 // 货物来源固定四选一，空值按「未标注」处理，避免前端传进来的杂字符串进库。
-var validSources = map[string]bool{"自采": true, "回收": true, "寄卖": true, "闲鱼": true}
+var validSources = map[string]bool{"自采": true, "回收": true, "寄卖": true, "代采": true, "闲鱼": true}
 
 func normSource(v string) string {
 	v = strings.TrimSpace(v)

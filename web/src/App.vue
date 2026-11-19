@@ -467,7 +467,7 @@ const pageSub = computed(() => ({
   overview: '实时掌握利润、成本与费用构成',
   records: '按交易时间排序 · 检索 / 筛选 / 批量管理',
   groups: '多买多卖挂同一个联单 · 看哪类商品利润高',
-  consign: '寄卖别人的货 · 按人查账，不计入自己的利润成本',
+  consign: '寄卖代卖 + 垫钱代采 · 按人查账结算，不计入自己的利润成本',
   settings: '识别引擎、安全、备份与数据'
 }[view.value]))
 
@@ -476,7 +476,7 @@ const commands = computed(() => [
   { id: 'nav-overview', label: '经营概览', desc: '利润、成本与费用构成', icon: navItems[0].icon, hint: '页面', keywords: 'overview 首页 概览', run: () => switchView('overview') },
   { id: 'nav-records', label: '交易明细', desc: '检索 / 筛选 / 批量管理', icon: navItems[1].icon, hint: '页面', keywords: 'records 明细 记录 列表', run: () => switchView('records') },
   { id: 'nav-groups', label: '联动单', desc: '多买多卖挂同一联单', icon: navItems[2].icon, hint: '页面', keywords: 'groups 联单 联动', run: () => switchView('groups') },
-  { id: 'nav-consign', label: '寄卖', desc: '按寄卖人查账，不计入自己利润', icon: navItems[3].icon, hint: '页面', keywords: 'consign 寄卖 代卖 归属 张三', run: () => switchView('consign') },
+  { id: 'nav-consign', label: '寄卖', desc: '寄卖 / 代采两本账，按人结算', icon: navItems[3].icon, hint: '页面', keywords: 'consign 寄卖 代卖 代采 垫付 归属 张三 李四', run: () => switchView('consign') },
   { id: 'nav-settings', label: '系统设置', desc: '识别引擎、安全、备份与数据', icon: navItems[4].icon, hint: '页面', keywords: 'settings 设置 配置 备份', run: () => switchView('settings') },
   { id: 'add', label: '上传截图录入', desc: '新建一条买卖记录', icon: 'M12 5v14M5 12h14', hint: 'N', keywords: 'add new 新建 录入 上传', run: openAdd },
   { id: 'batch', label: '批量导入截图', desc: '一次识别多张订单截图', icon: 'M12 16V4M7 9l5-5 5 5M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2', hint: '批量', keywords: 'batch 批量 多张 导入 截图', run: openBatch },
