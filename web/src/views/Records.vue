@@ -813,29 +813,22 @@ let touchTimer = null
 let touchMoved = false
 let suppressClick = false
 const pressingId = ref(null)
+let startX = 0, startY = 0
 
-// 移动端左滑快捷操作：与既有「长按选中」共存。
-// 判定为横向手势才接管（纵向滚动/长按不受影响），一次只展开一行。
-const SWIPE_W = 96
-const swipeId = ref(null)     // 已吸附展开的行
-const swipingId = ref(null)   // 正在跟手拖动的行
-const swipeX = ref(0)
-let startX = 0, startY = 0, activeRecord = null
-function closeSwipe() { swipeId.value = null; swipingId.value = null; swipeX.value = 0 }
+// 卡片内已经有「编辑 / 删除」按钮，左滑快捷操作属于重复入口，已移除。
+// 这里只保留长按多选：横向滑动不再接管手势，列表可以正常左右拖。
 
 function onTouchStart(r, e) {
-  activeRecord = r
   const t = e?.touches?.[0]
   startX = t ? t.clientX : 0
   startY = t ? t.clientY : 0
   pressingId.value = r.id
   touchMoved = false
   suppressClick = false
-  if (swipeId.value && swipeId.value !== r.id) closeSwipe()  // 点/滑别处时收起上一行
   clearTimeout(touchTimer)
   touchTimer = setTimeout(() => {
-    if (touchMoved || swipingId.value) return
-    suppressClick = true          // 拦截长按后紧随的 click，避免「选中 + 展开/编辑」同时发生
+    if (touchMoved) return
+    suppressClick = true          // 拦截长按后紧随的 click，避免「选中 + 展开」同时发生
     if (!selectMode.value) {
       selectMode.value = true     // 长按进入选择模式：所有卡片一起露出勾选框
       emit('notify', '已进入多选：点卡片即可选择，再点一下取消', false, null, { tone: 'info' })
@@ -852,37 +845,16 @@ function onTouchStart(r, e) {
 function onTouchMove(e) {
   const t = e?.touches?.[0]
   if (!t) return
-  const dx = t.clientX - startX
-  const dy = t.clientY - startY
-  if (swipingId.value !== activeRecord?.id) {
-    // 横向且明显大于纵向才算滑动；否则交给页面滚动 / 长按逻辑
-    if (window.innerWidth <= 600 && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2) {
-      swipingId.value = activeRecord?.id ?? null
-      clearTimeout(touchTimer)
-      pressingId.value = null
-      suppressClick = true
-    } else {
-      touchMoved = true
-      pressingId.value = null
-      clearTimeout(touchTimer)
-      return
-    }
+  // 手指一动就撤掉长按计时：滑动列表时不该误进多选
+  if (Math.abs(t.clientX - startX) > 8 || Math.abs(t.clientY - startY) > 8) {
+    touchMoved = true
+    pressingId.value = null
+    clearTimeout(touchTimer)
   }
-  if (!swipingId.value) return
-  e.preventDefault()
-  const base = swipeId.value === swipingId.value ? -SWIPE_W : 0
-  swipeX.value = Math.max(-SWIPE_W - 18, Math.min(0, base + dx))
 }
 function onTouchEnd() {
   clearTimeout(touchTimer)
   pressingId.value = null
-  if (swipingId.value) {
-    const open = swipeX.value < -SWIPE_W / 2
-    swipeId.value = open ? swipingId.value : null
-    swipeX.value = open ? -SWIPE_W : 0
-    swipingId.value = null
-    suppressClick = true
-  }
   if (suppressClick) setTimeout(() => { suppressClick = false }, 400)
 }
 // 卡片点击：选择模式下整张卡就是勾选区域（不用再点那个小方框），
@@ -901,7 +873,6 @@ function toggleDetail(r) {
 
 function onCardClick(r, e) {
   if (suppressClick) return
-  if (swipeId.value) { closeSwipe(); return }
   // 点按钮、勾选框、联单 chip、截图等交互元素时让它们自己处理
   const t = e && e.target
   if (t && t.closest && t.closest('button, input, label, a, .group-chip')) return
@@ -1405,21 +1376,9 @@ function onCardClick(r, e) {
       <!-- 手机卡片：金额平铺，无需左右滑动 -->
       <div class="mobile-cards" :class="{ 'is-resorting': resorting }">
         <div v-for="r in items" :key="'m' + r.id" class="rec-swipe"
-          :class="{ 'swiping': swipingId === r.id, 'swipe-open': swipeId === r.id }"
           @touchstart.capture.passive="onTouchStart(r, $event)" @touchmove.capture="onTouchMove"
           @touchend.capture.passive="onTouchEnd" @touchcancel.capture.passive="onTouchEnd">
-          <div class="rec-swipe-actions" @touchstart.stop @click.stop>
-            <button class="rsa-btn" :class="{ 'is-locked': groupSettled(r) }" @click="closeSwipe(); editRecord(r)" aria-label="编辑此记录" :title="groupSettled(r) ? '所在联单已完结，点一下会提示怎么开' : '编辑'">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
-              <span>编辑</span>
-            </button>
-            <button class="rsa-btn rsa-danger" @click="closeSwipe(); del(r)" aria-label="删除此记录" title="删除">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg>
-              <span>删除</span>
-            </button>
-          </div>
           <div class="rec-card" :data-rid="r.id" :class="{ 'is-selected': selected.includes(r.id), 'is-pressing': pressingId === r.id, 'is-discarded': isDiscarded(r), 'row-flash': flashId === r.id, 'row-leaving': leaving.includes(r.id) }"
-            :style="(swipingId === r.id || swipeId === r.id) ? { transform: 'translateX(' + swipeX + 'px)' } : null"
             @click="onCardClick(r, $event)">
           <div class="rc-head">
             <label v-if="selectMode" class="rc-check" @touchstart.stop @click.stop><input type="checkbox" :checked="selected.includes(r.id)" @change="toggleOne(r.id)" /></label>

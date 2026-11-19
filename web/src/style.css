@@ -3021,35 +3021,12 @@ html[data-motion="reduce"] .ov-page > *,
 html[data-motion="reduce"] .chip.on { animation: none !important; }
 
 /* ============================================================
-   设计系统 v2.2 · 明细行左滑快捷操作（移动端）
-   桌面不渲染操作层；键盘 Tab 到快捷按钮时自动展开，保证无障碍可达。
+   明细手机卡片容器
+   左滑快捷操作（编辑 / 删除）已移除：卡片里本来就有同样的按钮，
+   一个动作两个入口只会误触。这里只保留容器间距。
    ============================================================ */
-.rec-swipe { position: relative; margin-bottom: 10px; border-radius: var(--radius-md); overflow: hidden; }
-/* 卡片必须盖在绝对定位的快捷操作层之上，否则未展开时右侧按钮会拦截点击甚至误触删除 */
-.rec-swipe .rec-card { position: relative; z-index: 1; margin-bottom: 0; transition: transform var(--dur-2) var(--ease); }
-.rec-swipe.swiping .rec-card { transition: none; }
-.rec-swipe-actions { display: none; }
-@media (max-width: 600px) {
-  .rec-swipe-actions {
-    display: flex; position: absolute; top: 0; right: 0; bottom: 0;
-    width: 96px; background: var(--surface-2); border-left: 1px solid var(--border);
-    pointer-events: none;   /* 未展开时不可点，防止误触删除 */
-  }
-  .rec-swipe.swiping .rec-swipe-actions,
-  .rec-swipe.swipe-open .rec-swipe-actions,
-  .rec-swipe:has(.rec-swipe-actions:focus-within) .rec-swipe-actions { pointer-events: auto; }
-  .rsa-btn {
-    flex: 1; border: 0; background: transparent; color: var(--text-2);
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: var(--sp-1); font-size: var(--fs-xs); font-weight: 600; cursor: pointer;
-    min-height: var(--touch-min); -webkit-tap-highlight-color: transparent;
-  }
-  .rsa-btn + .rsa-btn { border-left: 1px solid var(--border); }
-  .rsa-btn:active { background: var(--surface); }
-  .rsa-btn.rsa-danger { background: var(--up-soft); color: var(--up); }
-  .rsa-btn.rsa-danger:active { background: var(--up); color: #fff; }
-  .rec-swipe:has(.rec-swipe-actions:focus-within) .rec-card { transform: translateX(-96px); }
-}
+.rec-swipe { position: relative; margin-bottom: 10px; border-radius: var(--radius-md); }
+.rec-swipe .rec-card { position: relative; z-index: 1; margin-bottom: 0; }
 
 /* 回收站二级窗口：窄屏下入口更紧凑、撤销条目按钮换行且触控区达标 */
 @media (max-width: 600px) {
@@ -3445,10 +3422,10 @@ html[data-motion="reduce"] .chip.on { animation: none !important; }
 }
 
 /* 已完结联单/记录上的图标按钮置灰，明确「这里点不了」 */
-.icon-btn:disabled, .rsa-btn:disabled {
+.icon-btn:disabled {
   opacity: .4; cursor: not-allowed; pointer-events: none;
 }
-.icon-btn:disabled:hover, .rsa-btn:disabled:hover { background: transparent; color: var(--text-3); }
+.icon-btn:disabled:hover { background: transparent; color: var(--text-3); }
 
 /* 筛选区：日期/金额两行收紧上下间距（行距与输入框高度都压一档）。
    选择器带上 .filter-foot 前缀，才能压过上面 `min-height:42px` 的那条规则。 */
@@ -5922,7 +5899,7 @@ html[data-theme="dark"] .record-foot .modal-err {
 .gc-mini-acts .btn.is-locked { color: var(--text-3); border-color: var(--border); background: var(--surface-2); }
 .rc-actions-desktop .btn.is-locked:hover:not(:disabled),
 .gc-mini-acts .btn.is-locked:hover:not(:disabled) { color: var(--text-2); border-color: var(--border-strong); }
-.icon-btn.is-locked, .rsa-btn.is-locked { opacity: .45; }
+.icon-btn.is-locked { opacity: .45; }
 
 /* 错误条多占一行，弹窗主体要让出这段高度，否则底部按钮会被顶出屏幕 */
 .modal.has-err .modal-body { max-height: calc(100vh - 268px); }
