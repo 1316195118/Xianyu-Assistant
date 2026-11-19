@@ -24,11 +24,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
-	"golang.org/x/net/http2"
 	tlsx "github.com/refraction-networking/utls"
+	"golang.org/x/net/http2"
 )
 
 // gfSilentHTTPClient 用 Chrome TLS 指纹 + HTTP/2 的客户端（懒加载单例）。
@@ -62,6 +63,76 @@ func gfCookieGet(cookieStr, name string) string {
 		}
 	}
 	return ""
+}
+
+// gfParseCookieKV / gfJoinCookieKV：Cookie 串与 map 互转。
+// 存的时候按 key 排序，保证每次写回的字符串稳定，方便比对。
+func gfParseCookieKV(raw string) map[string]string {
+	m := map[string]string{}
+	for _, part := range strings.Split(raw, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if i := strings.IndexByte(part, '='); i > 0 {
+			m[part[:i]] = part[i+1:]
+		}
+	}
+	return m
+}
+func gfJoinCookieKV(m map[string]string) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+m[k])
+	}
+	return strings.Join(parts, "; ")
+}
+
+// gfMergeRenewCookies 把静默换发响应里的 Set-Cookie 合并回本地凭证并落库。
+// 这是整套自动续期的关键一步：只看 body 里的 resultCode 不算续期，
+// 必须把服务端新发的 cookie2 / sgcookie / _m_h5_tk 等真正存下来。
+// 返回实际发生变化的凭证项数（0 说明响应没带新东西）。
+func gfMergeRenewCookies(shop int64, resp *http.Response) int {
+	gfMap := gfParseCookieKV(gfGet(gfKeyCookie, shop))
+	tbMap := gfParseCookieKV(gfGet(gfKeySSOTaobao, shop))
+	updated := 0
+	for _, ck := range resp.Cookies() {
+		if ck.Name == "" {
+			continue
+		}
+		domain := strings.ToLower(ck.Domain)
+		target := gfMap
+		if strings.Contains(domain, "taobao.com") || strings.Contains(domain, "tmall.com") {
+			target = tbMap
+		} else if domain != "" && !strings.Contains(domain, "goofish.com") && !strings.Contains(domain, "alibaba.com") {
+			continue
+		}
+		// 过期 / 删除型 Cookie：从本地也删掉
+		// Go 的 MaxAge=0 表示「没写 Max-Age」，<0 才是删除
+		if ck.MaxAge < 0 || (!ck.Expires.IsZero() && ck.Expires.Before(time.Now())) {
+			if _, ok := target[ck.Name]; ok {
+				delete(target, ck.Name)
+				updated++
+			}
+			continue
+		}
+		if ck.Value == "" || target[ck.Name] == ck.Value {
+			continue
+		}
+		target[ck.Name] = ck.Value
+		updated++
+	}
+	if updated == 0 {
+		return 0
+	}
+	_ = gfSet(gfKeyCookie, shop, gfJoinCookieKV(gfMap))
+	_ = gfSet(gfKeySSOTaobao, shop, gfJoinCookieKV(tbMap))
+	return updated
 }
 
 // gfSilentRenew 用淘宝 SSO Cookie 静默换发闲鱼会话。
@@ -123,15 +194,23 @@ func gfSilentRenew(shop int64) (bool, error) {
 		return false, err
 	}
 	defer resp.Body.Close()
+	// 先落库新 Cookie，再看业务结果：即使这次业务码不理想，
+	// 服务端新发的会话凭证也应该留下，下次请求就能用上。
+	updated := gfMergeRenewCookies(shop, resp)
+	if updated > 0 {
+		fmt.Printf("[闲鱼换发] 店铺 %d 响应带回 %d 项新凭证，已写回本地\n", shop, updated)
+	} else {
+		fmt.Printf("[闲鱼换发] 店铺 %d 响应未带回新凭证，继续用已存会话\n", shop)
+	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
 
 	var out struct {
 		Content struct {
 			Data struct {
-				ResultCode     int    `json:"resultCode"`
-				ProcessFinished bool  `json:"processFinished"`
-				TitleMsg       string `json:"titleMsg"`
-				ErrorCode      string `json:"errorCode"`
+				ResultCode      int    `json:"resultCode"`
+				ProcessFinished bool   `json:"processFinished"`
+				TitleMsg        string `json:"titleMsg"`
+				ErrorCode       string `json:"errorCode"`
 			} `json:"data"`
 		} `json:"content"`
 		Success bool `json:"success"`

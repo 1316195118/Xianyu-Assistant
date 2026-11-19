@@ -75,6 +75,9 @@ const (
 	gfKeyUmidToken = "goofish_umid_token"
 	// gfKeyBackfill：立即同步时是否一并做账单回溯。默认开（老行为），存 "0"/"1"。
 	gfKeyBackfill = "goofish_backfill"
+	// gfKeySyncFails / gfKeyRetryAt：登录态类错误先重试，不要第一次就永久判死
+	gfKeySyncFails = "goofish_sync_fails"
+	gfKeyRetryAt   = "goofish_retry_at"
 )
 
 // gfMarkSyncError 记录自动同步失败原因，并通过 SSE 主动推送给该店铺在线页面。
@@ -93,6 +96,27 @@ func gfMarkSyncError(shop int64, reason string) {
 func gfClearSyncError(shop int64) {
 	_ = gfSet(gfKeyDead, shop, "")
 	_ = gfSet(gfKeySyncErr, shop, "")
+	_ = gfSet(gfKeySyncFails, shop, "")
+	_ = gfSet(gfKeyRetryAt, shop, "")
+}
+
+// gfSyncRetryOrFail 登录态类错误先自动重试，不要第一次就标记「已失效」。
+// 自动同步默认一天一次太稀疏，这里安排 2 小时后重试，最多 3 次（约 6 小时）
+// 仍失败才标记失效并提醒用户重新绑定。
+func gfSyncRetryOrFail(shop int64, reason string) {
+	n := 0
+	if v := gfGet(gfKeySyncFails, shop); v != "" {
+		n, _ = strconv.Atoi(v)
+	}
+	n++
+	_ = gfSet(gfKeySyncFails, shop, strconv.Itoa(n))
+	if n >= 3 {
+		gfMarkSyncError(shop, reason)
+		return
+	}
+	_ = gfSet(gfKeyRetryAt, shop, time.Now().Add(2*time.Hour).Format("2006-01-02 15:04:05"))
+	_ = gfSet(gfKeySyncErr, shop, fmt.Sprintf("%s，已自动重试 %d/3 次（2 小时后再试）", reason, n))
+	fmt.Printf("[闲鱼自动同步] 店铺 %d %s，第 %d 次，2 小时后重试\n", shop, reason, n)
 }
 
 // gfKey 把配置键加上店铺后缀。shop<=0 时退回全局键（兼容旧版本留下的数据）。
@@ -881,11 +905,23 @@ func gfAutoSyncOne(shop int64) {
 	if c == nil {
 		return
 	}
-	// 距上次同步不足间隔就跳过；从没同步过则立刻跑一次
-	if last := gfGet(gfKeyLast, shop); last != "" {
-		if t, e := time.ParseInLocation("2006-01-02 15:04:05", last, time.Local); e == nil {
-			if time.Since(t) < time.Duration(days)*24*time.Hour {
+	// 有排队的重试且已到点：无视日常间隔，立刻再试一次
+	forceRetry := false
+	if v := gfGet(gfKeyRetryAt, shop); v != "" {
+		if t, e := time.ParseInLocation("2006-01-02 15:04:05", v, time.Local); e == nil {
+			if time.Now().Before(t) {
 				return
+			}
+			forceRetry = true
+		}
+	}
+	// 距上次同步不足间隔就跳过；从没同步过则立刻跑一次
+	if !forceRetry {
+		if last := gfGet(gfKeyLast, shop); last != "" {
+			if t, e := time.ParseInLocation("2006-01-02 15:04:05", last, time.Local); e == nil {
+				if time.Since(t) < time.Duration(days)*24*time.Hour {
+					return
+				}
 			}
 		}
 	}
@@ -897,7 +933,7 @@ func gfAutoSyncOne(shop int64) {
 	// 同步前静默换发：有淘宝 SSO Cookie 时每次同步前都换发一次，
 	// 保证 h5 会话新鲜；换发失败说明 SSO 也失效了，标记等待重新绑定。
 	if !gfRenewBeforeSync(shop) {
-		gfMarkSyncError(shop, "淘宝 SSO 会话失效，无法自动续期")
+		gfSyncRetryOrFail(shop, "淘宝 SSO 会话失效，无法自动续期")
 		return
 	}
 	plan, err := buildPlanWith(c, 0, 2, shop)
@@ -906,7 +942,7 @@ func gfAutoSyncOne(shop int64) {
 		sessionGone := strings.Contains(msg, "SESSION_EXPIRED") || strings.Contains(msg, "Session过期") ||
 			strings.Contains(msg, "FAIL_SYS_SESSION_EXPIRED") || strings.Contains(msg, "FAIL_SYS_TOKEN_EXOIRED")
 		if sessionGone {
-			gfMarkSyncError(shop, "Cookie 已失效")
+			gfSyncRetryOrFail(shop, "Cookie 已失效")
 		}
 		fmt.Printf("[闲鱼自动同步] 店铺 %d 拉取失败: %v\n", shop, err)
 		return
