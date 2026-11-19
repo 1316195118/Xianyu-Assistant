@@ -1216,7 +1216,7 @@ function onCardClick(r, e) {
               <th class="col-prod">商品</th>
               <th class="col-group" title="这条记录属于哪张联单；点一下直达">联单</th>
               <th class="col-shot">截图</th>
-              <th class="th-right col-num" title="卖单取卖出成交价，买单取买进价">成交价</th>
+              <th class="th-right col-price" title="卖单取卖出成交价，买单取买进价">成交价</th>
               <th class="th-right col-num col-ship" title="买运费 + 卖运费">运费</th>
               <th class="th-right col-num" title="卖单：到手价（卖价−运费−服务费）；买单：总成本（买价+运费）">到手价</th>
               <th class="th-right col-num col-fee" title="软件服务费 + 无忧卖服务费">服务费</th>
@@ -1281,9 +1281,9 @@ function onCardClick(r, e) {
                   </button>
                   <span v-else class="td-thumb-empty">—</span>
                 </td>
-                <td class="td-right num td-buy col-num">
+                <td class="td-right num td-buy col-price">
                   <!-- 待账单浮在金额左侧的空位上（垂直居中），数字位置固定不动 -->
-                  <b v-if="billPending(r)" class="fee-pending fee-pending-line"
+                  <b v-if="billPending(r)" class="fee-pending fee-pending-side"
                      title="闲鱼订单列表给的是商品金额；账单一般延后几天生成，出账后再点「立即同步」会按实收金额自动更正">待账单</b>
                   <span class="price-num">{{ fmtMoney(rowBuyPrice(r)) }}</span>
                 </td>
@@ -1295,7 +1295,7 @@ function onCardClick(r, e) {
                     :title="!r.has_sell ? '买单还没卖出去，没有利润' : (r.discarded_at ? '已弃单，不计入统计' : '成交价 − 货品成本 − 卖运费 − 服务费')">
                   {{ r.has_sell ? fmtMoney(r.profit || 0) : '—' }}
                 </td>
-                <td class="muted cell-time col-time">{{ shortTime(r.deal_time) }}</td>
+                <td class="muted nowrap cell-time col-time">{{ shortTime(r.deal_time) }}</td>
                 <td class="td-right nowrap cell-actions rc-actions-desktop" @click.stop>
                   <button class="btn btn-sm btn-ghost btn-discard" :class="{ 'is-on': r.discarded_at }"
                           :disabled="!!discarding"

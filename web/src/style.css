@@ -5581,7 +5581,7 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
 .rc-profit b { font-size: 13px; font-weight: 750; }
 
 /* 待账单浮在金额左侧空位上、垂直居中：不占布局，金额位置永远不变 */
-.rec-table td.col-price { position: relative; }
+.rec-table td.col-price { position: relative; padding-left: 52px; }
 .fee-pending-side {
   position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
   font-size: 10.5px; padding: 1px 5px;
@@ -5603,8 +5603,8 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
 .rec-table th.col-num, .rec-table td.col-num { width: 92px; white-space: nowrap; }
 .rec-table th.col-group { width: 104px; }
 .rec-table th.col-time { width: 92px; }
-/* 时间列收窄后日期/时间各占一行，避免被挤爆 */
-.rec-table td.cell-time { white-space: normal; line-height: 1.25; }
+/* 时间保持单排（列宽已按 129 给足），不要换行 */
+.rec-table td.cell-time { white-space: nowrap; }
 /* 待账单独立一行、居中；金额单独一行右对齐 */
 .fee-pending-line { display: block; width: fit-content; margin: 0 auto 2px; }
 
@@ -5615,18 +5615,23 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
 
 /* 联单列：结算状态（已结算 / 无成本）跟在联单下面，居中排一行 */
 .rec-table td.col-group .group-tags {
-  display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; margin-top: 3px;
+  display: flex; flex-wrap: nowrap; gap: 3px; justify-content: center; margin-top: 3px;
 }
+.rec-table td.col-group .group-tags .auto-settled-chip,
+.rec-table td.col-group .group-tags .costfree-dot { font-size: 9.5px; padding: 1px 4px; }
 
-/* 表头「时间」这列原来被挤到 70px，日期会顶到边框；按内容给足 86px */
-.rec-table th.col-time { width: 86px; }
+/* 时间保持单排：文本 109px + 左右内边距 20，给足 129 才不会压字 */
+.rec-table th.col-time { width: 129px; }
 
 /* 表格改成固定布局：列宽写多少就是多少，数值列才能真正等宽、间距才均匀。
    自动布局会在总宽超出时把各列「按比例压缩」，导致 92/73/84 这种参差。 */
 @media (min-width: 901px) {
   .rec-table { table-layout: fixed; }
-  .rec-table .col-num { width: 92px; }
-  .rec-table .col-group { width: 104px; }
+  /* 运费/到手价/服务费/利润 四列等宽：右对齐时「相邻数字的间距 = 后一列宽度」，
+     所以它们相等，五个数字之间的间距就一致（成交价那格因为要放「待账单」单独加宽） */
+  .rec-table th.col-num, .rec-table td.col-num { width: 86px; }
+  .rec-table .col-price { width: 130px; }
+  .rec-table .col-group { width: 112px; }
   .rec-table .col-shot { width: 60px; }
-  .rec-table th:last-child, .rec-table td:last-child { width: 258px; }
+  .rec-table th:last-child, .rec-table td:last-child { width: 222px; }
 }
