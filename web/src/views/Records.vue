@@ -26,7 +26,7 @@ const maxAmount = ref('')
 const batchField = ref('note')
 const batchValue = ref('')
 const colPanelOpen = ref(false)
-let savedCols = { shipping: true, fee: true, time: true }
+let savedCols = { shot: false, shipping: true, fee: true, time: true }
 try { savedCols = { ...savedCols, ...JSON.parse(localStorage.getItem('xy_columns') || '{}') } } catch (e) {}
 const showCols = ref(savedCols)
 const page = ref(1)
@@ -488,7 +488,7 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize.value))
 const allChecked = computed(() => items.value.length > 0 && items.value.every(i => selected.value.includes(i.id)))
 const hasFilters = computed(() => !!(q.value.trim() || type.value || from.value || to.value || amount.value || minAmount.value || maxAmount.value))
 // 展开行 colspan 需随「自定义列」隐藏情况变化，固定 8 会错位
-const visibleColCount = computed(() => 6 + (showCols.value.shipping ? 1 : 0) + (showCols.value.fee ? 1 : 0) + (showCols.value.time ? 1 : 0))
+const visibleColCount = computed(() => 5 + (showCols.value.shot ? 1 : 0) + (showCols.value.shipping ? 1 : 0) + (showCols.value.fee ? 1 : 0) + (showCols.value.time ? 1 : 0))
 const activeFilterCount = computed(() => [q.value.trim(), type.value, from.value, to.value, amount.value, minAmount.value, maxAmount.value].filter(v => v !== '' && v != null).length)
 const filteredProfit = computed(() => Number(sum.value?.total_profit) || 0)
 function toggleAll() {
@@ -1151,6 +1151,7 @@ function onCardClick(r, e) {
           <div class="col-picker">
             <button class="btn btn-sm btn-quiet" @click="colPanelOpen = !colPanelOpen" title="自定义显示列">列</button>
             <div v-if="colPanelOpen" class="col-panel">
+              <label><input type="checkbox" v-model="showCols.shot" /> 截图</label>
               <label><input type="checkbox" v-model="showCols.shipping" /> 运费</label>
               <label><input type="checkbox" v-model="showCols.fee" /> 服务费</label>
               <label><input type="checkbox" v-model="showCols.time" /> 交易时间</label>
@@ -1161,7 +1162,7 @@ function onCardClick(r, e) {
 
       <!-- 桌面表格 -->
       <div class="table-wrap desktop-only" :class="{ 'is-resorting': resorting }">
-        <table class="rec-table" :class="{ 'hide-shipping': !showCols.shipping, 'hide-fee': !showCols.fee, 'hide-time': !showCols.time }">
+        <table class="rec-table" :class="{ 'hide-shot': !showCols.shot, 'hide-shipping': !showCols.shipping, 'hide-fee': !showCols.fee, 'hide-time': !showCols.time }">
           <thead>
             <tr>
               <th class="col-check"><input type="checkbox" :checked="allChecked" @change="toggleAll" /></th>
@@ -1200,17 +1201,16 @@ function onCardClick(r, e) {
                   </div>
                   <div class="cell-meta">
                     <span class="cell-sub">{{ counterpartyOf(r) || '—' }}</span>
-                    <span class="badge-stack">
-                      <span v-if="groupSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
-                      <span v-if="r.cost_free" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
+                    <span v-if="isDiscarded(r)" class="discard-dot">已弃单</span>
+                    <span v-if="groupSettled(r)" class="settled-dot" title="已完结联单内的订单">✓ 已完结</span>
+                    <span v-if="r.cost_free" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
+                    <span v-if="groupsOf(r.id).length" class="cell-groups">
+                      <span v-for="g in groupsOf(r.id).slice(0, 2)" :key="'g'+g.id" class="group-chip" @click.stop="emit('goto-group', g.id)" :title="'查看联动单：'+g.title">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+                        {{ g.title }}
+                      </span>
+                      <span v-if="groupsOf(r.id).length > 2" class="group-more">+{{ groupsOf(r.id).length - 2 }}</span>
                     </span>
-                  </div>
-                  <div v-if="groupsOf(r.id).length" class="cell-groups">
-                    <span v-for="g in groupsOf(r.id).slice(0, 2)" :key="'g'+g.id" class="group-chip" @click.stop="emit('goto-group', g.id)" title="查看联动单">
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
-                      {{ g.title }}
-                    </span>
-                    <span v-if="groupsOf(r.id).length > 2" class="group-more">+{{ groupsOf(r.id).length - 2 }}</span>
                   </div>
                 </td>
                 <td class="col-shot">
@@ -1225,7 +1225,7 @@ function onCardClick(r, e) {
                 <td class="td-right num" :class="[r.has_sell ? 'net-col' : 'td-buy', { 'is-neg': r.has_sell && rowNet(r) < 0 }]">{{ fmtMoney(rowMidValue(r)) }}</td>
                 <td class="td-right num td-muted col-fee">{{ r.has_sell ? fmtMoney((r.sell_fee || 0) + (r.sell_wuyou_fee || 0)) : '—' }}</td>
                 <td class="muted nowrap cell-time col-time">{{ shortTime(r.deal_time) }}</td>
-                <td class="td-right nowrap cell-actions" @click.stop>
+                <td class="td-right nowrap cell-actions rc-actions-desktop" @click.stop>
                   <button class="btn btn-sm btn-ghost btn-discard" :class="{ 'is-on': r.discarded_at }"
                           :disabled="!!discarding"
                           :title="r.discarded_at ? '已弃单，点此取消弃单' : (inGroup(r) ? '这条在联单里，请先移出联单再弃单' : '作废这一条：不占在库、不计成本与利润')"

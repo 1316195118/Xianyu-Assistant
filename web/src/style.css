@@ -5029,3 +5029,66 @@ html[data-motion="reduce"] .modal-mask.set-sheet .modal { animation: none !impor
 body.overlay-open .to-top,
 body:has(.modal-mask) .to-top,
 body:has(.ali-mask) .to-top { display: none !important; }
+
+/* ============================================================
+   交易明细 · 电脑端减负
+   1) 筛选默认收起，「筛选」按钮在桌面也真正起作用
+   2) 截图列默认关掉（列菜单可再打开）
+   3) 商品行压成两行，文字标记代替压在表格上的圆章
+   4) 操作列收成图标按钮，title 里仍保留完整说明
+   ============================================================ */
+.filter-card .filter-body {
+  display: grid; grid-template-rows: 1fr;
+  transition: grid-template-rows var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease);
+}
+.filter-card:not(.filter-open) .filter-body { grid-template-rows: 0fr; opacity: 0; }
+.filter-body-in { overflow: hidden; min-height: 0; }
+
+.rec-table.hide-shot .col-shot { display: none; }
+
+@media (min-width: 901px) {
+  .rec-table tbody tr:not(.detail-row) > td { height: 56px; padding-top: 7px; padding-bottom: 7px; }
+  .rec-table .cell-main { max-width: 400px; }
+  .rec-table .cell-meta { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .rec-table .cell-meta .cell-sub {
+    max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .rec-table .cell-groups {
+    display: inline-flex; align-items: center; gap: 4px;
+    min-width: 0; flex: 0 1 auto; overflow: hidden;
+  }
+  .rec-table .group-chip {
+    max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .rec-table .seal-row { display: none; }
+  .rec-table .discard-dot { color: var(--up); font-size: 10px; font-weight: 700; }
+  .rc-actions-desktop .btn {
+    font-size: 0; gap: 0; min-width: 30px; padding: 6px 8px; justify-content: center;
+  }
+  .rc-actions-desktop .btn .ico { width: 14px; height: 14px; margin: 0; }
+  .rc-actions-desktop .btn + .btn { margin-left: 3px; }
+  .sum-caption .sum-peek { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .filter-card .filter-body { transition: none !important; }
+}
+html[data-motion="reduce"] .filter-card .filter-body { transition: none !important; }
+
+/* 商品格固定两行，避免有联单标签的行把整行撑高 */
+@media (min-width: 901px) {
+  .rec-table .cell-product { line-height: 18px; }
+  .rec-table .cell-meta { height: 18px; flex-wrap: nowrap; overflow: hidden; }
+  .rec-table .cell-groups { height: 18px; }
+}
+
+/* 联单标签进 meta 行后要去掉原来的外边距，否则会被行高裁掉一截 */
+@media (min-width: 901px) {
+  .rec-table .cell-meta { height: 20px; }
+  .rec-table .cell-groups { margin-top: 0; }
+  .rec-table .group-chip {
+    margin: 0; padding: 1px 6px; height: 18px;
+    font-size: 10px; line-height: 14px;
+  }
+  .rec-table .group-chip svg { width: 10px; height: 10px; }
+  .rec-table .group-more { font-size: 10px; }
+}
