@@ -5574,3 +5574,6 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
 }
 .rc-profit span { color: var(--text-3); }
 .rc-profit b { font-size: 13px; font-weight: 750; }
+
+/* 待账单标签移到金额前面时，间隔放在右侧 */
+.fee-pending-lead { margin-right: 5px; }
