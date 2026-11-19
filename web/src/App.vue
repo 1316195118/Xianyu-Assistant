@@ -209,10 +209,19 @@ let lastSyncToast = 0
 // 别人连续改了好几条时，事件会一条条来；每条都触发整页重拉就是白白多拉几次。
 // 300ms 内合并成一次刷新，体感完全一样，请求量按事件数下降。
 let bumpTimer = null
+let bumpPending = false
 function bumpCoalesced() {
   if (bumpTimer) clearTimeout(bumpTimer)
-  bumpTimer = setTimeout(() => { bumpTimer = null; bump() }, 300)
+  bumpTimer = setTimeout(() => {
+    bumpTimer = null
+    // 页面在后台时先攒着：后台刷新既看不见，又白白占带宽和手机电量
+    if (document.hidden) { bumpPending = true; return }
+    bump()
+  }, 300)
 }
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && bumpPending) { bumpPending = false; bump() }
+})
 // 顶栏闲鱼状态点：在任意页面都能看到绑定是否失效，点一下直达绑定弹窗
 async function loadGfStatus() {
   try {
@@ -734,11 +743,15 @@ function goSettingsFromModal() {
              入场动画交给 .page 的 CSS animation 重放。
              旧写法用 <Transition mode="out-in">，只要 leave 的 transitionend
              因页面切到后台等原因丢失，新视图就永远等不到插入时机，整页空白。 -->
-        <Overview v-if="view === 'overview'" :key="'ov-' + activeShopId" :refreshKey="refreshKey" @add="openAdd" @goto-records="gotoRecords" @goto-record="gotoRecord" @goto-product="gotoProduct" @goto-settings="switchView('settings')" @goto-calc="calcOpen = true" @goto-report="reportOpen = true" @notify="notify" />
-        <Records v-else-if="view === 'records'" :key="'rc-' + activeShopId" :refreshKey="refreshKey" :highlightId="highlightId" :focusQuery="focusQuery" :focusNorm="focusNorm" :focusType="focusType" :focusNonce="focusNonce" @add="openAdd" @edit="openEdit" @refresh="bump" @notify="notify" @goto-group="gotoGroup" @batch="openBatch" />
-        <Groups v-else-if="view === 'groups'" :key="'gp-' + activeShopId" :refreshKey="refreshKey" :focusGroupId="focusGroupId" @notify="notify" @edit="openEdit" @view="openViewRecord" @focused="focusGroupId = null" />
-        <Consign v-else-if="view === 'consign'" :key="'cs-' + activeShopId" :refreshKey="refreshKey" @notify="notify" />
-        <Settings v-else :key="'st-' + activeShopId" :refreshKey="refreshKey" @notify="notify" @refresh="bump" />
+        <!-- 保留缓存：切回某个页面时先用上次的内容渲染，再后台静默刷新。
+             以前每次切页都重新挂载 → 先出整页骨架再等接口，看起来「一直在加载」。 -->
+        <KeepAlive :max="6">
+          <Overview v-if="view === 'overview'" :key="'ov-' + activeShopId" :refreshKey="refreshKey" @add="openAdd" @goto-records="gotoRecords" @goto-record="gotoRecord" @goto-product="gotoProduct" @goto-settings="switchView('settings')" @goto-calc="calcOpen = true" @goto-report="reportOpen = true" @notify="notify" />
+          <Records v-else-if="view === 'records'" :key="'rc-' + activeShopId" :refreshKey="refreshKey" :highlightId="highlightId" :focusQuery="focusQuery" :focusNorm="focusNorm" :focusType="focusType" :focusNonce="focusNonce" @add="openAdd" @edit="openEdit" @refresh="bump" @notify="notify" @goto-group="gotoGroup" @batch="openBatch" />
+          <Groups v-else-if="view === 'groups'" :key="'gp-' + activeShopId" :refreshKey="refreshKey" :focusGroupId="focusGroupId" @notify="notify" @edit="openEdit" @view="openViewRecord" @focused="focusGroupId = null" />
+          <Consign v-else-if="view === 'consign'" :key="'cs-' + activeShopId" :refreshKey="refreshKey" @notify="notify" />
+          <Settings v-else :key="'st-' + activeShopId" :refreshKey="refreshKey" @notify="notify" @refresh="bump" />
+        </KeepAlive>
       </div>
     </main>
 

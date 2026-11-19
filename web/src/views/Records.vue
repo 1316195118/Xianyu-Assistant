@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onActivated, onUnmounted } from 'vue'
 import { api, downloadFile } from '../api'
 import { currentShopId } from '../shopId'
 import ImageViewer from '../components/ImageViewer.vue'
@@ -106,10 +106,12 @@ function params(extra = {}) {
   if (maxAmount.value !== '') p.max_amount = maxAmount.value
   return { ...p, ...extra }
 }
+let lastLoadedAt = 0
 async function load() {
   // 请求序号：实时同步与手动刷新可能并发，先发的后到会把新数据覆盖成旧的。
   // 只认最后一次发起的请求，过期的响应直接丢弃。
   const seq = ++loadSeq
+  lastLoadedAt = Date.now()
   loading.value = true; error.value = ''
   try {
     const [l, s, gs] = await Promise.all([
@@ -752,6 +754,10 @@ onMounted(() => {
   document.addEventListener('click', onDocClick)
 })
 onUnmounted(() => document.removeEventListener('click', onDocClick))
+// KeepAlive 缓存后切回不再重新挂载：先用旧列表渲染，再静默补一次最新
+onActivated(() => {
+  if (Date.now() - lastLoadedAt > 800) { load(); loadTodo() }
+})
 watch(() => props.refreshKey, () => { load(); loadTodo() })
 watch([type, from, to, sort, order, pageSize], () => { if (!jumping) reload(true) })
 // 金额逐键触发会打出一串请求：400ms 内只发最后一次

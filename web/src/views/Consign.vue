@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onActivated } from 'vue'
 import { api } from '../api'
 import { confirm } from '../confirm'
 import { fmtMoney, fmtNum } from '../utils'
@@ -54,7 +54,9 @@ function applyRange(key) {
   setTimeout(() => { settingRange = false }, 0)
 }
 
+let lastLoadedAt = 0
 async function load() {
+  lastLoadedAt = Date.now()
   try {
     const params = {}
     if (from.value) params.from = from.value
@@ -66,6 +68,7 @@ async function load() {
   }
 }
 onMounted(() => { applyRange('month'); load() })
+onActivated(() => { if (Date.now() - lastLoadedAt > 800) load() })
 watch(() => props.refreshKey, load)
 watch([from, to], (v, old) => {
   // 手改日期时取消预设高亮

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onActivated, onUnmounted } from 'vue'
 import { api } from '../api'
 import { fmtMoney, fmtNum, shortTime } from '../utils'
 import AnimatedNumber from '../components/AnimatedNumber.vue'
@@ -54,6 +54,8 @@ const periods = [{ v: 'month', t: '月' }, { v: 'quarter', t: '季' }, { v: 'wee
 const recent = ref([])
 const trend = ref([])
 const loading = ref(true)
+// 已经有数据时刷新不再回骨架屏：后台静默拉新，页面内容不闪
+const showSkeleton = computed(() => loading.value && !stats.value)
 const error = ref('')
 
 // 图形入场：首次渲染就带着动画（滚到这儿的人能直接看到），
@@ -95,9 +97,11 @@ watch(() => !!stats.value, async (ok) => {
 
 const settledIds = ref(new Set())
 let loadSeq = 0
+let lastLoaded = 0
 async function load() {
   // 同明细页：并发刷新只认最后一次，过期的响应不再写回。
   const seq = ++loadSeq
+  lastLoaded = Date.now()
   loading.value = true; error.value = ''
   try {
     const scope = allShops.value ? { all: '1' } : {}
@@ -117,6 +121,8 @@ async function load() {
   finally { if (seq === loadSeq) loading.value = false }
 }
 onMounted(load)
+// 从别的页面切回来：内容立刻可见，再静默拉一次最新（800ms 内刚拉过就跳过）
+onActivated(() => { if (Date.now() - lastLoaded > 800) load() })
 // 月底目标提醒：剩 3 天内且没达标，提示一次（按月份去重，会话内不再弹）
 setTimeout(() => {
   try {
@@ -407,7 +413,7 @@ const chart = computed(() => {
     </details>
 
     <!-- 四项核心指标 -->
-    <div v-if="loading" class="kpi-grid">
+    <div v-if="showSkeleton" class="kpi-grid">
       <div v-for="i in 4" :key="'k' + i" class="card kpi-card">
         <span class="skeleton kpi-skel-label"></span><span class="skeleton kpi-skel-value"></span>
       </div>
@@ -464,7 +470,7 @@ const chart = computed(() => {
     </div>
 
     <!-- 完结单核算：联单维度的三个数 -->
-    <div v-if="!loading" class="settle-strip card" :class="{ 'ss-open': ssOpen }">
+    <div v-if="!showSkeleton" class="settle-strip card" :class="{ 'ss-open': ssOpen }">
       <div class="ss-title" role="button" tabindex="0" @click="ssOpen = !ssOpen"
            @keyup.enter="ssOpen = !ssOpen" @keyup.space.prevent="ssOpen = !ssOpen">
         完结单核算<HelpTip text="两块钱合在一起算：① 点了「完结」的联单（完结成交额 = 联单内卖单到手价，完结成本 = 联单内买价 + 买运费）；② 卖单自己填好了成本的单（到手价 − 这单带走的货品成本），填完成本就自动算已结算，不用再包联单。两者之差就是完结净利润。" />
@@ -579,7 +585,7 @@ const chart = computed(() => {
             <span><i class="sw-profit"></i>利润</span>
           </div>
         </div>
-        <div v-else-if="loading" class="chart-skeleton">
+        <div v-else-if="showSkeleton" class="chart-skeleton">
           <span v-for="i in 7" :key="'cs' + i" class="skeleton" :style="{ height: (30 + i * 12) + 'px' }"></span>
         </div>
         <div v-else class="empty chart-empty">
@@ -621,7 +627,7 @@ const chart = computed(() => {
           </div>
         </div>
       </div>
-      <div v-else-if="!loading" class="empty">
+      <div v-else-if="!showSkeleton" class="empty">
         <div class="empty-badge"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg></div>
         <div class="empty-title">还没有商品记录</div>
         <div class="empty-sub">上传一张买进或卖出截图开始记账</div>

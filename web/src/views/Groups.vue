@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onActivated, watch, nextTick } from 'vue'
 import { api } from '../api'
 import { confirm } from '../confirm'
 import { undoAction } from '../feedback'
@@ -36,13 +36,17 @@ const selectedMap = ref({})
 const pickedInfo = ref({})
 let searchTimer = null
 
+let lastLoadedAt = 0
 async function load() {
+  lastLoadedAt = Date.now()
   loading.value = true; error.value = ''
   try { groups.value = (await api.groups()).items || [] }
   catch (e) { error.value = e.message || '加载失败' }
   finally { loading.value = false }
 }
 onMounted(load)
+// 切回本页静默刷新：旧内容先顶上，不闪骨架
+onActivated(() => { if (Date.now() - lastLoadedAt > 800) load() })
 watch(() => props.refreshKey, load)
 
 // 合并建议：不再一键硬合，先把「标题很像的联单」「同名散单」列成建议，
