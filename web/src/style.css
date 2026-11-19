@@ -5498,20 +5498,28 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
    以前 input 走的是 .input 的 40px，chip 只有 30px，
    一排里两种高度，看起来像「时间窗口特别大」。
    ============================================================ */
-.consign-tools { --ctl-h: 32px; }
+.consign-tools { --ctl-h: 28px; }
 .consign-tools .chips { align-items: center; }
-.consign-tools .chip { height: var(--ctl-h); padding: 0 12px; display: inline-flex; align-items: center; }
+.consign-tools .chip {
+  height: var(--ctl-h); padding: 0 11px; font-size: 12px;
+  display: inline-flex; align-items: center;
+}
 /* .input 全局有 min-height:40px，这里必须一起放开，否则 height 被抬回 40 */
 .consign-tools .date-input,
 .consign-tools .search-wrap .input {
   height: var(--ctl-h); min-height: 0;
-  padding-top: 0; padding-bottom: 0; font-size: 13px;
+  padding-top: 0; padding-bottom: 0; font-size: 12.5px; line-height: 1;
 }
-.consign-tools .consign-dates .date-input { width: 118px; }
-.consign-tools .search-wrap .input { padding-left: 34px; }
-.consign-tools .search-wrap svg { width: 14px; height: 14px; left: 11px; }
+.consign-tools .consign-dates .date-input { width: 112px; padding: 0 8px; }
+/* 日历图标原来偏大，把框撑得满满的；缩小并压淡，让字成为主体 */
+.consign-tools .date-input::-webkit-calendar-picker-indicator {
+  width: 13px; height: 13px; margin-left: 2px; opacity: .5; padding: 0;
+}
+.consign-tools .search-wrap .input { padding-left: 30px; }
+.consign-tools .search-wrap svg { width: 13px; height: 13px; left: 10px; }
 @media (max-width: 600px) {
-  .consign-tools { --ctl-h: 38px; }
+  .consign-tools { --ctl-h: 34px; }
+  .consign-tools .chip { font-size: 12.5px; padding: 0 12px; }
   .consign-tools .date-input,
   .consign-tools .search-wrap .input { font-size: 13px; }
   .consign-tools .consign-dates .date-input { width: auto; flex: 1; }
