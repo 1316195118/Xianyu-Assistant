@@ -162,6 +162,7 @@ CREATE TABLE IF NOT EXISTS settings (
 	// 店铺维度复合索引：单列索引在「先按 shop_id 过滤、再按时间排序」时会退化成扫描。
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_items_shop_sell ON items(shop_id, sell_time)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_items_shop_buy ON items(shop_id, buy_time)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_items_shop_created ON items(shop_id, created_at DESC, id DESC)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_items_shop_norm ON items(shop_id, product_norm)")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_items_shop_parent ON items(shop_id, parent_id)")
 	// 同步导入前要按「店铺 + 订单号」查重、去重修复也要扫这两列，

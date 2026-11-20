@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted, defineComponent, shallowRef, h } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, defineComponent, defineAsyncComponent, shallowRef, h } from 'vue'
 import Overview from './views/Overview.vue'
 
 // 首屏只加载概览；明细 / 联单 / 设置按需异步加载，减小首屏 JS。
@@ -98,12 +98,32 @@ const Records = lazyView('records', viewLoaders.records)
 const Settings = lazyView('settings', viewLoaders.settings)
 const Groups = lazyView('groups', viewLoaders.groups)
 const Consign = lazyView('consign', viewLoaders.consign)
-import RecordModal from './components/RecordModal.vue'
+
+// 录入弹窗和工具面板不属于首屏：先让概览和导航出来，再在空闲时预取。
+// 真正打开时若网络较慢会继续显示原页面，不在启动阶段阻塞首屏。
+const panelLoaders = {
+  recordModal: () => import('./components/RecordModal.vue'),
+  commandPalette: () => import('./components/CommandPalette.vue'),
+  priceCalc: () => import('./components/PriceCalc.vue'),
+  reportPanel: () => import('./components/ReportPanel.vue')
+}
+function lazyPanel(key) {
+  return defineAsyncComponent({
+    loader: () => loadChunk('panel:' + key, panelLoaders[key]),
+    delay: 80,
+    timeout: 15000,
+    onError(_err, retry, fail, attempts) {
+      if (attempts <= 2) setTimeout(retry, 300 * attempts)
+      else fail()
+    }
+  })
+}
+const RecordModal = lazyPanel('recordModal')
+const CommandPalette = lazyPanel('commandPalette')
+const PriceCalc = lazyPanel('priceCalc')
+const ReportPanel = lazyPanel('reportPanel')
 import ConfirmHost from './components/ConfirmHost.vue'
 import LoginView from './components/LoginView.vue'
-import CommandPalette from './components/CommandPalette.vue'
-import PriceCalc from './components/PriceCalc.vue'
-import ReportPanel from './components/ReportPanel.vue'
 import { api } from './api'
 import { currentConfirm, settleConfirm } from './confirm'
 import { themeMode } from './theme'
@@ -189,7 +209,10 @@ function onUnauthorized() { needLogin.value = true; showModal.value = false }
 
 // 首屏之后趁空闲把其余视图的分包取回来。切店铺时视图会整体重建，
 // 分包若还没到就会先显示骨架——预取之后这一步永远是同步的，不会再空一下。
-const preloadTargets = Object.entries(viewLoaders)
+const preloadTargets = [
+  ...Object.entries(viewLoaders),
+  ...Object.entries(panelLoaders).map(([key, loader]) => ['panel:' + key, loader])
+]
 function preloadViews() {
   if (navigator.onLine === false) return
   const run = () => {

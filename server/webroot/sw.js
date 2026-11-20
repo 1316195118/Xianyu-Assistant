@@ -9,7 +9,7 @@
  *       本文件需由 tools/sync_webroot.py 把 web/public/ 合并进 webroot 后才会被分发，
  *       且页面里需要注册 navigator.serviceWorker.register('/sw.js')（web/src 不在本次改动范围）。
  */
-const CACHE = 'xianyu-stat-v1';
+const CACHE = 'xianyu-stat-v2';
 const BUILD_CACHE = 'xianyu-stat-build';
 const BUILD_KEY = '/__xy-build__';
 // assets 已是内容哈希文件名（assets/index-<hash>.js），无法硬编码，
@@ -100,12 +100,19 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
-/* ---------- fetch：同源 GET 网络优先、失败回退缓存 ---------- */
+/* ---------- fetch：接口直连，哈希资源缓存优先，页面壳网络优先 ---------- */
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return; // 非 GET 直接放行
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // 仅处理同源
+  // 接口与 SSE 保持直连，避免 Service Worker 在每次查询前多加一层调度。
+  if (url.pathname.indexOf('/api/') === 0) return;
+  // 文件名带内容哈希，内容永远不变。重复访问直接读缓存，不再先等网络。
+  if (url.pathname.indexOf('/assets/') === 0) {
+    event.respondWith(cacheFirstAsset(req, url));
+    return;
+  }
   event.respondWith(networkFirst(req, url));
 });
 
@@ -135,6 +142,29 @@ async function networkFirst(req, url) {
       const shell = await caches.match('/', { ignoreSearch: true });
       if (shell) return shell;
     }
+    return new Response('离线且无可用缓存', {
+      status: 503,
+      statusText: 'Offline',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
+}
+
+async function cacheFirstAsset(req, url) {
+  const cached = await caches.match(url.pathname, { ignoreSearch: true });
+  if (cached) return cached;
+  try {
+    const res = await fetch(req);
+    if (res && res.ok && res.type === 'basic') {
+      try {
+        const cache = await caches.open(CACHE);
+        await cache.put(new Request(url.pathname), res.clone());
+      } catch (e) {
+        /* 缓存写入失败不影响本次响应 */
+      }
+    }
+    return res;
+  } catch (e) {
     return new Response('离线且无可用缓存', {
       status: 503,
       statusText: 'Offline',

@@ -75,6 +75,12 @@ func gzipMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// 哈希前端资源由 spaHandler 选择预生成的 br/gzip 副本。
+		// 若在这里再包一层，会对已经压缩的文件二次压缩。
+		if strings.HasPrefix(r.URL.Path, "/assets/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") || shouldSkipGzip(r) {
 			next.ServeHTTP(w, r)
 			return

@@ -10,7 +10,24 @@ export function attachVer(file) {
   return /^[0-9a-f]{8,}$/i.test(s) ? s : ''
 }
 
+// 首页会同时有多个面板读取同一份统计。相同店铺、相同地址的 GET 共用一个
+// 请求，避免一打开页面就重复查库；请求完成后立即移除，不引入跨操作旧缓存。
+const inflightGets = new Map()
+
 async function req(url, opts = {}) {
+  const method = String(opts.method || 'GET').toUpperCase()
+  if (method !== 'GET') return doReq(url, opts)
+  const key = String(currentShopId() || '') + '\n' + url
+  const running = inflightGets.get(key)
+  if (running) return running
+  const p = doReq(url, opts).finally(() => {
+    if (inflightGets.get(key) === p) inflightGets.delete(key)
+  })
+  inflightGets.set(key, p)
+  return p
+}
+
+async function doReq(url, opts = {}) {
   // 每个请求带上客户端标识，实时同步事件据此区分「谁改的」
   const { timeoutMs = 15000, ...rest } = opts
   const headers = { 'X-Client-Id': clientId, ...(rest.headers || {}) }

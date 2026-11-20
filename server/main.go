@@ -4,8 +4,11 @@ import (
 	"embed"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"os"
+	"path"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -161,6 +164,64 @@ func spaHandler(sub fs.FS, fileServer http.Handler) http.Handler {
 			w.Write(data)
 			return
 		}
+		// 构建时会为哈希资源预生成 Brotli / gzip 副本。直接发送预压缩文件，
+		// 既减少手机与远程访问的传输量，也避免每次请求都现场压缩。
+		if servePrecompressed(w, r, sub, clean) {
+			return
+		}
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+func servePrecompressed(w http.ResponseWriter, r *http.Request, sub fs.FS, clean string) bool {
+	if !strings.HasPrefix(clean, "assets/") {
+		return false
+	}
+	accept := r.Header.Get("Accept-Encoding")
+	candidates := make([]struct{ file, encoding string }, 0, 2)
+	if acceptsEncoding(accept, "br") {
+		candidates = append(candidates, struct{ file, encoding string }{clean + ".br", "br"})
+	}
+	if acceptsEncoding(accept, "gzip") {
+		candidates = append(candidates, struct{ file, encoding string }{clean + ".gz", "gzip"})
+	}
+	for _, candidate := range candidates {
+		if _, err := fs.Stat(sub, candidate.file); err != nil {
+			continue
+		}
+		data, err := fs.ReadFile(sub, candidate.file)
+		if err != nil {
+			continue
+		}
+		if ct := mime.TypeByExtension(path.Ext(clean)); ct != "" {
+			w.Header().Set("Content-Type", ct)
+		}
+		w.Header().Set("Content-Encoding", candidate.encoding)
+		w.Header().Add("Vary", "Accept-Encoding")
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		w.WriteHeader(http.StatusOK)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write(data)
+		}
+		return true
+	}
+	return false
+}
+
+func acceptsEncoding(header, encoding string) bool {
+	for _, item := range strings.Split(header, ",") {
+		parts := strings.Split(item, ";")
+		if !strings.EqualFold(strings.TrimSpace(parts[0]), encoding) {
+			continue
+		}
+		qualityDisabled := false
+		for _, parameter := range parts[1:] {
+			kv := strings.SplitN(strings.TrimSpace(parameter), "=", 2)
+			if len(kv) == 2 && strings.EqualFold(kv[0], "q") && strings.TrimSpace(kv[1]) == "0" {
+				qualityDisabled = true
+			}
+		}
+		return !qualityDisabled
+	}
+	return false
 }
