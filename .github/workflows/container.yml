@@ -73,18 +73,3 @@ jobs:
               "users/1316195118/packages/container/xianyu-assistant/versions/$version_id"
           done
 
-      - name: 清理旧镜像包
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          legacy_ids="$(
-            gh api --paginate \
-              "users/1316195118/packages/container/xianyu-stat/versions?per_page=100" \
-              --jq '.[].id' 2>/dev/null || true
-          )"
-          while IFS= read -r version_id; do
-            [[ -n "$version_id" ]] || continue
-            gh api -X DELETE \
-              "users/1316195118/packages/container/xianyu-stat/versions/$version_id"
-          done
