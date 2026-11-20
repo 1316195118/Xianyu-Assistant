@@ -12,10 +12,10 @@
 #
 # 用户无需填写版本号，始终拉取 latest。
 services:
-  xianyu-stat:
-    image: ghcr.io/1316195118/xianyu-stat:latest
+  xianyu-assistant:
+    image: ghcr.io/1316195118/xianyu-assistant:latest
     pull_policy: always
-    container_name: xianyu-stat
+    container_name: xianyu-assistant
     restart: unless-stopped
     ports:
       # 绿联 NAS 的 8080 常被系统服务占用，默认改用 18083。

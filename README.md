@@ -105,12 +105,12 @@ PORT=8080 ./xianyu-stat
 
 绿联 NAS 自带 Docker Compose，适合把鱼助手长期挂在家里：电脑、手机和 NAS 在同一局域网时都能打开，电脑关机也不影响自动同步和定时备份。UGOS 的 `8080` 经常已被系统服务占用，所以项目默认改用 `18083`。
 
-1. 在 UGOS 的「Docker → 项目」里新建项目 `xianyu-stat`，建议项目目录使用 `/volume1/docker/xianyu-stat`（以 NAS 实际共享目录为准）。
-2. 下载 [docker-compose.yml](https://raw.githubusercontent.com/1316195118/Xianyu-Assistant/master/docker-compose.yml)，或直接把仓库里的这个文件粘贴到 UGOS 的「Docker → 项目 → Compose」。镜像固定使用 `latest`，不需要填写版本号。
+1. 在 UGOS 的「Docker → 项目」里新建项目 `xianyu-assistant`，建议项目目录使用 `/volume1/docker/xianyu-assistant`（以 NAS 实际共享目录为准）。
+2. 下载 [docker-compose.yml](https://raw.githubusercontent.com/1316195118/Xianyu-Assistant/master/docker-compose.yml)，或直接把仓库里的这个文件粘贴到 UGOS 的「Docker → 项目 → Compose」。镜像地址统一为 `ghcr.io/1316195118/xianyu-assistant:latest`，不需要填写版本号。
 3. 在 UGOS 的 SSH 终端执行：
 
    ```bash
-   cd /volume1/docker/xianyu-stat
+   cd /volume1/docker/xianyu-assistant
    docker compose pull
    docker compose up -d
    docker compose logs -f
@@ -125,6 +125,7 @@ Compose 的 `environment` 只保留运行端口 `PORT=8080` 和时区 `TZ=Asia/S
 日常维护：
 
 - 更新：执行 `docker compose pull`，再执行 `docker compose up -d`。不需要改版本号或重新构建，容器重建后仍会使用原来的卷，数据不会丢。
+- 从旧镜像名迁移：使用仓库里的最新 Compose 文件，执行 `docker compose down --remove-orphans`、`docker compose pull`、`docker compose up -d`。`down` 不要加 `-v`，三个命名卷会保留。
 - 备份：程序备份、数据库和附件分别保存在 `xianyu-backup`、`xianyu-data`、`xianyu-config` 三个 Docker 命名卷中；可以在应用里导出备份，也可以把三个卷纳入 NAS 快照。
 - 排错：先看 `docker compose logs --tail=200`；健康状态可用 `docker compose ps` 查看。
 - 安全：不要把 `18083` 直接映射到公网。需要外网访问时，在 NAS 或路由器上配置 HTTPS 反向代理，并只开放认证后的入口。

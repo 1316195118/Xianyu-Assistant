@@ -53,7 +53,7 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/1316195118/xianyu-stat:latest
+          tags: ghcr.io/1316195118/xianyu-assistant:latest
           labels: |
             org.opencontainers.image.source=https://github.com/1316195118/Xianyu-Assistant
             org.opencontainers.image.revision=${{ github.sha }}
@@ -65,9 +65,25 @@ jobs:
         run: |
           sleep 3
           gh api --paginate \
-            "users/1316195118/packages/container/xianyu-stat/versions?per_page=100" \
+            "users/1316195118/packages/container/xianyu-assistant/versions?per_page=100" \
             --jq '.[] | select(.metadata.container.tags | length > 0) | select((.metadata.container.tags | sort) != ["latest"]) | .id' |
           while read -r version_id; do
+            [[ -n "$version_id" ]] || continue
+            gh api -X DELETE \
+              "users/1316195118/packages/container/xianyu-assistant/versions/$version_id"
+          done
+
+      - name: 清理旧镜像包
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          legacy_ids="$(
+            gh api --paginate \
+              "users/1316195118/packages/container/xianyu-stat/versions?per_page=100" \
+              --jq '.[].id' 2>/dev/null || true
+          )"
+          while IFS= read -r version_id; do
             [[ -n "$version_id" ]] || continue
             gh api -X DELETE \
               "users/1316195118/packages/container/xianyu-stat/versions/$version_id"
