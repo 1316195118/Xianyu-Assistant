@@ -40,7 +40,8 @@ func main() {
 	go backupLoop()
 	// 闲鱼同步：把旧版全局绑定搬到默认店铺，再起后台保活
 	gfMigrateGlobal()
-	// 保活心跳已退役：由「同步前静默换发」（gfRenewBeforeSync）取代
+	// 独立低频心跳负责续期；自动同步只负责按业务间隔拉订单。
+	go goofishSessionMaintainLoop()
 	go goofishAutoSyncLoop()
 
 	port := os.Getenv("PORT")

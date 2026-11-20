@@ -82,17 +82,13 @@ func md5Hex(v string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func shortID(v string) string {
-	if len(v) <= 10 {
-		return v
+// gfPickQRCk 以接口实际返回的轮询 key 为准；只有缺失时才回退到生成请求的 hsiz。
+func gfPickQRCk(generated, hsiz string) (string, bool) {
+	ck := strings.TrimSpace(generated)
+	if ck == "" {
+		ck = strings.TrimSpace(hsiz)
 	}
-	return v[:6] + ".." + v[len(v)-4:]
-}
-func tail(v string, n int) string {
-	if len(v) <= n {
-		return v
-	}
-	return v[len(v)-n:]
+	return ck, ck != "" && ck == strings.TrimSpace(hsiz)
 }
 
 func gfQRGet(shop int64) *gfQRSession {
@@ -217,17 +213,13 @@ func gfQRStart(shop int64) (string, error) {
 	if out.Content.Data.CodeContent == "" || out.Content.Data.Ck == "" {
 		return "", fmt.Errorf("二维码生成失败，请重试")
 	}
-	s.ck = out.Content.Data.Ck
-	if s.ck == "" {
-		s.ck = s.hsiz
-	}
-	// 真实浏览器 ck 与 hsiz 相同；用我们生成时传入的 hsiz 覆盖，保证 query 时两者一致
-	s.ck = s.hsiz
+	var ckMatchesHsiz bool
+	s.ck, ckMatchesHsiz = gfPickQRCk(out.Content.Data.Ck, s.hsiz)
 	if m := regexp.MustCompile(`lgToken=([^&"]+)`).FindStringSubmatch(out.Content.Data.CodeContent); m != nil {
 		s.lgToken = m[1]
 	}
-	fmt.Printf("[闲鱼扫码] 店铺 %d 生成新码: ck=%s lgToken=%s 时间=%s\n",
-		shop, shortID(s.ck), shortID(s.lgToken), time.Now().Format("15:04:05"))
+	fmt.Printf("[闲鱼扫码] 店铺 %d 生成新码: resultCode=%d ck_equals_hsiz=%t 时间=%s\n",
+		shop, out.Content.Data.ResultCode, ckMatchesHsiz, time.Now().Format("15:04:05"))
 	return out.Content.Data.CodeContent, nil
 }
 
@@ -291,13 +283,10 @@ func gfQRPoll(shop int64) (string, error) {
 	}
 	_ = json.Unmarshal(body, &out)
 	st := strings.ToUpper(out.Content.Data.QrCodeStatus)
-	// 诊断日志：打印会话 ck、完整响应体（脱敏后截断），用于精确定位 EXPIRED
-	bodyShow := string(body)
-	if len(bodyShow) > 600 {
-		bodyShow = bodyShow[:600]
-	}
-	fmt.Printf("[闲鱼扫码] 店铺 %d poll ck=%s umid尾=%s status=%s 时间=%s body=%s\n",
-		shop, shortID(s.ck), tail(s.umid, 6), st, time.Now().Format("15:04:05"), bodyShow)
+	// 只记录定位状态所需字段，不输出 ck、lgToken、umidToken、Cookie 或完整响应体。
+	fmt.Printf("[闲鱼扫码] 店铺 %d 轮询响应: status=%s resultCode=%d title=%q url=%t ck_equals_hsiz=%t 时间=%s\n",
+		shop, st, out.Content.Data.ResultCode, out.Content.Data.TitleMsg,
+		out.Content.Data.URL != "", s.ck == s.hsiz, time.Now().Format("15:04:05"))
 	switch st {
 	case "SCANNED":
 		s.status = "scanned"

@@ -42,6 +42,15 @@ const CANDIDATES = [
 
 function findBrowser() { return CANDIDATES.find((p) => fs.existsSync(p)) || '' }
 
+// 专用 profile 可能恢复上次的 ChatGPT 等其他标签页。必须明确选闲鱼登录页，
+// 否则会把“切换扫码”和会话轮询发到无关页面，用户看起来就是扫码没反应。
+function pickLoginPage(pages) {
+  const list = Array.isArray(pages) ? pages : []
+  return list.find((x) => x && x.type === 'page' && /^https:\/\/(?:www\.)?goofish\.com\/login(?:[/?#]|$)/.test(x.url || ''))
+    || list.find((x) => x && x.type === 'page' && /goofish\.com/i.test(x.url || ''))
+    || null
+}
+
 // ---------- 配置读写 ----------
 function loadConfig() {
   try { return JSON.parse(fs.readFileSync(CONFIG, 'utf8')) || {} } catch (e) { return {} }
@@ -152,7 +161,7 @@ async function main() {
     await sleep(400)
     try {
       const list = await (await fetch('http://127.0.0.1:' + PORT + '/json')).json()
-      pageTarget = list.find((x) => x.type === 'page')
+      pageTarget = pickLoginPage(list)
       if (pageTarget) break
     } catch (e) {}
   }
@@ -181,6 +190,7 @@ async function main() {
   await new Promise((r) => ws.addEventListener('open', r, { once: true }))
   await send('Network.enable')
   await send('Page.enable')
+  await send('Page.bringToFront').catch(() => {})
   await sleep(3500)
 
   // 尝试自动切到扫码 tab
@@ -249,4 +259,8 @@ async function main() {
   process.exit(1)
 }
 
-main().catch((e) => { console.error('[错误]', e.message); process.exit(1) })
+if (require.main === module) {
+  main().catch((e) => { console.error('[错误]', e.message); process.exit(1) })
+}
+
+module.exports = { pickLoginPage }

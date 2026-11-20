@@ -85,11 +85,17 @@ const (
 func gfMarkSyncError(shop int64, reason string) {
 	_ = gfSet(gfKeyDead, shop, "1")
 	_ = gfSet(gfKeySyncErr, shop, reason)
-	if gfKeepAliveEnabled() {
+	// 有淘宝 SSO 时保留续期开关，后台心跳仍可尝试自愈；
+	// 只有确实没有恢复凭证时才关闭，避免无意义地反复请求。
+	if gfKeepAliveEnabled() && !gfCanRecoverSession(shop) {
 		setSetting(gfKeepAliveKey, "0")
 	}
+	hint := "（请重新绑定）"
+	if gfCanRecoverSession(shop) {
+		hint = "（自动续期会继续尝试恢复）"
+	}
 	realtimeHub.publish("GET", "/api/goofish/status", "system",
-		"闲鱼自动同步失败："+reason+"（请重新绑定）", shop)
+		"闲鱼自动同步失败："+reason+hint, shop)
 }
 
 // gfClearSyncError 绑定成功或同步成功后清除失效状态。
@@ -130,6 +136,11 @@ func gfKey(base string, shop int64) string {
 func gfGet(base string, shop int64) string { return getSetting(gfKey(base, shop)) }
 
 func gfSet(base string, shop int64, v string) error { return setSetting(gfKey(base, shop), v) }
+
+// gfCanRecoverSession 判断当前配置是否具备后台自愈条件。
+func gfCanRecoverSession(shop int64) bool {
+	return gfKeepAliveEnabled() && strings.TrimSpace(gfGet(gfKeySSOTaobao, shop)) != ""
+}
 
 // gfMigrateGlobal 把旧版全局绑定搬到默认店铺上，避免升级后要求重新粘 Cookie。
 func gfMigrateGlobal() {
@@ -403,11 +414,6 @@ func handleGoofishPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	shop := shopID(r)
-	c := gfSavedClient(shop)
-	if c == nil {
-		writeError(w, 401, "这家店还没有绑定闲鱼账号，请先绑定")
-		return
-	}
 	if !gfTryLockSync(shop) {
 		writeError(w, 429, "正在同步中，请等这一次跑完再点；频繁点不会更快，反而容易触发闲鱼风控")
 		return
@@ -419,10 +425,10 @@ func handleGoofishPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
 	gfProgress(shop, 5, "正在刷新登录态…")
-	// 同步前静默换发（有淘宝 SSO Cookie 时）；换发失败直接说明需要重新绑定
-	if !gfRenewBeforeSync(shop) {
-		_ = gfSet(gfKeyDead, shop, "1")
-		writeError(w, 502, "淘宝 SSO 会话也失效了，请重新运行一键绑定（tools/goofish_bind.bat）")
+	// 换发失败不能直接阻断：旧会话可能仍然有效，换发响应也可能已经落库了新凭证。
+	c, _ := gfRenewAndLoadClient(shop, gfRenewBeforeSync)
+	if c == nil {
+		writeError(w, 401, "这家店还没有绑定闲鱼账号，请先绑定")
 		return
 	}
 	plan, err := buildPlanWith(c, 0, in.BackfillMonths, shop)
@@ -432,7 +438,7 @@ func handleGoofishPreview(w http.ResponseWriter, r *http.Request) {
 			strings.Contains(msg, "FAIL_SYS_SESSION_EXPIRED")
 		if sessionGone {
 			_ = gfSet(gfKeyDead, shop, "1")
-			if gfKeepAliveEnabled() {
+			if gfKeepAliveEnabled() && !gfCanRecoverSession(shop) {
 				setSetting(gfKeepAliveKey, "0")
 			}
 		}
@@ -797,16 +803,16 @@ func gfPingShop(shop int64) (string, error) {
 		// 手动检测是用户主动发起的恢复动作：如果绑定过淘宝 SSO，
 		// 先静默换发一次再重试，避免会话刚过期就要求用户重新扫码/粘贴。
 		if strings.TrimSpace(gfGet(gfKeySSOTaobao, shop)) != "" {
-			if ok, renewErr := gfSilentRenew(shop); renewErr != nil {
+			if _, renewErr := gfSilentRenew(shop); renewErr != nil {
 				fmt.Printf("[闲鱼检测] 店铺 %d 静默换发失败: %v\n", shop, renewErr)
-			} else if ok {
-				if fresh := gfSavedClient(shop); fresh != nil {
-					c = fresh
-					if _, retryErr := c.boughtOrders(1); retryErr == nil {
-						err = nil
-					} else {
-						err = retryErr
-					}
+			}
+			// 无论业务码如何都使用落库后的最新会话重试；换发响应可能已带来新凭证。
+			if fresh := gfSavedClient(shop); fresh != nil {
+				c = fresh
+				if _, retryErr := c.boughtOrders(1); retryErr == nil {
+					err = nil
+				} else {
+					err = retryErr
 				}
 			}
 		}
@@ -815,7 +821,7 @@ func gfPingShop(shop int64) (string, error) {
 			// 不应把 Cookie 标成永久失效。
 			if gfSessionExpired(err) {
 				_ = gfSet(gfKeyDead, shop, "1")
-				if gfKeepAliveEnabled() {
+				if gfKeepAliveEnabled() && !gfCanRecoverSession(shop) {
 					setSetting(gfKeepAliveKey, "0")
 				}
 			}
@@ -948,18 +954,86 @@ func goofishAutoSyncLoop() {
 	}
 }
 
+const gfSessionMaintainPeriod = 6 * time.Hour
+
+// goofishSessionMaintainLoop 独立于订单同步维护登录态。
+// 即使自动同步设为 7 天一次，也会每 6 小时尝试一次静默换发和同源接口校验。
+func goofishSessionMaintainLoop() {
+	time.Sleep(2 * time.Minute)
+	for {
+		gfMaintainAllSessions()
+		time.Sleep(gfSessionMaintainPeriod)
+	}
+}
+
+func gfMaintainAllSessions() {
+	if !gfKeepAliveEnabled() {
+		return
+	}
+	rows, err := db.Query("SELECT key FROM settings WHERE key LIKE 'goofish_cookie@%' AND value<>''")
+	if err != nil {
+		return
+	}
+	shops := make([]int64, 0, 4)
+	for rows.Next() {
+		var k string
+		if rows.Scan(&k) != nil {
+			continue
+		}
+		i := strings.LastIndex(k, "@")
+		if i <= 0 {
+			continue
+		}
+		id, e := strconv.ParseInt(k[i+1:], 10, 64)
+		if e != nil {
+			continue
+		}
+		shops = append(shops, id)
+	}
+	rows.Close()
+	for _, shop := range shops {
+		gfMaintainSessionOne(shop)
+	}
+}
+
+func gfMaintainSessionOne(shop int64) {
+	if strings.TrimSpace(gfGet(gfKeyCookie, shop)) == "" ||
+		strings.TrimSpace(gfGet(gfKeySSOTaobao, shop)) == "" ||
+		!gfKeepAliveEnabled() {
+		return
+	}
+	if !gfTryLockSync(shop) {
+		return
+	}
+	defer gfUnlockSync(shop)
+
+	c, renewed := gfRenewAndLoadClient(shop, gfRenewBeforeSync)
+	if c == nil {
+		return
+	}
+	if _, err := c.boughtOrders(1); err != nil {
+		if gfSessionExpired(err) {
+			gfSyncRetryOrFail(shop, "自动续期后登录态仍失效")
+		} else {
+			fmt.Printf("[闲鱼续期] 店铺 %d 本次校验失败，保留现有会话稍后重试: %v\n", shop, err)
+		}
+		return
+	}
+	_ = gfSet(gfKeyCookie, shop, c.cookieString())
+	_ = gfSet(gfKeyCheck, shop, time.Now().Format("2006-01-02 15:04:05"))
+	gfClearSyncError(shop)
+	if renewed {
+		fmt.Printf("[闲鱼续期] 店铺 %d 登录态已刷新并校验通过\n", shop)
+	}
+}
+
 func gfAutoSyncOne(shop int64) {
 	days := gfAutoDays(shop)
 	if days <= 0 {
 		return
 	}
-	// 已判失效的店铺直接跳过：死 Cookie 每 10 分钟重试一次，只会反复撞闲鱼风控，
-	// 把账号环境越撞越差。等用户重新绑定（绑定流程会清掉失效标记）再恢复。
-	if gfGet(gfKeyDead, shop) == "1" {
-		return
-	}
-	c := gfSavedClient(shop)
-	if c == nil {
+	// 没有恢复凭证时，已判失效的店铺跳过；有淘宝 SSO 时继续让同步链路尝试自愈。
+	if gfGet(gfKeyDead, shop) == "1" && !gfCanRecoverSession(shop) {
 		return
 	}
 	// 有排队的重试且已到点：无视日常间隔，立刻再试一次
@@ -987,10 +1061,11 @@ func gfAutoSyncOne(shop int64) {
 	}
 	defer gfUnlockSync(shop)
 
-	// 同步前静默换发：有淘宝 SSO Cookie 时每次同步前都换发一次，
-	// 保证 h5 会话新鲜；换发失败说明 SSO 也失效了，标记等待重新绑定。
-	if !gfRenewBeforeSync(shop) {
-		gfSyncRetryOrFail(shop, "淘宝 SSO 会话失效，无法自动续期")
+	// 同步前静默换发并重新加载落库后的最新会话。
+	// 换发失败不直接判死：旧会话可能仍有效，最终以真实同步接口结果为准。
+	c, _ := gfRenewAndLoadClient(shop, gfRenewBeforeSync)
+	if c == nil {
+		gfSyncRetryOrFail(shop, "未找到可用的闲鱼登录态")
 		return
 	}
 	plan, err := buildPlanWith(c, 0, 2, shop)

@@ -225,8 +225,8 @@ func gfSilentRenew(shop int64) (bool, error) {
 }
 
 // gfRenewBeforeSync 同步前的统一入口：
-// 先静默换发（有淘宝 SSO Cookie 时），换发成功就继续；失败只在会话确属过期时标记失效。
-// 返回值：true=换发成功或不需要换发（已有有效会话），false=需要重新绑定。
+// 先静默换发（有淘宝 SSO Cookie 时）。返回值只表示换发动作是否成功，
+// 不再表示已有会话一定不可用；调用方必须重新加载落库后的 Cookie，再让真实同步接口判定。
 func gfRenewBeforeSync(shop int64) bool {
 	// 用户关掉「自动续期」开关时不做换发，按老逻辑走
 	if !gfKeepAliveEnabled() {
@@ -245,4 +245,11 @@ func gfRenewBeforeSync(shop int64) bool {
 		_ = gfSet(gfKeyCheck, shop, time.Now().Format("2006-01-02 15:04:05"))
 	}
 	return ok
+}
+
+// gfRenewAndLoadClient 在换发后重新读取最新 Cookie。
+// 换发响应可能已经写回新凭证，即使业务码暂时未完成，也应让后续请求使用落库后的会话。
+func gfRenewAndLoadClient(shop int64, renew func(int64) bool) (*gfClient, bool) {
+	renewed := renew(shop)
+	return gfSavedClient(shop), renewed
 }

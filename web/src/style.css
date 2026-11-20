@@ -6391,3 +6391,82 @@ html[data-motion="reduce"] .btn-primary.is-saved,
 html[data-motion="reduce"] .upd-progress.bad {
   animation: none !important;
 }
+
+/* ============================================================
+   大屏 / 4K 适配
+   100% 缩放下，14px 正文和 1280px 内容区在高分辨率屏幕上会显得过小，
+   而且主内容向左堆积。这里按桌面、2K、4K 三档放大字号、内容宽度和留白，
+   手机与常规 1080P 布局保持不变。
+   ============================================================ */
+@media (min-width: 1920px) {
+  :root {
+    --gutter: 32px;
+    --fs-xs: 12px;
+    --fs-sm: 13.5px;
+    --fs-md: 15px;
+    --fs-lg: 17px;
+    --fs-xl: 22px;
+    --fs-2xl: 32px;
+  }
+  .topbar { padding: 20px 36px 16px; }
+  .main-body {
+    max-width: 1640px;
+    margin-inline: auto;
+    padding: 26px 36px 56px;
+  }
+  .settings-page { max-width: 1360px; }
+}
+
+@media (min-width: 2560px) {
+  :root {
+    --fs-xs: 13px;
+    --fs-sm: 14.5px;
+    --fs-md: 16px;
+    --fs-lg: 18px;
+    --fs-xl: 24px;
+    --fs-2xl: 36px;
+  }
+  .sidebar { width: 248px; flex-basis: 248px; }
+  .topbar { padding: 22px 44px 18px; }
+  .main-body {
+    max-width: 2260px;
+    padding: 30px 44px 68px;
+  }
+  .page { gap: 18px; }
+  .hero-card { padding: 28px 34px; }
+  .hero-value { font-size: 46px; }
+  .kpi-grid { gap: 18px; }
+  .kpi-card { padding: 19px 22px; }
+  .kpi-value { font-size: 26px; }
+  .settings-page {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px 28px;
+    max-width: 2220px;
+    align-items: start;
+  }
+  .settings-page > .set-group { min-width: 0; }
+}
+
+@media (min-width: 3200px) {
+  :root {
+    --fs-xs: 14px;
+    --fs-sm: 15.5px;
+    --fs-md: 17px;
+    --fs-lg: 19.5px;
+    --fs-xl: 27px;
+    --fs-2xl: 42px;
+  }
+  .sidebar { width: 272px; flex-basis: 272px; }
+  .topbar { padding: 24px 56px 20px; }
+  .main-body {
+    max-width: 2920px;
+    padding: 36px 56px 84px;
+  }
+  .settings-page { max-width: 2680px; gap: 26px 34px; }
+  .hero-card { padding: 32px 38px; }
+  .hero-value { font-size: 52px; }
+  .kpi-grid { gap: 22px; }
+  .kpi-card { padding: 22px 26px; }
+  .kpi-value { font-size: 30px; }
+}

@@ -58,3 +58,58 @@ func TestMergeRenewCookiesNoHeaderKeepsLocal(t *testing.T) {
 		t.Errorf("本地凭证被改动: %s", got)
 	}
 }
+
+func TestRenewAndLoadClientUsesFreshCookie(t *testing.T) {
+	newExtrasEnv(t)
+	const shop int64 = 79
+	if err := gfSet(gfKeyCookie, shop, "cookie2=OLD; _m_h5_tk=OLD; unb=u1"); err != nil {
+		t.Fatal(err)
+	}
+	c, renewed := gfRenewAndLoadClient(shop, func(id int64) bool {
+		_ = gfSet(gfKeyCookie, id, "cookie2=NEW; _m_h5_tk=NEW; unb=u1")
+		return true
+	})
+	if !renewed || c == nil {
+		t.Fatal("换发成功后应返回最新客户端")
+	}
+	if got := c.cookieVal("cookie2"); got != "NEW" {
+		t.Fatalf("仍在使用旧内存会话: cookie2=%q", got)
+	}
+}
+
+func TestRenewAndLoadClientReloadsEvenWhenRenewFails(t *testing.T) {
+	newExtrasEnv(t)
+	const shop int64 = 80
+	if err := gfSet(gfKeyCookie, shop, "cookie2=OLD; _m_h5_tk=OLD"); err != nil {
+		t.Fatal(err)
+	}
+	c, renewed := gfRenewAndLoadClient(shop, func(id int64) bool {
+		// 业务码失败前响应仍可能带回新凭证，后续请求必须使用这份落库结果。
+		_ = gfSet(gfKeyCookie, id, "cookie2=PARTIAL; _m_h5_tk=PARTIAL")
+		return false
+	})
+	if renewed || c == nil {
+		t.Fatal("换发失败时应返回最新客户端，交由真实同步判断")
+	}
+	if got := c.cookieVal("cookie2"); got != "PARTIAL" {
+		t.Fatalf("换发失败后没有重新加载落库凭证: cookie2=%q", got)
+	}
+}
+
+func TestCanRecoverSessionWithSavedSSO(t *testing.T) {
+	newExtrasEnv(t)
+	const shop int64 = 81
+	if err := setSetting(gfKeepAliveKey, "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := gfSet(gfKeySSOTaobao, shop, "unb=u1; cookie2=sso"); err != nil {
+		t.Fatal(err)
+	}
+	gfMarkSyncError(shop, "测试失败")
+	if !gfCanRecoverSession(shop) {
+		t.Fatal("有淘宝 SSO 时应保留后台自愈能力")
+	}
+	if got := getSetting(gfKeepAliveKey); got != "1" {
+		t.Fatalf("失效提示不应关闭续期开关，实际 %q", got)
+	}
+}
