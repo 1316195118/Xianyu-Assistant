@@ -91,8 +91,8 @@ const rows = computed(() => (plan.value && plan.value.rows) || [])
 const stat = computed(() => (plan.value && plan.value.stat) || {})
 
 const importable = (r) => !r.skip_reason && !r.exists
-// 已在库的卖单里，同步建的会被「按账单补正」，手动录的会原样保留
-const willOverwrite = (r) => r.exists && r.billed && r.side === 'sell'
+// 已在库的卖单可以按最新闲鱼数据覆盖：已出账用实收/服务费，未出账用订单列表金额。
+const willOverwrite = (r) => r.exists && !r.skip_reason && r.side === 'sell'
 const willKeep = (r) => r.exists && r.billed && r.side === 'sell' && !r.managed
 const pickedList = computed(() => rows.value.filter((r) => importable(r) && picked.value[r.order_no + '|' + r.side]))
 // 已在库、但这次拿到了真实扣费的卖单：点一次「导入」会顺手把它们的服务费与到手价补正
@@ -279,7 +279,7 @@ async function pull() {
     }
     picked.value = next
     const rnext = {}
-    for (const r of p.rows) if (r.exists && r.billed && r.side === 'sell') rnext[r.order_no] = true
+    for (const r of p.rows) if (r.exists && !r.skip_reason && r.side === 'sell') rnext[r.order_no] = true
     refreshPicked.value = rnext
     progress.value = { on: true, pct: 100, text: '完成' }
     step.value = 'review'
@@ -310,7 +310,7 @@ async function apply() {
     step.value = 'done'
     emit('refresh')
     if (r.added) emit('notify', `已导入 ${r.added} 条到「${shopName.value}」`)
-    if (r.refreshed) emit('notify', `已按最新账单补正 ${r.refreshed} 条的卖出价与服务费`)
+    if (r.refreshed) emit('notify', `已按最新闲鱼数据补正 ${r.refreshed} 条卖单`)
     if (!r.added && !r.refreshed && r.message) emit('notify', r.message)
   } catch (e) {
     err.value = e.message || '导入失败'
@@ -582,7 +582,7 @@ onMounted(async () => {
                              :checked="!!picked[r.order_no + '|' + r.side]"
                              @change="picked[r.order_no + '|' + r.side] = $event.target.checked" />
                       <input v-else-if="willOverwrite(r)" type="checkbox" class="pick-refresh"
-                             :checked="!!refreshPicked[r.order_no]" :title="'按账单补正这一条：卖出价 / 服务费 / 无忧卖'"
+                             :checked="!!refreshPicked[r.order_no]" :title="r.billed ? '按账单补正这一条：卖出价 / 服务费 / 无忧卖' : '按闲鱼订单列表金额覆盖这一条，出账后自动更正'"
                              @change="refreshPicked[r.order_no] = $event.target.checked" />
                     </td>
                     <td>
@@ -599,8 +599,8 @@ onMounted(async () => {
                     <td class="c-st">
                       <span v-if="r.backfill" class="gf-tag backfill" title="列表接口只回最近 40 单，这条是从「收入明细」账单里补出来的">账单补建</span>
                       <span v-else-if="willOverwrite(r)" class="gf-tag overwrite"
-                            :title="allowOverwrite && refreshPicked[r.order_no] ? '将按最新账单补正卖出价 / 服务费 / 无忧卖' : '这一条的金额原样保留'">
-                        {{ allowOverwrite && refreshPicked[r.order_no] ? '将补正' : '可补正·保留' }}
+                            :title="allowOverwrite && refreshPicked[r.order_no] ? (r.billed ? '将按最新账单补正卖出价 / 服务费 / 无忧卖' : '账单尚未生成，将以闲鱼订单列表金额覆盖，出账后自动更正') : '这一条的金额原样保留'">
+                        {{ allowOverwrite && refreshPicked[r.order_no] ? (r.billed ? '将补正' : '将覆盖·待账单') : '可补正·保留' }}
                       </span>
                       <span v-else-if="r.exists && !r.skip_reason" class="gf-tag dup">已在库</span>
                       <span v-else-if="r.skip_reason" class="gf-tag skip" :title="r.status">{{ r.skip_reason }}</span>
@@ -618,9 +618,9 @@ onMounted(async () => {
             <label class="gf-overwrite">
               <input type="checkbox" v-model="allowOverwrite" />
               <span>
-                <b>按账单覆盖已在库记录的金额</b>
+                <b>覆盖已在库卖单的金额</b>
                 <i v-if="refreshable">（{{ refreshable }} 条可补正，已选 {{ refreshCount }} 条）</i>
-                <em>默认勾选：卖出价 / 服务费 / 无忧卖 / 到手价都按最新账单更新；表格里可以逐条取消。<b>联单关联、完结、弃单状态永远不动</b>。</em>
+                <em>默认勾选：已出账用实收金额，未出账先用闲鱼订单列表金额；出账后会再次自动更正。表格里可以逐条取消。<b>联单关联、完结、弃单状态永远不动</b>。</em>
               </span>
             </label>
 
@@ -643,7 +643,7 @@ onMounted(async () => {
               <div class="gf-done-icon" aria-hidden="true">✓</div>
               <div class="gf-done-title">已导入 {{ result && result.added }} 条</div>
               <div class="muted" v-if="result && result.skipped">跳过 {{ result.skipped }} 条（写入失败）</div>
-              <div class="muted" v-if="result && result.refreshed">另按最新账单补正了 {{ result.refreshed }} 条的服务费与到手价</div>
+              <div class="muted" v-if="result && result.refreshed">另按最新闲鱼数据补正了 {{ result.refreshed }} 条卖单</div>
               <div class="muted" v-if="result && result.kept_manual">有 {{ result.kept_manual }} 条手动录入的记录，按你的设置原样保留</div>
               <div class="muted">导入到「{{ shopName }}」</div>
             </div>

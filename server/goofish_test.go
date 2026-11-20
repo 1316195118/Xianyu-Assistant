@@ -101,3 +101,53 @@ func TestBuyPostFeeReservedOff(t *testing.T) {
 		t.Errorf("开关关闭时买运费应保持 0/包邮, got %v/%s", it.BuyShipping, it.BuyShipTag)
 	}
 }
+
+// 未出账单的已有卖单：自动同步不能动金额，但用户明确勾选覆盖时必须能用
+// 订单列表金额更新，否则界面显示“将覆盖”后仍会因为 Billed=false 被跳过。
+func TestGFRefreshExistingOverridesUnbilledOnlyWhenSelected(t *testing.T) {
+	newExtrasEnv(t)
+	const orderNo = "GF-UNBILLED-OVERRIDE"
+	const manualNote = "用户手填备注"
+	id, err := insertItem(&Item{
+		Product: "未出账卖单", SellOrderNo: orderNo,
+		SellPrice: 100, SellShipping: 6, SellNet: 94, Note: manualNote,
+	}, defaultShopID, nowStr())
+	if err != nil {
+		t.Fatalf("insertItem: %v", err)
+	}
+
+	row := gfPlanRow{
+		OrderNo: orderNo, Side: "sell", Price: 120,
+		Exists: true, Billed: false,
+	}
+	only := map[string]bool{orderNo: true}
+
+	changed, _, unbilled := gfRefreshExisting(defaultShopID, []gfPlanRow{row}, only, false)
+	if changed != 0 || unbilled != 1 {
+		t.Fatalf("automatic refresh changed=%d unbilled=%d, want 0/1", changed, unbilled)
+	}
+	var price float64
+	if err := db.QueryRow("SELECT sell_price FROM items WHERE id=?", id).Scan(&price); err != nil {
+		t.Fatal(err)
+	}
+	if price != 100 {
+		t.Fatalf("automatic refresh changed unbilled price to %v", price)
+	}
+
+	changed, kept, unbilled := gfRefreshExisting(defaultShopID, []gfPlanRow{row}, only, true)
+	if changed != 1 || kept != 0 || unbilled != 1 {
+		t.Fatalf("manual refresh changed=%d kept=%d unbilled=%d, want 1/0/1", changed, kept, unbilled)
+	}
+	var fee, wuyou, net float64
+	var note string
+	if err := db.QueryRow(`SELECT sell_price, sell_fee, sell_wuyou_fee, sell_net, note
+        FROM items WHERE id=?`, id).Scan(&price, &fee, &wuyou, &net, &note); err != nil {
+		t.Fatal(err)
+	}
+	if price != 120 || fee != 0 || wuyou != 0 || net != 114 {
+		t.Errorf("manual refresh wrong: price=%v fee=%v wuyou=%v net=%v", price, fee, wuyou, net)
+	}
+	if note != manualNote {
+		t.Errorf("manual note changed: %q", note)
+	}
+}

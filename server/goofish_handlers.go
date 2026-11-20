@@ -492,7 +492,7 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 	}
 	// 补正只在用户勾选「覆盖」时执行。默认不动任何已在库的记录，
 	// 这样手动改过的金额、自己核对过的数据都不会被同步冲掉。
-	refreshed, keptManual := 0, 0
+	refreshed, keptManual, unbilled := 0, 0, 0
 	if in.Refresh {
 		var only map[string]bool
 		if len(in.RefreshOrderNos) > 0 {
@@ -501,7 +501,9 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 				only[no] = true
 			}
 		}
-		refreshed, keptManual = gfRefreshBilled(shop, plan.Rows, only)
+		// 用户手动勾选覆盖时，未出账单的卖单也按订单列表金额更新；
+		// 自动同步仍只覆盖已出账金额，避免后台悄悄改掉人工核对的数据。
+		refreshed, keptManual, unbilled = gfRefreshExisting(shop, plan.Rows, only, true)
 	}
 
 	want := map[string]bool{}
@@ -513,15 +515,19 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 			refreshPurchaseIndex()
 			_ = gfSet(gfKeyLast, shop, time.Now().Format("2006-01-02 15:04:05"))
 			writeJSON(w, map[string]interface{}{"ok": true, "added": 0, "skipped": 0,
-				"refreshed": refreshed, "kept_manual": keptManual})
+				"refreshed": refreshed, "kept_manual": keptManual, "unbilled": unbilled})
 			return
 		}
 		if in.Refresh {
-			// 勾了「按账单补正」但金额已经与账单一致：这不是错误，明确告诉用户已是最新。
+			// 勾了覆盖但金额已经一致：这不是错误，明确告诉用户已是最新。
 			refreshPurchaseIndex()
 			_ = gfSet(gfKeyLast, shop, time.Now().Format("2006-01-02 15:04:05"))
+			msg := "同步数据与当前记录一致，没有需要覆盖的金额"
+			if unbilled > 0 {
+				msg = fmt.Sprintf("有 %d 条账单尚未生成，已按闲鱼订单列表核对；金额与当前记录一致", unbilled)
+			}
 			writeJSON(w, map[string]interface{}{"ok": true, "added": 0, "skipped": 0,
-				"refreshed": 0, "kept_manual": keptManual, "message": "账单已是最新，没有需要补正的金额"})
+				"refreshed": 0, "kept_manual": keptManual, "unbilled": unbilled, "message": msg})
 			return
 		}
 		writeError(w, 400, "没有选中任何订单")
@@ -559,7 +565,7 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 	_ = gfSet(gfKeyLast, shop, time.Now().Format("2006-01-02 15:04:05"))
 	realtimeHub.publish("POST", "/api/goofish/apply", "", fmt.Sprintf("从闲鱼同步了 %d 条订单", added), shop)
 	writeJSON(w, map[string]interface{}{"ok": true, "added": added, "skipped": skipped,
-		"refreshed": refreshed, "kept_manual": keptManual, "ids": ids})
+		"refreshed": refreshed, "kept_manual": keptManual, "unbilled": unbilled, "ids": ids})
 }
 
 // gfExistingOrders 一次取出本店所有已入库的订单号（买/卖两侧）。
@@ -597,11 +603,12 @@ func gfOrderExists(shop int64, orderNo, side string) bool {
 	return n > 0
 }
 
-// gfRefreshBilled 把「已在库、但当时账单没生成」的卖单按最新账单补正。
-// 按账单补正已有卖单：只改「卖出价 / 服务费 / 无忧卖 / 到手价 / 备注」。
+// gfRefreshExisting 按最新闲鱼数据补正已在库卖单。
+// 已出账单时用实收和服务费；手动覆盖未出账卖单时用订单列表金额。
+// 只改「卖出价 / 服务费 / 无忧卖 / 到手价 / 备注」。
 // 不再跳过联单关联、已完结、已弃单的记录——金额该对就对，但状态一律不碰。
 // only 非空时只处理这些订单号（预览页逐条勾选覆盖）。
-func gfRefreshBilled(shop int64, rows []gfPlanRow, only map[string]bool) (changed, kept int) {
+func gfRefreshExisting(shop int64, rows []gfPlanRow, only map[string]bool, overwriteUnbilled bool) (changed, kept, unbilled int) {
 	for _, r := range rows {
 		if r.Side != "sell" || r.SkipReason != "" || !r.Exists {
 			continue
@@ -617,7 +624,10 @@ func gfRefreshBilled(shop int64, rows []gfPlanRow, only map[string]bool) (change
 				r.ConsignTime, nowStr(), shop, r.OrderNo)
 		}
 		if !r.Billed {
-			continue
+			unbilled++
+			if !overwriteUnbilled {
+				continue
+			}
 		}
 		// 金额没变的不写库，避免无谓的 updated_at 变动。
 		var price, fee, wuyou float64
@@ -633,6 +643,9 @@ func gfRefreshBilled(shop int64, rows []gfPlanRow, only map[string]bool) (change
 		// 用户手动改过的字段（归属 owner、运费标签 buy/sell_ship_tag、货物来源 source）
 		// 一律不在自动同步里出现：同步只补价格、服务费与备注，避免覆盖人工整理。
 		note := fmt.Sprintf("闲鱼同步；服务费已按支出账单核对（无忧卖 %.2f / 服务费 %.2f）", r.Wuyou, r.Fee)
+		if !r.Billed {
+			note = "闲鱼同步；账单尚未生成，已按订单列表金额覆盖，出账后会自动更正"
+		}
 		// SET 里只有金额与备注：parent_id（联单关联）、settled_at（完结）、discarded_at（弃单）一个都不碰。
 		// 到手价与明细页同口径：成交价 − 服务费 − 无忧卖 − 卖运费（运费可能来自支付宝导入）
 		res, e := db.Exec(`UPDATE items SET sell_price=?, sell_fee=?, sell_wuyou_fee=?,
@@ -1119,7 +1132,7 @@ func gfAutoSyncOne(shop int64) {
 			added++
 		}
 	}
-	if ch, _ := gfRefreshBilled(shop, recent, nil); ch > 0 {
+	if ch, _, _ := gfRefreshExisting(shop, recent, nil, false); ch > 0 {
 		refreshed = ch
 	}
 	refreshPurchaseIndex()
