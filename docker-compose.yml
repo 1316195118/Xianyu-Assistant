@@ -11,13 +11,9 @@
 #   backup/ —— 自动/手动备份
 #
 # 用户无需填写版本号，始终拉取 latest。
-# 需要把数据目录放到 NAS 可见目录时，在 .env 里设置：
-#   XIANYU_DATA_DIR=./data
-#   XIANYU_CONFIG_DIR=./config
-#   XIANYU_BACKUP_DIR=./backup
 services:
   xianyu-stat:
-    image: ${XIANYU_IMAGE:-ghcr.io/1316195118/xianyu-stat:latest}
+    image: ghcr.io/1316195118/xianyu-stat:latest
     pull_policy: always
     container_name: xianyu-stat
     restart: unless-stopped
@@ -27,17 +23,10 @@ services:
     environment:
       TZ: Asia/Shanghai
       PORT: "8080"
-      DB_PATH: /data/xianyu.db
-      CONFIG_DIR: /config
-      BACKUP_DIR: /backup
-      # 容器连不上 GitHub 时可在 .env 中设置代理；默认不启用。
-      HTTP_PROXY: ${XIANYU_HTTP_PROXY:-}
-      HTTPS_PROXY: ${XIANYU_HTTPS_PROXY:-}
-      NO_PROXY: ${XIANYU_NO_PROXY:-127.0.0.1,localhost,::1}
     volumes:
-      - "${XIANYU_DATA_DIR:-xianyu-data}:/data"
-      - "${XIANYU_CONFIG_DIR:-xianyu-config}:/config"
-      - "${XIANYU_BACKUP_DIR:-xianyu-backup}:/backup"
+      - xianyu-data:/data
+      - xianyu-config:/config
+      - xianyu-backup:/backup
     healthcheck:
       # 用 alpine 自带的 busybox wget 探活；绝对不能拿二进制自身当探针，
       # 那会额外拉起一个实例（抢端口/写同一份数据）。

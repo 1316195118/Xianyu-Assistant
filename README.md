@@ -107,22 +107,13 @@ PORT=8080 ./xianyu-stat
 
 1. 在 UGOS 的「Docker → 项目」里新建项目 `xianyu-stat`，建议项目目录使用 `/volume1/docker/xianyu-stat`（以 NAS 实际共享目录为准）。
 2. 下载 [docker-compose.yml](https://raw.githubusercontent.com/1316195118/Xianyu-Assistant/master/docker-compose.yml)，或直接把仓库里的这个文件粘贴到 UGOS 的「Docker → 项目 → Compose」。镜像固定使用 `latest`，不需要填写版本号。
-3. 在项目目录新建 `.env`，把数据放到 UGOS 文件管理器能直接看到的三个文件夹：
+3. 在项目目录新建 `.env`，只需要设置对外端口：
 
    ```dotenv
    XIANYU_PORT=18083
-   XIANYU_DATA_DIR=./data
-   XIANYU_CONFIG_DIR=./config
-   XIANYU_BACKUP_DIR=./backup
    ```
 
-   如果 NAS 不能直连 GitHub，再补代理；能直连就留空。更新用的 Token 不需要，公开仓库保持为空：
-
-   ```dotenv
-   XIANYU_HTTP_PROXY=http://代理地址:7890
-   XIANYU_HTTPS_PROXY=http://代理地址:7890
-   XIANYU_NO_PROXY=127.0.0.1,localhost,::1
-   ```
+   Compose 的 `environment` 只保留运行端口 `PORT=8080` 和时区 `TZ=Asia/Shanghai`，其他路径由镜像和卷负责。若 NAS 不能直连 GitHub，进入应用「设置 → 版本信息 → 在线更新」填写代理即可。
 
 4. 在 UGOS 的 SSH 终端执行：
 
@@ -140,11 +131,11 @@ PORT=8080 ./xianyu-stat
 日常维护：
 
 - 更新：执行 `docker compose pull`，再执行 `docker compose up -d`。不需要改版本号或重新构建，容器重建后仍会使用原来的卷，数据不会丢。
-- 备份：`./backup` 是程序生成的备份，`./data/xianyu.db` 是数据库本体，`./config` 是订单截图等附件；三个目录建议一起纳入 NAS 快照或定时备份。
+- 备份：程序备份、数据库和附件分别保存在 `xianyu-backup`、`xianyu-data`、`xianyu-config` 三个 Docker 命名卷中；可以在应用里导出备份，也可以把三个卷纳入 NAS 快照。
 - 排错：先看 `docker compose logs --tail=200`；健康状态可用 `docker compose ps` 查看。
 - 安全：不要把 `18083` 直接映射到公网。需要外网访问时，在 NAS 或路由器上配置 HTTPS 反向代理，并只开放认证后的入口。
 
-Compose 默认使用命名卷，适合普通 Docker 主机；上面 `.env` 的 `./data` 写法只是把数据切换到 NAS 可见目录。已有命名卷的用户不要随意改这三个路径，否则新容器会看到一套空数据。
+Compose 默认使用命名卷，删容器不会丢数据。不要随意删除 `xianyu-data`、`xianyu-config`、`xianyu-backup` 这三个卷。
 
 ### 方式三：从源码构建
 
