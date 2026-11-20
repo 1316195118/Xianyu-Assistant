@@ -1,6 +1,7 @@
 # 闲鱼售卖统计 —— docker compose 部署
 #
-#   构建并启动：docker compose up -d --build
+#   拉取最新版：docker compose pull
+#   启动：      docker compose up -d
 #   查看日志：  docker compose logs -f
 #   停止：      docker compose down
 #
@@ -9,17 +10,15 @@
 #   config/ —— 其他运行期文件（附件截图等）
 #   backup/ —— 自动/手动备份
 #
-# 首次构建前，把 Release 里的 xianyu-stat-linux-amd64 放在本文件同级目录。
+# 用户无需填写版本号，始终拉取 latest。
 # 需要把数据目录放到 NAS 可见目录时，在 .env 里设置：
 #   XIANYU_DATA_DIR=./data
 #   XIANYU_CONFIG_DIR=./config
 #   XIANYU_BACKUP_DIR=./backup
 services:
   xianyu-stat:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: ${XIANYU_IMAGE:-xianyu-stat:local}
+    image: ${XIANYU_IMAGE:-ghcr.io/1316195118/xianyu-stat:latest}
+    pull_policy: always
     container_name: xianyu-stat
     restart: unless-stopped
     ports:
