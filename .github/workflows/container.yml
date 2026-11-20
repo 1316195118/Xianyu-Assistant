@@ -1,7 +1,7 @@
 name: container
 
-# 正式发版时同时更新 latest；也可以在 Actions 里手动触发一次，
-# 用于首次发布当前版本或补发镜像。
+# 正式发版时更新 latest；也可以在 Actions 里手动触发一次。
+# 不生成版本号标签，用户始终只需要拉取 latest。
 on:
   push:
     tags: ['v*']
@@ -21,19 +21,16 @@ jobs:
         with:
           go-version-file: server/go.mod
 
-      - name: 读取版本并校验标签
-        id: version
+      - name: 校验发布标签
+        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           version="$(python3 -c "import json;print(json.load(open('version/state.json'))['version'])")"
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            tag="${GITHUB_REF_NAME#v}"
-            if [[ "$tag" != "$version" ]]; then
-              echo "::error::标签 v$tag 与 version/state.json 的 $version 不一致"
-              exit 1
-            fi
+          tag="${GITHUB_REF_NAME#v}"
+          if [[ "$tag" != "$version" ]]; then
+            echo "::error::标签 v$tag 与 version/state.json 的 $version 不一致"
+            exit 1
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: 构建 Linux 二进制
         working-directory: server
@@ -50,20 +47,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 生成镜像标签
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/1316195118/xianyu-stat
-          tags: |
-            type=raw,value=latest
-            type=raw,value=${{ steps.version.outputs.version }}
-
       - name: 构建并推送镜像
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ghcr.io/1316195118/xianyu-stat:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/1316195118/Xianyu-Assistant
+            org.opencontainers.image.revision=${{ github.sha }}
