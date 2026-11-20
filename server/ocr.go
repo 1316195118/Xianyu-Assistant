@@ -23,7 +23,7 @@ type OCRResult struct {
 	Fee           float64 `json:"fee"`             // 软件服务费(绝对值)
 	WuyouFee      float64 `json:"wuyou_fee"`       // 无忧卖类目软件服务费(绝对值)
 	NetPrice      float64 `json:"net_price"`       // 到手价（已扣上述两项服务费）
-	Shipping      float64 `json:"shipping"`       // 运费金额
+	Shipping      float64 `json:"shipping"`        // 运费金额
 	SideBuyScore  int     `json:"side_buy_score"`  // 买进特征得分（调试用）
 	SideSellScore int     `json:"side_sell_score"` // 卖出特征得分（调试用）
 	AmountGarbled bool    `json:"amount_garbled"`  // 金额疑似被遮挡/识别不全（关键词后紧接 * @ 等杂符），需用户核对

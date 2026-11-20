@@ -469,7 +469,7 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 		// 前端默认开启：卖出价 / 服务费 / 无忧卖 / 到手价都按账单走。
 		// 注意：只有金额与备注会变，联单关联、完结、弃单状态永远不会被同步改动。
 		Refresh bool `json:"refresh"`
-		// RefreshOrderNos 预览页逐条勾选要补正的订单号；为空表示补正全部可补正项。
+		// RefreshOrderNos 预览页逐条勾选要补正的订单号；只有明确勾选的订单才会补正。
 		RefreshOrderNos []string `json:"refresh_order_nos"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
@@ -494,12 +494,9 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 	// 这样手动改过的金额、自己核对过的数据都不会被同步冲掉。
 	refreshed, keptManual, unbilled := 0, 0, 0
 	if in.Refresh {
-		var only map[string]bool
-		if len(in.RefreshOrderNos) > 0 {
-			only = map[string]bool{}
-			for _, no := range in.RefreshOrderNos {
-				only[no] = true
-			}
+		only := map[string]bool{}
+		for _, no := range in.RefreshOrderNos {
+			only[no] = true
 		}
 		// 用户手动勾选覆盖时，未出账单的卖单也按订单列表金额更新；
 		// 自动同步仍只覆盖已出账金额，避免后台悄悄改掉人工核对的数据。
@@ -535,7 +532,7 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ts := nowStr()
-	added, skipped := 0, 0
+	added, skipped, duplicate := 0, 0, 0
 	var ids []int64
 	existing := gfExistingOrders(shop)
 	for _, row := range plan.Rows {
@@ -549,7 +546,7 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 		// 已经在库里就跳过，保证幂等。之前只靠预览时的 exists 标记，连点两次会插两份。
 		key := row.Side + "|" + row.OrderNo
 		if existing[key] {
-			skipped++
+			duplicate++
 			continue
 		}
 		id, err := insertItem(gfItemOf(row), shop, ts)
@@ -564,7 +561,12 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 	refreshPurchaseIndex()
 	_ = gfSet(gfKeyLast, shop, time.Now().Format("2006-01-02 15:04:05"))
 	realtimeHub.publish("POST", "/api/goofish/apply", "", fmt.Sprintf("从闲鱼同步了 %d 条订单", added), shop)
+	msg := ""
+	if added == 0 && duplicate > 0 {
+		msg = fmt.Sprintf("有 %d 条订单已在库，未重复导入，也没有改动已有金额", duplicate)
+	}
 	writeJSON(w, map[string]interface{}{"ok": true, "added": added, "skipped": skipped,
+		"duplicate": duplicate, "message": msg,
 		"refreshed": refreshed, "kept_manual": keptManual, "unbilled": unbilled, "ids": ids})
 }
 
@@ -605,7 +607,7 @@ func gfOrderExists(shop int64, orderNo, side string) bool {
 
 // gfRefreshExisting 按最新闲鱼数据补正已在库卖单。
 // 已出账单时用实收和服务费；手动覆盖未出账卖单时用订单列表金额。
-// 只改「卖出价 / 服务费 / 无忧卖 / 到手价 / 备注」。
+// 只改「卖出价 / 服务费 / 无忧卖 / 到手价」，其它人工字段保持不动。
 // 不再跳过联单关联、已完结、已弃单的记录——金额该对就对，但状态一律不碰。
 // only 非空时只处理这些订单号（预览页逐条勾选覆盖）。
 func gfRefreshExisting(shop int64, rows []gfPlanRow, only map[string]bool, overwriteUnbilled bool) (changed, kept, unbilled int) {
@@ -616,43 +618,35 @@ func gfRefreshExisting(shop int64, rows []gfPlanRow, only map[string]bool, overw
 		if only != nil && !only[r.OrderNo] {
 			continue
 		}
-		// 发货时间与账单无关：老记录只要这次拿到了 consignTime 就补上，
-		// 支付宝快递费要靠它精确对单（差 2~5 秒），漏掉就只能靠时间猜。
-		if r.ConsignTime != "" {
-			db.Exec(`UPDATE items SET consign_time=?, updated_at=?
-                WHERE shop_id=? AND sell_order_no=? AND (consign_time='' OR consign_time IS NULL)`,
-				r.ConsignTime, nowStr(), shop, r.OrderNo)
-		}
 		if !r.Billed {
 			unbilled++
 			if !overwriteUnbilled {
 				continue
 			}
 		}
-		// 金额没变的不写库，避免无谓的 updated_at 变动。
+		// 未出账时订单列表只能提供卖出价；已有服务费不能因为账单暂时没生成就被清零。
 		var price, fee, wuyou float64
 		var cnt int
 		if e := db.QueryRow(`SELECT COUNT(*), COALESCE(MAX(sell_price),0), COALESCE(MAX(sell_fee),0), COALESCE(MAX(sell_wuyou_fee),0)
             FROM items WHERE shop_id=? AND sell_order_no=?`, shop, r.OrderNo).Scan(&cnt, &price, &fee, &wuyou); e != nil || cnt == 0 {
 			continue
 		}
-		if absf(price-r.Price) < 0.005 && absf(fee-r.Fee) < 0.005 && absf(wuyou-r.Wuyou) < 0.005 {
+		targetFee, targetWuyou := r.Fee, r.Wuyou
+		if !r.Billed {
+			targetFee, targetWuyou = fee, wuyou
+		}
+		if absf(price-r.Price) < 0.005 && absf(fee-targetFee) < 0.005 && absf(wuyou-targetWuyou) < 0.005 {
 			kept++
 			continue
 		}
-		// 用户手动改过的字段（归属 owner、运费标签 buy/sell_ship_tag、货物来源 source）
-		// 一律不在自动同步里出现：同步只补价格、服务费与备注，避免覆盖人工整理。
-		note := fmt.Sprintf("闲鱼同步；服务费已按支出账单核对（无忧卖 %.2f / 服务费 %.2f）", r.Wuyou, r.Fee)
-		if !r.Billed {
-			note = "闲鱼同步；账单尚未生成，已按订单列表金额覆盖，出账后会自动更正"
-		}
-		// SET 里只有金额与备注：parent_id（联单关联）、settled_at（完结）、discarded_at（弃单）一个都不碰。
+		// 只覆盖闲鱼提供的三项金额并重算到手价。备注、商品、买家、运费、
+		// 发货时间、归属、联单关联、完结与弃单状态全部保持原样。
 		// 到手价与明细页同口径：成交价 − 服务费 − 无忧卖 − 卖运费（运费可能来自支付宝导入）
 		res, e := db.Exec(`UPDATE items SET sell_price=?, sell_fee=?, sell_wuyou_fee=?,
             sell_net=round(? - ? - ? - sell_shipping, 2),
-            note=CASE WHEN note='' OR note LIKE '闲鱼同步%' THEN ? ELSE note END, updated_at=?
+            updated_at=?
             WHERE shop_id=? AND sell_order_no=?`,
-			r.Price, r.Fee, r.Wuyou, r.Price, r.Fee, r.Wuyou, note, nowStr(), shop, r.OrderNo)
+			r.Price, targetFee, targetWuyou, r.Price, targetFee, targetWuyou, nowStr(), shop, r.OrderNo)
 		if e == nil {
 			if n, _ := res.RowsAffected(); n > 0 {
 				changed += int(n)
@@ -1116,31 +1110,37 @@ func gfAutoSyncOne(shop int64) {
 		}
 	}
 
-	added, refreshed := 0, 0
 	ts := nowStr()
+	added := gfAutoImportMissing(shop, recent, ts)
+	refreshed, _, _ := gfRefreshExisting(shop, recent, nil, true)
+	refreshPurchaseIndex()
+	_ = gfSet(gfKeyLast, shop, time.Now().Format("2006-01-02 15:04:05"))
+	gfClearSyncError(shop)
+	if added > 0 || refreshed > 0 {
+		msg := fmt.Sprintf("自动同步：新增 %d 条、补正 %d 条卖单金额", added, refreshed)
+		realtimeHub.publish("POST", "/api/goofish/auto", "",
+			msg, shop)
+		fmt.Printf("[闲鱼自动同步] 店铺 %d 新增 %d 条、补正 %d 条\n", shop, added, refreshed)
+	}
+}
+
+// gfAutoImportMissing 只新增系统里没有的订单。
+// 已有订单的三项金额由 gfRefreshExisting 按订单号补正，不在此处重复处理。
+func gfAutoImportMissing(shop int64, rows []gfPlanRow, ts string) int {
+	added := 0
 	existing := gfExistingOrders(shop)
-	for _, row := range recent {
+	for _, row := range rows {
 		if row.SkipReason != "" || row.Exists {
 			continue
 		}
 		key := row.Side + "|" + row.OrderNo
 		if existing[key] {
-			continue // 手动导入可能刚好跑完，避免同一单写两份
+			continue
 		}
-		if _, e := insertItem(gfItemOf(row), shop, ts); e == nil {
+		if _, err := insertItem(gfItemOf(row), shop, ts); err == nil {
 			existing[key] = true
 			added++
 		}
 	}
-	if ch, _, _ := gfRefreshExisting(shop, recent, nil, false); ch > 0 {
-		refreshed = ch
-	}
-	refreshPurchaseIndex()
-	_ = gfSet(gfKeyLast, shop, time.Now().Format("2006-01-02 15:04:05"))
-	gfClearSyncError(shop)
-	if added > 0 || refreshed > 0 {
-		realtimeHub.publish("POST", "/api/goofish/auto", "",
-			fmt.Sprintf("自动同步：新增 %d 条、补正 %d 条", added, refreshed), shop)
-		fmt.Printf("[闲鱼自动同步] 店铺 %d 新增 %d 条、补正 %d 条\n", shop, added, refreshed)
-	}
+	return added
 }

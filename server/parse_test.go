@@ -63,8 +63,8 @@ func TestParseFields(t *testing.T) {
 		wantCounter    string // 子串即可
 	}{
 		{
-			name: "买进单-华硕PN41(本轮反馈图，运费0=包邮)",
-			text: "交易成功 评价完成，感谢使用闲鱼~ 华硕PN41，N6005迷你准系统 ¥220.00 商品总价¥220.00 运费¥0.00 订单编号3317146572100013185 复制 支付宝交易号2026102123001170521404955148 收货地址徐洪生18723957921新疆维吾尔自治区阿拉尔市幸福街道幸福北路鸿燕南国风光小区7号楼 卖家昵称咖喱给b 下单时间2026-10-21 17:55:04 付款时间2026-10-21 17:55:09 发货时间2026-10-22 15:23:43 成交时间2026-10-28 18:19:55",
+			name:           "买进单-华硕PN41(本轮反馈图，运费0=包邮)",
+			text:           "交易成功 评价完成，感谢使用闲鱼~ 华硕PN41，N6005迷你准系统 ¥220.00 商品总价¥220.00 运费¥0.00 订单编号3317146572100013185 复制 支付宝交易号2026102123001170521404955148 收货地址徐洪生18723957921新疆维吾尔自治区阿拉尔市幸福街道幸福北路鸿燕南国风光小区7号楼 卖家昵称咖喱给b 下单时间2026-10-21 17:55:04 付款时间2026-10-21 17:55:09 发货时间2026-10-22 15:23:43 成交时间2026-10-28 18:19:55",
 			wantSide:       "buy",
 			wantProduct:    "华硕PN41",
 			wantPrice:      220,
@@ -74,8 +74,8 @@ func TestParseFields(t *testing.T) {
 			wantCounter:    "咖喱给b",
 		},
 		{
-			name: "买进单-有运费(应识别买家承担)",
-			text: "交易成功 无线键鼠套装 ¥99.00 成交价 ¥99.00 商品总价 ¥99.00 运费 ¥12.00 订单编号 5511223344556677881 卖家昵称 小店主 下单时间2026-09-01 10:00:00 成交时间2026-09-02 18:00:00",
+			name:           "买进单-有运费(应识别买家承担)",
+			text:           "交易成功 无线键鼠套装 ¥99.00 成交价 ¥99.00 商品总价 ¥99.00 运费 ¥12.00 订单编号 5511223344556677881 卖家昵称 小店主 下单时间2026-09-01 10:00:00 成交时间2026-09-02 18:00:00",
 			wantSide:       "buy",
 			wantProduct:    "无线键鼠套装",
 			wantPrice:      99,
@@ -85,8 +85,8 @@ func TestParseFields(t *testing.T) {
 			wantCounter:    "小店主",
 		},
 		{
-			name: "卖出单-含收货地址(验证收货地址不再误判为买进)",
-			text: "交易成功 网心云OEC-Turbo盒子 成交价（已到达您的支付宝187****21） ¥131.91 软件服务费 -¥2.11 预计到手 ¥129.80 订单编号 5127565358550027332 收货地址 浙江省杭州市余杭区某某街道1号 买家昵称 张三 成交时间 2026-11-01 12:00:00",
+			name:           "卖出单-含收货地址(验证收货地址不再误判为买进)",
+			text:           "交易成功 网心云OEC-Turbo盒子 成交价（已到达您的支付宝187****21） ¥131.91 软件服务费 -¥2.11 预计到手 ¥129.80 订单编号 5127565358550027332 收货地址 浙江省杭州市余杭区某某街道1号 买家昵称 张三 成交时间 2026-11-01 12:00:00",
 			wantSide:       "sell",
 			wantProduct:    "网心云OEC-Turbo盒子",
 			wantPrice:      131.91,
@@ -131,7 +131,7 @@ func TestParseFields(t *testing.T) {
 //   - 无论哪种，商品名都不应残留「个人闲置」，且真实标题（UBNT…）必须保留
 func TestParsePersonalIdle(t *testing.T) {
 	cases := []struct {
-		name, text string
+		name, text  string
 		wantContain string
 	}{
 		{
@@ -297,7 +297,7 @@ func TestParseProductNoMarketingLabel(t *testing.T) {
 func TestParseProductRealScreenshots(t *testing.T) {
 	cases := []struct {
 		name, text, wantContain string
-		noJunk                 []string
+		noJunk                  []string
 	}{
 		{
 			name: "UBNT-u7promax-空格分隔不得打散",
@@ -492,10 +492,10 @@ EC 站 加
 `
 	cases := []struct {
 		name, text string
-		wantShip  float64
-		wantOrder string
-		wantCP    string // 子串
-		noJunk    []string
+		wantShip   float64
+		wantOrder  string
+		wantCP     string // 子串
+		noJunk     []string
 	}{
 		{name: "华硕PN41-真实OCR", text: pn41, wantShip: 0, wantOrder: "3317146572100013185", wantCP: "给", noJunk: []string{"闲"}},
 		{name: "MikroTik-真实OCR(支付优惠非运费)", text: mikrotik, wantShip: 0, wantOrder: "3316830241024013185", wantCP: "白立洗发液", noJunk: []string{"分享一下", "特别好"}},

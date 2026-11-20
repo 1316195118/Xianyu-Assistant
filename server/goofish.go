@@ -517,6 +517,7 @@ func (c *gfClient) soldOrders(maxPages int) ([]gfOrder, error) {
 				// 兜底用列信息里的第一列
 				status = gfStr(gfPath(raw, "columnVOList"))
 			}
+			priceVO, _ := gfPath(raw, "priceVO").(map[string]interface{})
 			out = append(out, gfOrder{
 				OrderNo:     no,
 				Product:     gfStr(gfPath(raw, "itemVO", "title")),
@@ -526,7 +527,7 @@ func (c *gfClient) soldOrders(maxPages int) ([]gfOrder, error) {
 				Time:        gfStr(gfPath(cd, "createTime")),
 				ConsignTime: gfStr(gfPath(cd, "consignTime")),
 				Peer:        gfStr(gfPath(raw, "buyerInfoVO", "userNick")),
-				ListPrice:   gfFloat(gfPath(raw, "priceVO", "auctionPrice")),
+				ListPrice:   gfSoldOrderPrice(priceVO),
 			})
 		}
 		if added == 0 {
@@ -535,6 +536,21 @@ func (c *gfClient) soldOrders(maxPages int) ([]gfOrder, error) {
 		time.Sleep(180 * time.Millisecond)
 	}
 	return out, nil
+}
+
+// gfSoldOrderPrice 取买家实际成交金额。
+// auctionPrice 是商品挂牌单价，不能直接当作成交价；订单列表的 totalPrice
+// 才是含议价结果的实际订单金额。旧响应缺少 totalPrice 时，才用单价乘件数兜底。
+func gfSoldOrderPrice(priceVO map[string]interface{}) float64 {
+	if total := gfFloat(priceVO["totalPrice"]); total > 0 {
+		return total
+	}
+	auction := gfFloat(priceVO["auctionPrice"])
+	count := gfFloat(priceVO["buyNum"])
+	if count < 1 {
+		count = 1
+	}
+	return auction * count
 }
 
 // gfBill 账单聚合结果：一个订单的真实成交额与实际扣费
@@ -748,24 +764,25 @@ func gfRows(d map[string]interface{}) []map[string]interface{} {
 
 // gfPlanRow 一条待导入订单（已按账单还原口径）
 type gfPlanRow struct {
-	OrderNo     string  `json:"order_no"`
-	Side        string  `json:"side"`
-	Product     string  `json:"product"`
-	Status      string  `json:"status"`
-	Time        string  `json:"time"`
-	ConsignTime string  `json:"consign_time"` // 发货时间（卖单才有）
-	Peer        string  `json:"peer"`
-	ListPrice   float64 `json:"list_price"`  // 标价
-	Price       float64 `json:"price"`       // 成交价（有账单用实收，否则用标价）
-	Fee         float64 `json:"fee"`         // 软件服务费 + 基础软件服务费
-	Wuyou       float64 `json:"wuyou"`       // 无忧卖服务费
-	Net         float64 `json:"net"`         // 到手
-	Billed      bool    `json:"billed"`      // 是否已拿到账单（费用是否已扣）
-	PostFee     float64 `json:"post_fee"`    // 商品邮费，导入时作为买运费写入（预留，默认 0）
-	Exists      bool    `json:"exists"`      // 系统里已有同单号
-	Managed     bool    `json:"managed"`     // 已有记录是「闲鱼同步」建的（可安全按账单覆盖）；手动录入的为 false
-	SkipReason  string  `json:"skip_reason"` // 非空则不导入
-	Backfill    bool    `json:"backfill"`    // 来自「收入明细」账单补建（列表接口只回最近 40 单）
+	OrderNo       string  `json:"order_no"`
+	Side          string  `json:"side"`
+	Product       string  `json:"product"`
+	Status        string  `json:"status"`
+	Time          string  `json:"time"`
+	ConsignTime   string  `json:"consign_time"` // 发货时间（卖单才有）
+	Peer          string  `json:"peer"`
+	ListPrice     float64 `json:"list_price"`     // 标价
+	Price         float64 `json:"price"`          // 成交价（有账单用实收，否则用标价）
+	Fee           float64 `json:"fee"`            // 软件服务费 + 基础软件服务费
+	Wuyou         float64 `json:"wuyou"`          // 无忧卖服务费
+	Net           float64 `json:"net"`            // 到手
+	Billed        bool    `json:"billed"`         // 是否已拿到账单（费用是否已扣）
+	PostFee       float64 `json:"post_fee"`       // 商品邮费，导入时作为买运费写入（预留，默认 0）
+	Exists        bool    `json:"exists"`         // 系统里已有同单号
+	Managed       bool    `json:"managed"`        // 已有记录是「闲鱼同步」建的（可安全按账单覆盖）；手动录入的为 false
+	RefreshNeeded bool    `json:"refresh_needed"` // 已有卖单与本次闲鱼金额确实不同，才需要补正
+	SkipReason    string  `json:"skip_reason"`    // 非空则不导入
+	Backfill      bool    `json:"backfill"`       // 来自「收入明细」账单补建（列表接口只回最近 40 单）
 }
 
 type gfPlan struct {
@@ -1159,19 +1176,74 @@ func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan
 	return plan, nil
 }
 
-// markExisting 标记单号是否已存在，并区分「同步建的」与「手动录的」。
-// 手动录入的记录是用户自己核过的数字，同步时绝不覆盖，只做提示。
+// markExisting 标记单号是否已存在，并判断已有卖单是否确实需要补正。
 // 只查当前店铺：各店铺是独立账本，别家店里的老订单号不能挡住本店导入，
 // 否则会出现「明明没有却提示已存在、列表只剩别家老数据」的假重复。
 func (p *gfPlan) markExisting(shop int64) {
 	notes := orderNotesInShops([]int64{shop})
+	money := gfExistingSellMoney(shop)
 	for i := range p.Rows {
 		r := &p.Rows[i]
 		if note, ok := notes[r.OrderNo]; ok {
 			r.Exists = true
 			r.Managed = gfIsSyncNote(note)
+			if m, ok := money[r.OrderNo]; ok && r.Side == "sell" && r.SkipReason == "" {
+				r.RefreshNeeded = gfPlanNeedsRefresh(*r, m)
+			}
 		}
 	}
+}
+
+type gfExistingMoney struct {
+	Price, Fee, Wuyou float64
+	PriceVaries       bool
+	FeeVaries         bool
+	WuyouVaries       bool
+}
+
+// gfExistingSellMoney 汇总当前店铺每个卖出订单号的金额。
+// 同一订单号若对应多条记录，用 MIN/MAX 识别是否存在不一致，避免只修正其中一条。
+func gfExistingSellMoney(shop int64) map[string]gfExistingMoney {
+	out := map[string]gfExistingMoney{}
+	rows, err := db.Query(`SELECT sell_order_no,
+        COALESCE(MAX(sell_price),0), COALESCE(MIN(sell_price),0),
+        COALESCE(MAX(sell_fee),0), COALESCE(MIN(sell_fee),0),
+        COALESCE(MAX(sell_wuyou_fee),0), COALESCE(MIN(sell_wuyou_fee),0)
+        FROM items WHERE shop_id=? AND sell_order_no<>''
+        GROUP BY sell_order_no`, shop)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var no string
+		var maxPrice, minPrice, maxFee, minFee, maxWuyou, minWuyou float64
+		if rows.Scan(&no, &maxPrice, &minPrice, &maxFee, &minFee, &maxWuyou, &minWuyou) != nil {
+			continue
+		}
+		out[no] = gfExistingMoney{
+			Price: maxPrice, Fee: maxFee, Wuyou: maxWuyou,
+			PriceVaries: absf(maxPrice-minPrice) >= 0.005,
+			FeeVaries:   absf(maxFee-minFee) >= 0.005,
+			WuyouVaries: absf(maxWuyou-minWuyou) >= 0.005,
+		}
+	}
+	return out
+}
+
+func gfPlanNeedsRefresh(r gfPlanRow, m gfExistingMoney) bool {
+	if !r.Exists || r.Side != "sell" || r.SkipReason != "" {
+		return false
+	}
+	if absf(m.Price-r.Price) >= 0.005 || m.PriceVaries {
+		return true
+	}
+	// 未出账时保留已有服务费，只核对订单列表能提供的成交价。
+	if !r.Billed {
+		return false
+	}
+	return absf(m.Fee-r.Fee) >= 0.005 || absf(m.Wuyou-r.Wuyou) >= 0.005 ||
+		m.FeeVaries || m.WuyouVaries
 }
 
 // gfIsSyncNote 判断这条记录是不是「同步建的」。

@@ -69,9 +69,9 @@ const status = ref({ logged_in: false, nick: '', saved_at: '', last_sync: '', ma
 const cookieInput = ref('')
 const showHelp = ref(false)
 const pingMsg = ref('')
-// 是否按账单补正「已在库」记录的金额。默认开：卖出价 / 服务费 / 无忧卖都按账单走。
+// 是否按账单补正「已在库」记录的金额。默认关：后台和普通同步都不动已有金额。
 // 注意：联单关联、完结、弃单状态任何时候都不会被同步改动。
-const allowOverwrite = ref(true)
+const allowOverwrite = ref(false)
 // 逐条勾选要补正的订单：预览表里每条已有卖单都能单独选择
 const refreshPicked = ref({})
 const plan = ref(null)
@@ -91,8 +91,8 @@ const rows = computed(() => (plan.value && plan.value.rows) || [])
 const stat = computed(() => (plan.value && plan.value.stat) || {})
 
 const importable = (r) => !r.skip_reason && !r.exists
-// 已在库的卖单可以按最新闲鱼数据覆盖：已出账用实收/服务费，未出账用订单列表金额。
-const willOverwrite = (r) => r.exists && !r.skip_reason && r.side === 'sell'
+// 已在库且金额确实不同的卖单才需要补正：已出账核对实收/服务费，未出账只核对成交价。
+const willOverwrite = (r) => r.exists && r.refresh_needed && !r.skip_reason && r.side === 'sell'
 const willKeep = (r) => r.exists && r.billed && r.side === 'sell' && !r.managed
 const pickedList = computed(() => rows.value.filter((r) => importable(r) && picked.value[r.order_no + '|' + r.side]))
 // 已在库、但这次拿到了真实扣费的卖单：点一次「导入」会顺手把它们的服务费与到手价补正
@@ -100,6 +100,13 @@ const refreshable = computed(() => rows.value.filter(willOverwrite).length)
 const refreshCount = computed(() => rows.value.filter((r) => willOverwrite(r) && refreshPicked.value[r.order_no]).length)
 const keptManual = computed(() => 0) // 现在按账单覆盖所有已在库卖单，不再有「手动保留」
 const pickedCount = computed(() => pickedList.value.length)
+const doneTitle = computed(() => {
+  const added = Number(result.value?.added || 0)
+  const refreshed = Number(result.value?.refreshed || 0)
+  if (added > 0) return `已导入 ${added} 条`
+  if (refreshed > 0) return `已补正 ${refreshed} 条卖单`
+  return '同步已核对，无需改动'
+})
 const allPicked = computed({
   get: () => {
     const list = rows.value.filter(importable)
@@ -112,6 +119,19 @@ const allPicked = computed({
     }
     picked.value = next
   }
+})
+
+function selectRefreshable() {
+  const next = {}
+  for (const r of rows.value) {
+    if (willOverwrite(r)) next[r.order_no] = true
+  }
+  refreshPicked.value = next
+}
+
+watch(allowOverwrite, (on) => {
+  if (on) selectRefreshable()
+  else refreshPicked.value = {}
 })
 
 const shopName = computed(() => status.value.shop_name || (shops.value.find((x) => x.id === activeId.value) || {}).name || '当前店铺')
@@ -278,9 +298,8 @@ async function pull() {
       if (!r.skip_reason && !r.exists) next[r.order_no + '|' + r.side] = true
     }
     picked.value = next
-    const rnext = {}
-    for (const r of p.rows) if (r.exists && !r.skip_reason && r.side === 'sell') rnext[r.order_no] = true
-    refreshPicked.value = rnext
+    if (allowOverwrite.value) selectRefreshable()
+    else refreshPicked.value = {}
     progress.value = { on: true, pct: 100, text: '完成' }
     step.value = 'review'
   } catch (e) {
@@ -322,6 +341,8 @@ async function apply() {
 function backToIdle() {
   plan.value = null
   picked.value = {}
+  refreshPicked.value = {}
+  allowOverwrite.value = false
   result.value = null
   err.value = ''
   step.value = status.value.logged_in ? 'idle' : 'bind'
@@ -504,7 +525,8 @@ onMounted(async () => {
                 （软件 1% + 基础 0.6%，命中无忧卖再按类目加收），到手价 = 成交价 − 服务费 − 无忧卖 − 卖运费。
                 上面的「账单基准回溯」就是用来补 3 个月以前的历史订单的。<br />
                 同单号不会重复导入（写库前按「店铺 + 订单号」再查一次）；
-                <b>手动录入的记录不会被覆盖</b>，只有「闲鱼同步」建的那批才会按账单补正。
+                <b>自动同步会按订单号更新已有卖单的成交价、软件服务费和无忧卖服务费</b>，
+                备注、商品、买家、运费、联单关联和状态保持不动。手动同步仍可逐条选择是否补正。
               </div>
             </details>
 
@@ -600,7 +622,17 @@ onMounted(async () => {
                       <span v-if="r.backfill" class="gf-tag backfill" title="列表接口只回最近 40 单，这条是从「收入明细」账单里补出来的">账单补建</span>
                       <span v-else-if="willOverwrite(r)" class="gf-tag overwrite"
                             :title="allowOverwrite && refreshPicked[r.order_no] ? (r.billed ? '将按最新账单补正卖出价 / 服务费 / 无忧卖' : '账单尚未生成，将以闲鱼订单列表金额覆盖，出账后自动更正') : '这一条的金额原样保留'">
-                        {{ allowOverwrite && refreshPicked[r.order_no] ? (r.billed ? '将补正' : '将覆盖·待账单') : '可补正·保留' }}
+                        <template v-if="allowOverwrite && refreshPicked[r.order_no]">
+                          <span v-if="r.billed">将补正</span>
+                          <template v-else>
+                            <span>将覆盖</span>
+                            <small>待账单</small>
+                          </template>
+                        </template>
+                        <template v-else>
+                          <span>可补正</span>
+                          <small>保留</small>
+                        </template>
                       </span>
                       <span v-else-if="r.exists && !r.skip_reason" class="gf-tag dup">已在库</span>
                       <span v-else-if="r.skip_reason" class="gf-tag skip" :title="r.status">{{ r.skip_reason }}</span>
@@ -620,7 +652,7 @@ onMounted(async () => {
               <span>
                 <b>覆盖已在库卖单的金额</b>
                 <i v-if="refreshable">（{{ refreshable }} 条可补正，已选 {{ refreshCount }} 条）</i>
-                <em>默认勾选：已出账用实收金额，未出账先用闲鱼订单列表金额；出账后会再次自动更正。表格里可以逐条取消。<b>联单关联、完结、弃单状态永远不动</b>。</em>
+                <em>手动补正默认关闭；勾选后会全选确实需要补正的订单，也可以逐条取消：已出账用实收金额，未出账只更新订单列表里的成交价，已有服务费不会被清零。<b>备注、联单关联、完结、弃单状态永远不动</b>。</em>
               </span>
             </label>
 
@@ -641,10 +673,12 @@ onMounted(async () => {
           <template v-else-if="step === 'done'">
             <div class="gf-done">
               <div class="gf-done-icon" aria-hidden="true">✓</div>
-              <div class="gf-done-title">已导入 {{ result && result.added }} 条</div>
+              <div class="gf-done-title">{{ doneTitle }}</div>
               <div class="muted" v-if="result && result.skipped">跳过 {{ result.skipped }} 条（写入失败）</div>
+              <div class="muted" v-if="result && result.duplicate">{{ result.duplicate }} 条已在库，未重复导入</div>
               <div class="muted" v-if="result && result.refreshed">另按最新闲鱼数据补正了 {{ result.refreshed }} 条卖单</div>
               <div class="muted" v-if="result && result.kept_manual">有 {{ result.kept_manual }} 条手动录入的记录，按你的设置原样保留</div>
+              <div class="muted" v-if="result && result.message">{{ result.message }}</div>
               <div class="muted">导入到「{{ shopName }}」</div>
             </div>
             <div class="gf-actions">

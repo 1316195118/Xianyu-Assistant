@@ -279,11 +279,11 @@ func parseAlipayDetail(sh *xlsxSheet) ([]aliTxn, error) {
 
 type aliFeeAgg struct {
 	OrderNo string
-	Tech    float64 // 软件服务费
-	Basic   float64 // 基础软件服务费
-	Wuyou   float64 // 无忧卖类目软件服务费
-	Other   float64 // 其它分账（闲鱼币智能软件服务费等）
-	Refund  float64 // 退费（收入方向）
+	Tech    float64   // 软件服务费
+	Basic   float64   // 基础软件服务费
+	Wuyou   float64   // 无忧卖类目软件服务费
+	Other   float64   // 其它分账（闲鱼币智能软件服务费等）
+	Refund  float64   // 退费（收入方向）
 	Time    time.Time // 最早一笔扣费时间（比成交晚 1~2 分钟，用来兜底匹配）
 }
 

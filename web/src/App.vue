@@ -127,6 +127,11 @@ import LoginView from './components/LoginView.vue'
 import { api } from './api'
 import { currentConfirm, settleConfirm } from './confirm'
 import { themeMode } from './theme'
+import {
+  claimDailyUpdateCheck,
+  updateReleaseNotified,
+  markUpdateReleaseNotified
+} from './updatePreferences'
 import ShopSwitcher from './components/ShopSwitcher.vue'
 import { activeId as activeShopId, loadShops, shops, globalSession, hasAnyPassword } from './shopStore'
 import { allShopsMode } from './shopScope'
@@ -143,6 +148,7 @@ const authEnabled = ref(false)
 // 不能让用户对着一个转圈的白屏干等。
 const slowBoot = ref(false)
 let slowBootTimer = 0
+let dailyUpdateTimer = 0
 function hardReload() {
   try { location.reload() } catch (e) { location.href = '/' }
 }
@@ -309,6 +315,33 @@ watch(activeShopId, () => {
   connectRealtime()
 })
 
+function scheduleDailyUpdateCheck(delay = 3500) {
+  if (dailyUpdateTimer) clearTimeout(dailyUpdateTimer)
+  dailyUpdateTimer = setTimeout(runDailyUpdateCheck, delay)
+}
+
+async function runDailyUpdateCheck() {
+  dailyUpdateTimer = 0
+  if (!claimDailyUpdateCheck()) return
+  try {
+    const result = await api.updateCheck()
+    if (!result?.has_update || !result.latest || updateReleaseNotified(result)) return
+    markUpdateReleaseNotified(result)
+    notify(
+      `发现新版本 v${result.latest}，可前往设置查看更新`,
+      false,
+      { label: '查看更新', ttl: 12000, run: () => switchView('settings') },
+      { tone: 'info', ttl: 12000 }
+    )
+  } catch (e) {
+    // 每日检查在后台静默进行；断网或更新源暂时不可用时不在主界面打扰用户。
+  }
+}
+
+watch([authChecking, needLogin], ([checking, login]) => {
+  if (!checking && !login) scheduleDailyUpdateCheck()
+}, { immediate: true })
+
 onMounted(() => {
   slowBootTimer = setTimeout(() => { if (authChecking.value) slowBoot.value = true }, 6000)
   loadTodoCount()
@@ -331,6 +364,8 @@ onMounted(() => {
   onScroll()
 })
 onUnmounted(() => {
+  if (dailyUpdateTimer) clearTimeout(dailyUpdateTimer)
+  dailyUpdateTimer = 0
   offRealtime?.()
   offRealtime = null
   disconnectRealtime()

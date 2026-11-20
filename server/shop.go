@@ -23,11 +23,11 @@ const (
 
 // Shop 店铺。archived_at 非空表示已归档（不在切换器出现，数据保留）。
 type Shop struct {
-	ID         int64  `json:"id"`
-	Name       string `json:"name"`
-	Color      string `json:"color"`
-	Sort       int    `json:"sort"`
-	Note       string `json:"note"`
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Color       string `json:"color"`
+	Sort        int    `json:"sort"`
+	Note        string `json:"note"`
 	ArchivedAt  string `json:"archived_at"`
 	HasPassword bool   `json:"has_password"` // 只暴露"有没有密码"，绝不返回哈希
 	CreatedAt   string `json:"created_at"`
@@ -211,10 +211,10 @@ func handleShopByID(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPut:
 		var in struct {
-			Name     string `json:"name"`
-			Color    string `json:"color"`
-			Note     string `json:"note"`
-			Sort     int    `json:"sort"`
+			Name     string  `json:"name"`
+			Color    string  `json:"color"`
+			Note     string  `json:"note"`
+			Sort     int     `json:"sort"`
 			Password *string `json:"password"` // nil=不改；""=清除密码；其它=设置新密码
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {

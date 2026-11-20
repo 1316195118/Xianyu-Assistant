@@ -120,7 +120,7 @@ PORT=8080 ./xianyu-stat
 
 4. 浏览器打开 `http://绿联NAS的局域网IP:18083`，第一次进入时设置管理密码。需要换端口时，直接修改 Compose 文件里的 `"18083:8080"`。
 
-Compose 的 `environment` 只保留运行端口 `PORT=8080` 和时区 `TZ=Asia/Shanghai`，其他路径由镜像和卷负责。若 NAS 不能直连 GitHub，进入应用「设置 → 版本信息 → 在线更新」填写代理即可。
+Compose 的 `environment` 只保留运行端口 `PORT=8080` 和时区 `TZ=Asia/Shanghai`，其他路径由镜像和卷负责。在线更新固定从项目公开 Release 获取，不需要仓库地址或 Token；若 NAS 不能直连 GitHub，进入应用「设置 → 版本信息 → 在线更新」填写可选代理即可。
 
 日常维护：
 

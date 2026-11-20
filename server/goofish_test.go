@@ -87,6 +87,57 @@ func TestGFFilterRecent(t *testing.T) {
 	}
 }
 
+// 卖单列表的成交价必须取买家实际成交金额 totalPrice，而不是商品挂牌单价 auctionPrice。
+func TestGFSoldOrderPriceUsesTransactionTotal(t *testing.T) {
+	got := gfSoldOrderPrice(map[string]interface{}{
+		"auctionPrice": "138.00",
+		"totalPrice":   "131.91",
+		"buyNum":       "1",
+	})
+	if got != 131.91 {
+		t.Fatalf("成交价=%v, want 131.91 (totalPrice)", got)
+	}
+
+	got = gfSoldOrderPrice(map[string]interface{}{
+		"auctionPrice": "66.00",
+		"buyNum":       "2",
+	})
+	if got != 132 {
+		t.Fatalf("缺少 totalPrice 时兜底=%v, want 132", got)
+	}
+}
+
+// 预览只把与闲鱼金额不同的已有卖单标成待补正；补正一致后不应反复出现。
+func TestGFMarkExistingOnlyMarksFinancialDifferences(t *testing.T) {
+	newExtrasEnv(t)
+	const differs = "GF-REFRESH-DIFF"
+	const same = "GF-REFRESH-SAME"
+	if _, err := insertItem(&Item{
+		Product: "手动差异单", SellOrderNo: differs,
+		SellPrice: 100, SellFee: 1, SellWuyouFee: 0,
+	}, defaultShopID, nowStr()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := insertItem(&Item{
+		Product: "已经补正", SellOrderNo: same,
+		SellPrice: 88, SellFee: 2, SellWuyouFee: 1,
+	}, defaultShopID, nowStr()); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &gfPlan{Rows: []gfPlanRow{
+		{OrderNo: differs, Side: "sell", Price: 95, Fee: 2, Wuyou: 1, Billed: true},
+		{OrderNo: same, Side: "sell", Price: 88, Fee: 2, Wuyou: 1, Billed: true},
+	}}
+	p.markExisting(defaultShopID)
+	if !p.Rows[0].Exists || !p.Rows[0].RefreshNeeded {
+		t.Fatalf("差异单应待补正: exists=%v refresh=%v", p.Rows[0].Exists, p.Rows[0].RefreshNeeded)
+	}
+	if !p.Rows[1].Exists || p.Rows[1].RefreshNeeded {
+		t.Fatalf("已补正单不应再次待补正: exists=%v refresh=%v", p.Rows[1].Exists, p.Rows[1].RefreshNeeded)
+	}
+}
+
 // 预留链路：买运费（商品邮费 POST_FEE）默认不启用。
 // 锁定两个契约：① 开关默认关闭（零额外详情请求）；② 开关关闭时 gfOrder.PostFee 恒为 0，
 // 导入后买运费保持 0，与「运费靠支付宝导入」的现有行为一致。
@@ -149,5 +200,90 @@ func TestGFRefreshExistingOverridesUnbilledOnlyWhenSelected(t *testing.T) {
 	}
 	if note != manualNote {
 		t.Errorf("manual note changed: %q", note)
+	}
+}
+
+// 自动同步按订单号覆盖手动卖单的三项金融字段，但不碰备注等人工数据。
+func TestGFAutoRefreshUpdatesManualFinancialsOnly(t *testing.T) {
+	newExtrasEnv(t)
+	const orderNo = "GF-MANUAL-BILLED"
+	const manualNote = "人工核对后的卖单"
+	id, err := insertItem(&Item{
+		Product: "手动卖单", SellOrderNo: orderNo,
+		SellPrice: 100, SellFee: 3, SellWuyouFee: 2, SellNet: 95,
+		SellShipping: 6, SellCounterparty: "手工买家", SellShipTag: "卖家承担",
+		ConsignTime: "2026-11-20 12:00:00", Note: manualNote,
+	}, defaultShopID, nowStr())
+	if err != nil {
+		t.Fatalf("insertItem: %v", err)
+	}
+
+	row := gfPlanRow{
+		OrderNo: orderNo, Side: "sell", Price: 120, Fee: 10, Wuyou: 7,
+		Exists: true, Billed: true, Managed: false, Peer: "闲鱼买家", ConsignTime: "2026-11-21 12:00:00",
+	}
+	only := map[string]bool{orderNo: true}
+
+	changed, kept, unbilled := gfRefreshExisting(defaultShopID, []gfPlanRow{row}, only, true)
+	if changed != 1 || kept != 0 || unbilled != 0 {
+		t.Fatalf("automatic refresh changed=%d kept=%d unbilled=%d, want 1/0/0", changed, kept, unbilled)
+	}
+
+	var price, fee, wuyou, net float64
+	var note, product, counterparty, shipTag, consign string
+	if err := db.QueryRow(`SELECT sell_price, sell_fee, sell_wuyou_fee, sell_net, note,
+        product, sell_counterparty, sell_ship_tag, consign_time
+        FROM items WHERE id=?`, id).Scan(&price, &fee, &wuyou, &net, &note,
+		&product, &counterparty, &shipTag, &consign); err != nil {
+		t.Fatal(err)
+	}
+	if price != 120 || fee != 10 || wuyou != 7 || net != 97 {
+		t.Fatalf("financial refresh wrong: price=%v fee=%v wuyou=%v net=%v", price, fee, wuyou, net)
+	}
+	if note != manualNote || product != "手动卖单" || counterparty != "手工买家" ||
+		shipTag != "卖家承担" || consign != "2026-11-20 12:00:00" {
+		t.Fatalf("automatic refresh changed manual fields: note=%q product=%q peer=%q shipTag=%q consign=%q",
+			note, product, counterparty, shipTag, consign)
+	}
+}
+
+// 自动新增只处理系统里没有的订单；已有订单的金额补正由单独流程处理。
+func TestGFAutoImportOnlyAddsMissingOrders(t *testing.T) {
+	newExtrasEnv(t)
+	const existingNo = "GF-AUTO-EXISTING"
+	const newNo = "GF-AUTO-NEW"
+	id, err := insertItem(&Item{
+		Product: "手动核对卖单", SellOrderNo: existingNo,
+		SellPrice: 88, SellFee: 3, SellWuyouFee: 2, SellNet: 83,
+		Note: "人工核对的卖出价",
+	}, defaultShopID, nowStr())
+	if err != nil {
+		t.Fatalf("insertItem: %v", err)
+	}
+
+	rows := []gfPlanRow{
+		{OrderNo: existingNo, Side: "sell", Product: "已有卖单", Price: 188, Fee: 20, Wuyou: 7, Billed: true, Exists: true},
+		{OrderNo: newNo, Side: "sell", Product: "自动新增卖单", Price: 66, Billed: false},
+	}
+	if added := gfAutoImportMissing(defaultShopID, rows, nowStr()); added != 1 {
+		t.Fatalf("auto import added=%d, want 1", added)
+	}
+
+	var price, fee, wuyou, net float64
+	if err := db.QueryRow(`SELECT sell_price, sell_fee, sell_wuyou_fee, sell_net
+        FROM items WHERE id=?`, id).Scan(&price, &fee, &wuyou, &net); err != nil {
+		t.Fatal(err)
+	}
+	if price != 88 || fee != 3 || wuyou != 2 || net != 83 {
+		t.Fatalf("auto import changed existing order: price=%v fee=%v wuyou=%v net=%v", price, fee, wuyou, net)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM items
+        WHERE shop_id=? AND sell_order_no=?`, defaultShopID, newNo).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("new order count=%d, want 1", count)
 	}
 }

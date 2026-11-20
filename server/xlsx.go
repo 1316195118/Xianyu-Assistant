@@ -3,10 +3,10 @@ package main
 import (
 	"archive/zip"
 	"bytes"
-	"sort"
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -86,9 +86,16 @@ func statusLabel(s string) string {
 
 // ---------------- 样式表 ----------------
 
-type xlFont struct{ bold, italic bool; color string; size float64 }
+type xlFont struct {
+	bold, italic bool
+	color        string
+	size         float64
+}
 type xlFill struct{ color string } // 空串表示无填充
-type xlBorder struct{ bottom, top, color string; style string }
+type xlBorder struct {
+	bottom, top, color string
+	style              string
+}
 type xlXF struct {
 	font, fill, border int
 	numFmt             string
@@ -97,12 +104,12 @@ type xlXF struct {
 }
 
 type xlStyleBook struct {
-	fonts   []xlFont
-	fills   []xlFill
-	borders []xlBorder
-	xfs     []xlXF
-	fontIx  map[string]int
-	fillIx  map[string]int
+	fonts    []xlFont
+	fills    []xlFill
+	borders  []xlBorder
+	xfs      []xlXF
+	fontIx   map[string]int
+	fillIx   map[string]int
 	borderIx map[string]int
 }
 
@@ -299,9 +306,11 @@ type xlCell struct {
 	style   int
 }
 
-func cellText(s string, style int) xlCell  { return xlCell{text: s, style: style} }
-func cellNum(v float64, style int) xlCell  { return xlCell{number: v, isNum: true, style: style} }
-func cellSum(f string, style int) xlCell   { return xlCell{formula: f, number: 0, isNum: true, style: style} }
+func cellText(s string, style int) xlCell { return xlCell{text: s, style: style} }
+func cellNum(v float64, style int) xlCell { return xlCell{number: v, isNum: true, style: style} }
+func cellSum(f string, style int) xlCell {
+	return xlCell{formula: f, number: 0, isNum: true, style: style}
+}
 
 func colName(i int) string {
 	s := ""
@@ -680,7 +689,12 @@ func buildProductProfitXLSX(rows []productProfitRow) ([]byte, error) {
 	var sumSold, sumUnlinked int
 	for i, r := range rows {
 		z := i%2 == 1
-		pick := func(a, b int) int { if z { return b }; return a }
+		pick := func(a, b int) int {
+			if z {
+				return b
+			}
+			return a
+		}
 		profitStyle := pos
 		if z {
 			profitStyle = posZ
@@ -812,7 +826,12 @@ func buildMonthlySummarySheet(st *xlStyleBook, sid int64, items []Item) *xlSheet
 	var tCount int
 	for i, m := range order {
 		z := i%2 == 1
-		pick := func(a, b int) int { if z { return b }; return a }
+		pick := func(a, b int) int {
+			if z {
+				return b
+			}
+			return a
+		}
 		ag := byMonth[m]
 		ps := pos
 		if z {

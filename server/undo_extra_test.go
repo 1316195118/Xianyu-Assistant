@@ -333,7 +333,9 @@ func TestStatsExtrasTopProductsFilter(t *testing.T) {
 
 	newGroup := func(title string, settled bool) int64 {
 		res, err := db.Exec("INSERT INTO link_groups(title,created_at,updated_at) VALUES(?,?,?)", title, nowStr(), nowStr())
-		if err != nil { t.Fatalf("insert group: %v", err) }
+		if err != nil {
+			t.Fatalf("insert group: %v", err)
+		}
 		gid, _ := res.LastInsertId()
 		if settled {
 			if _, err := db.Exec("UPDATE link_groups SET settled_at=? WHERE id=?", nowStr(), gid); err != nil {
@@ -343,27 +345,45 @@ func TestStatsExtrasTopProductsFilter(t *testing.T) {
 		return gid
 	}
 	gOpen := newGroup("未完结联单", false)
-	if err := setGroupItems(gOpen, []int64{aID}, defaultShopID); err != nil { t.Fatalf("setGroupItems: %v", err) }
+	if err := setGroupItems(gOpen, []int64{aID}, defaultShopID); err != nil {
+		t.Fatalf("setGroupItems: %v", err)
+	}
 	gDone := newGroup("已完结联单", true)
-	if err := setGroupItems(gDone, []int64{dID}, defaultShopID); err != nil { t.Fatalf("setGroupItems: %v", err) }
+	if err := setGroupItems(gDone, []int64{dID}, defaultShopID); err != nil {
+		t.Fatalf("setGroupItems: %v", err)
+	}
 
 	w := doExtrasReq(h, "GET", "/api/stats/extras", nil)
-	if w.Code != 200 { t.Fatalf("GET /api/stats/extras = %d %s", w.Code, w.Body.String()) }
+	if w.Code != 200 {
+		t.Fatalf("GET /api/stats/extras = %d %s", w.Code, w.Body.String())
+	}
 	m := decodeMap(t, w)
 	arr, _ := m["top_products"].([]interface{})
 	names := map[string]bool{}
 	for _, x := range arr {
 		mm, ok := x.(map[string]interface{})
-		if !ok { continue }
-		if p, ok := mm["product"].(string); ok { names[p] = true }
+		if !ok {
+			continue
+		}
+		if p, ok := mm["product"].(string); ok {
+			names[p] = true
+		}
 		if v, ok := mm["profit"].(float64); ok && v <= 0 {
 			t.Errorf("榜单出现非正利润条目: %+v", mm)
 		}
 	}
-	if names["未完结联单货"] { t.Error("未完结联单里的商品不应出现在利润榜") }
-	if names["零利润货"] { t.Error("零利润商品不应出现在利润榜") }
-	if !names["独立盈利货"] { t.Error("独立盈利商品应出现在利润榜") }
-	if !names["已完结联单货"] { t.Error("已完结联单里的盈利商品应出现在利润榜") }
+	if names["未完结联单货"] {
+		t.Error("未完结联单里的商品不应出现在利润榜")
+	}
+	if names["零利润货"] {
+		t.Error("零利润商品不应出现在利润榜")
+	}
+	if !names["独立盈利货"] {
+		t.Error("独立盈利商品应出现在利润榜")
+	}
+	if !names["已完结联单货"] {
+		t.Error("已完结联单里的盈利商品应出现在利润榜")
+	}
 }
 
 // ---------- 契约 8：趋势周期 ----------

@@ -22,22 +22,31 @@ window.addEventListener('vite:preloadError', (e) => {
 
 // Service Worker：离线兜底 + 新版本提示（失败静默降级）
 if ('serviceWorker' in navigator) {
+  const notifyBuild = (build) => {
+    if (!build || build === 'new') return
+    try {
+      const KEY = 'xy-sw-update-notified-build'
+      if (localStorage.getItem(KEY) === build) return
+      localStorage.setItem(KEY, build)
+    } catch (e) {
+      const KEY = 'xy-sw-update-notified-build'
+      if (sessionStorage.getItem(KEY) === build) return
+      sessionStorage.setItem(KEY, build)
+    }
+    window.dispatchEvent(new CustomEvent('xy-update', { detail: { build } }))
+  }
+
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then((reg) => {
       navigator.serviceWorker.addEventListener('message', (e) => {
         if (e.data && e.data.type === 'UPDATE_AVAILABLE') {
-          window.dispatchEvent(new CustomEvent('xy-update', { detail: e.data }))
+          notifyBuild(String(e.data.build || ''))
         }
       })
-      reg.addEventListener('updatefound', () => {
-        const w = reg.installing
-        w && w.addEventListener('statechange', () => {
-          if (w.state === 'installed' && navigator.serviceWorker.controller) {
-            window.dispatchEvent(new CustomEvent('xy-update', { detail: { build: 'new' } }))
-          }
-        })
-      })
-      setTimeout(() => reg.active && reg.active.postMessage({ type: 'CHECK_UPDATE' }), 3000)
+      setTimeout(() => {
+        const pageBuild = document.querySelector('meta[name="xy-build"]')?.getAttribute('content') || ''
+        reg.active && reg.active.postMessage({ type: 'CHECK_UPDATE', build: pageBuild })
+      }, 3000)
     }).catch(() => {})
   })
 }

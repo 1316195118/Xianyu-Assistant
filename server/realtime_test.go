@@ -44,14 +44,14 @@ func TestRealtimePublishAndSince(t *testing.T) {
 
 func TestSummarizeAndBroadcastScope(t *testing.T) {
 	cases := map[string]string{
-		"POST /api/records":            "新增了一条记录",
-		"PUT /api/records/9":           "修改了一条记录",
-		"DELETE /api/records/9":        "删除了一条记录",
-		"POST /api/import":             "导入了数据",
-		"POST /api/groups/auto-merge":  "合并了重复联单",
-		"POST /api/settings":           "更新了系统设置",
-		"DELETE /api/backups/x.db":     "删除了备份",
-		"POST /api/undo":               "从回收站恢复了数据",
+		"POST /api/records":           "新增了一条记录",
+		"PUT /api/records/9":          "修改了一条记录",
+		"DELETE /api/records/9":       "删除了一条记录",
+		"POST /api/import":            "导入了数据",
+		"POST /api/groups/auto-merge": "合并了重复联单",
+		"POST /api/settings":          "更新了系统设置",
+		"DELETE /api/backups/x.db":    "删除了备份",
+		"POST /api/undo":              "从回收站恢复了数据",
 	}
 	for k, want := range cases {
 		p := strings.SplitN(k, " ", 2)

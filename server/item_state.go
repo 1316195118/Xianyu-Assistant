@@ -363,7 +363,7 @@ func handleAutoLinkPreview(w http.ResponseWriter, r *http.Request) {
 		left int
 	}
 	var buys []buy
-	if brow, e := db.Query("SELECT "+itemCols+" FROM items WHERE "+purchaseWhere(sid)+" ORDER BY id DESC"); e == nil {
+	if brow, e := db.Query("SELECT " + itemCols + " FROM items WHERE " + purchaseWhere(sid) + " ORDER BY id DESC"); e == nil {
 		for brow.Next() {
 			it, err := scanItem(brow)
 			if err != nil {
@@ -438,7 +438,7 @@ func handleAutoLinkPreview(w http.ResponseWriter, r *http.Request) {
 				// 宁可少给建议，也别让人误挂一笔成本。
 				if sc >= 0.8 {
 					c.Match = "similar"
-					c.Score = round2(sc * 100) / 100
+					c.Score = round2(sc*100) / 100
 					similar = append(similar, c)
 				}
 			}
@@ -525,9 +525,9 @@ func handleAutoLinkApply(w http.ResponseWriter, r *http.Request) {
 	sid := shopID(r)
 
 	type job struct {
-		sale     Item
-		parent   Item
-		unit     float64
+		sale   Item
+		parent Item
+		unit   float64
 	}
 	var jobs []job
 	seen := map[int64]bool{}

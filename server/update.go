@@ -177,19 +177,7 @@ type ghRelease struct {
 }
 
 func updateRepoName() string {
-	if v := strings.TrimSpace(getSetting("update_repo")); v != "" {
-		return v
-	}
 	return defaultUpdateRepo
-}
-
-// Token 优先用设置里的，其次读环境变量：容器里用环境变量注入可以避免把
-// 只读 token 写进数据库；页面里填则方便没有 shell 的场景。
-func updateToken() string {
-	if v := strings.TrimSpace(getSetting("update_token")); v != "" {
-		return v
-	}
-	return strings.TrimSpace(os.Getenv("XY_GH_TOKEN"))
 }
 
 func ghRequest(method, path string) (*http.Request, error) {
@@ -200,9 +188,6 @@ func ghRequest(method, path string) (*http.Request, error) {
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", "xianyu-stat/"+buildVersion)
-	if tok := updateToken(); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
-	}
 	return req, nil
 }
 
@@ -298,7 +283,6 @@ func handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	out := map[string]interface{}{
 		"current":   buildVersion,
 		"repo":      updateRepoName(),
-		"has_token": updateToken() != "",
 		"has_proxy": updateProxy() != "",
 		"proxy":     updateProxy(),
 		"platform":  updateGOOS + "/" + updateGOARCH,
@@ -308,11 +292,7 @@ func handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, errNoRelease):
-			if updateToken() == "" {
-				out["error"] = "没找到发布版本。仓库若是私有的，需要在下面填写 GitHub Token；若还没有发布过，请先打一个版本标签。"
-			} else {
-				out["error"] = "这个仓库还没有发布版本，先在仓库里打一个 v 开头的标签。"
-			}
+			out["error"] = "没找到公开的发布版本，请确认项目已发布以 v 开头的版本标签。"
 		default:
 			out["error"] = err.Error()
 		}
@@ -448,8 +428,7 @@ func handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 }
 
 // assetURL 用 API 的资产地址而不是 browser_download_url：
-// 私有仓库的浏览器下载地址对 Token 请求会回 404，只有 API 资产地址
-// （带 octet-stream）才稳定可用；公开仓库同样适用。
+// 使用 API 资产地址可稳定获取发布附件。
 func assetURL(a ghAsset) string {
 	if a.ID > 0 {
 		return fmt.Sprintf("%s/repos/%s/releases/assets/%d", updateAPIBase, updateRepoName(), a.ID)
@@ -479,9 +458,6 @@ func downloadAsset(asset ghAsset, dest string, onProgress func(int64, int64)) (s
 	req, err := http.NewRequest(http.MethodGet, assetURL(asset), nil)
 	if err != nil {
 		return "", err
-	}
-	if tok := updateToken(); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	req.Header.Set("Accept", "application/octet-stream")
 	req.Header.Set("User-Agent", "xianyu-stat/"+buildVersion)
@@ -533,9 +509,6 @@ func expectedDigest(rel *ghRelease, asset ghAsset) (string, error) {
 		req, err := http.NewRequest(http.MethodGet, assetURL(a), nil)
 		if err != nil {
 			return "", err
-		}
-		if tok := updateToken(); tok != "" {
-			req.Header.Set("Authorization", "Bearer "+tok)
 		}
 		req.Header.Set("User-Agent", "xianyu-stat/"+buildVersion)
 		resp, err := updateHTTPClient(15 * time.Second).Do(req)
@@ -591,7 +564,7 @@ fi
 	return os.WriteFile(path, []byte(script), 0o755)
 }
 
-// handleUpdateConfig 保存仓库与 Token。只写设置表，不回显 Token。
+// handleUpdateConfig 只保存可选代理；更新源固定为项目公开 Release。
 func handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		writeError(w, 405, "method not allowed")
@@ -602,33 +575,15 @@ func handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Repo       string `json:"repo"`
-		Token      string `json:"token"`
-		ClearToken bool   `json:"clear_token"`
-		Proxy      string `json:"proxy"`
+		Proxy string `json:"proxy"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, 400, "请求体解析失败")
 		return
 	}
-	repo := strings.TrimSpace(in.Repo)
-	if repo != "" {
-		if !validRepoName(repo) {
-			writeError(w, 400, "仓库格式应为 owner/name，例如 1316195118/Xianyu-Assistant")
-			return
-		}
-		if err := setSetting("update_repo", repo); err != nil {
-			writeError(w, 500, "保存失败")
-			return
-		}
-	} else {
-		setSetting("update_repo", "")
-	}
-	if in.ClearToken {
-		setSetting("update_token", "")
-	} else if t := strings.TrimSpace(in.Token); t != "" {
-		setSetting("update_token", t)
-	}
+	// 清掉旧版本可能残留的仓库与 Token；新版本不再读取、也不再展示这两项。
+	setSetting("update_repo", "")
+	setSetting("update_token", "")
 	if px := strings.TrimSpace(in.Proxy); px != "" {
 		u, err := url.Parse(px)
 		if err != nil || u.Scheme == "" || u.Host == "" {
@@ -642,20 +597,5 @@ func handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	} else {
 		setSetting("update_proxy", "")
 	}
-	writeJSON(w, map[string]interface{}{"ok": true, "repo": updateRepoName(), "has_token": updateToken() != "", "has_proxy": updateProxy() != ""})
-}
-
-func validRepoName(s string) bool {
-	parts := strings.Split(s, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return false
-	}
-	for _, p := range parts {
-		for _, r := range p {
-			if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '-' && r != '_' && r != '.' {
-				return false
-			}
-		}
-	}
-	return true
+	writeJSON(w, map[string]interface{}{"ok": true, "has_proxy": updateProxy() != ""})
 }

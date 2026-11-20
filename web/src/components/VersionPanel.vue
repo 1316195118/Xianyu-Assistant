@@ -3,6 +3,14 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { api } from '../api'
 import { confirm } from '../confirm'
 import { maskCloser } from '../maskClose'
+import {
+  dailyUpdateCheckEnabled,
+  dailyUpdateCheckedToday,
+  dailyUpdateCheckHint,
+  setDailyUpdateCheckEnabled,
+  markDailyUpdateChecked,
+  markUpdateReleaseNotified
+} from '../updatePreferences'
 // 遮罩点击守卫：在输入框里拖选文字划出弹窗松手时，不会误关弹窗
 const mask = maskCloser(() => close)
 
@@ -103,7 +111,9 @@ const liveProgress = ref(null)
 const cfgOpen = ref(false)
 const cfgBusy = ref(false)
 const cfgMsg = ref('')
-const cfg = ref({ repo: '', token: '', proxy: '' })
+const cfg = ref({ proxy: '' })
+const dailyCheck = ref(dailyUpdateCheckEnabled())
+const dailyHint = ref(dailyUpdateCheckHint())
 let checkTimer = null
 let progressTimer = null
 let checkSeq = 0
@@ -139,7 +149,7 @@ function startCheckProgress() {
   let pct = 5
   liveProgress.value = {
     active: true, stage: 'checking', percent: pct,
-    message: '正在连接 GitHub 获取最新版本…'
+    message: '正在检查项目最新版本…'
   }
   checkTimer = setInterval(() => {
     if (seq !== checkSeq || !updBusy.value || applying.value) return
@@ -186,13 +196,15 @@ function startProgressPolling() {
 async function checkUpdate() {
   if (updBusy.value || applying.value) return
   updBusy.value = true; updErr.value = ''
+  markDailyUpdateChecked()
+  dailyHint.value = dailyUpdateCheckHint()
   startCheckProgress()
   try {
     const r = await api.updateCheck()
     upd.value = r
-    cfg.value.repo = r.repo || ''
     cfg.value.proxy = r.proxy || ''
-    if (r.error) finishCheckProgress(false, '检查完成，但更新源需要处理')
+    if (r.has_update) markUpdateReleaseNotified(r)
+    if (r.error) finishCheckProgress(false, '检查完成，但网络或发布信息需要处理')
     else if (r.has_update) finishCheckProgress(true, `检查完成：发现新版本 v${r.latest}`)
     else finishCheckProgress(true, '检查完成：当前已经是最新版本')
   } catch (e) {
@@ -201,28 +213,21 @@ async function checkUpdate() {
   } finally { updBusy.value = false }
 }
 
+function changeDailyCheck() {
+  setDailyUpdateCheckEnabled(dailyCheck.value)
+  dailyHint.value = dailyUpdateCheckHint()
+  if (dailyCheck.value && !dailyUpdateCheckedToday()) checkUpdate()
+}
+
 async function saveCfg() {
   if (cfgBusy.value) return
   cfgBusy.value = true; cfgMsg.value = ''
   try {
-    const r = await api.saveUpdateConfig({ repo: cfg.value.repo.trim(), token: cfg.value.token.trim(), proxy: cfg.value.proxy.trim() })
-    cfg.value.token = ''
+    await api.saveUpdateConfig({ proxy: cfg.value.proxy.trim() })
     cfgMsg.value = '已保存'
-    upd.value = { ...(upd.value || {}), repo: r.repo, has_token: r.has_token }
     await checkUpdate()
   } catch (e) {
     cfgMsg.value = e.message || '保存失败'
-  } finally { cfgBusy.value = false }
-}
-
-async function clearToken() {
-  cfgBusy.value = true; cfgMsg.value = ''
-  try {
-    const r = await api.saveUpdateConfig({ repo: cfg.value.repo.trim(), proxy: cfg.value.proxy.trim(), clear_token: true })
-    cfgMsg.value = 'Token 已清除'
-    upd.value = { ...(upd.value || {}), repo: r.repo, has_token: r.has_token }
-  } catch (e) {
-    cfgMsg.value = e.message || '清除失败'
   } finally { cfgBusy.value = false }
 }
 
@@ -341,11 +346,20 @@ async function applyUpdate() {
               </button>
             </div>
 
+            <label class="upd-daily">
+              <input type="checkbox" v-model="dailyCheck" @change="changeDailyCheck" />
+              <span class="upd-daily-copy">
+                <b>每日自动检查更新</b>
+                <small>每天最多检查一次；同一版本只提示一次</small>
+              </span>
+              <em>{{ dailyHint }}</em>
+            </label>
+
             <div v-if="updErr" class="tip err" role="alert">{{ updErr }}</div>
             <template v-else-if="upd">
               <div v-if="upd.error" class="upd-state bad">
                 <span>{{ upd.error }}</span>
-                <button class="btn btn-sm" @click="cfgOpen = true">填写更新源</button>
+                <button class="btn btn-sm" @click="cfgOpen = true">打开更新设置</button>
               </div>
               <div v-else-if="upd.has_update" class="upd-state">
                 <div class="upd-new">
@@ -384,21 +398,15 @@ async function applyUpdate() {
             </div>
 
             <details class="upd-cfg" :open="cfgOpen" @toggle="cfgOpen = $event.target.open">
-              <summary>更新源：{{ upd?.repo || '默认仓库' }}（私有仓库需要 Token）</summary>
+              <summary>网络代理（可选）</summary>
               <div class="upd-cfg-body">
-                <label>仓库</label>
-                <input class="input" v-model="cfg.repo" placeholder="owner/name" />
-                <label>GitHub Token</label>
-                <input class="input" type="password" v-model="cfg.token" autocomplete="off"
-                       :placeholder="upd?.has_token ? '已保存，留空表示不修改' : '私有仓库必填；只读权限即可'" />
                 <label>代理（容器连不上 GitHub 时填）</label>
                 <input class="input" v-model="cfg.proxy" placeholder="如 http://10.10.10.2:7890，留空则不用代理" />
                 <div class="upd-cfg-ops">
                   <button class="btn btn-sm" :disabled="cfgBusy" @click="saveCfg">保存</button>
-                  <button v-if="upd?.has_token" class="btn btn-sm btn-ghost" :disabled="cfgBusy" @click="clearToken">清除 Token</button>
                   <span class="muted">{{ cfgMsg }}</span>
                 </div>
-                <div class="muted upd-cfg-hint">Token 只存在本机数据库，不会出现在导出备份里；建议用只读、仅此仓库权限的细粒度 Token。代理留空即关闭，也支持 socks5://。</div>
+                <div class="muted upd-cfg-hint">在线更新固定从项目公开 Release 获取，不需要仓库地址或 Token。若服务器无法直连 GitHub，可填写 HTTP 或 SOCKS5 代理；留空即关闭。</div>
               </div>
             </details>
           </div>

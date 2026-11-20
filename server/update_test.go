@@ -32,16 +32,18 @@ func TestCompareVersions(t *testing.T) {
 	}
 }
 
-func TestValidRepoName(t *testing.T) {
-	for _, ok := range []string{"owner/name", "1316195118/Xianyu-Assistant", "a_b/c.d"} {
-		if !validRepoName(ok) {
-			t.Errorf("%q 应视为合法仓库名", ok)
-		}
+func TestFixedPublicUpdateRepo(t *testing.T) {
+	newExtrasEnv(t)
+	setSetting("update_repo", "legacy/private")
+	if got := updateRepoName(); got != defaultUpdateRepo {
+		t.Fatalf("更新源应固定为公开仓库，实际 %q", got)
 	}
-	for _, bad := range []string{"", "owner", "owner/", "/name", "own er/name", "a/b/c"} {
-		if validRepoName(bad) {
-			t.Errorf("%q 不应通过仓库名校验", bad)
-		}
+	req, err := ghRequest(http.MethodGet, "/repos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Fatalf("公开更新源不应发送 Token，实际认证头 %q", got)
 	}
 }
 
@@ -83,7 +85,6 @@ func useUpdateAPI(t *testing.T, url string) {
 	old := updateAPIBase
 	updateAPIBase = url
 	t.Cleanup(func() { updateAPIBase = old })
-	t.Setenv("XY_GH_TOKEN", "")
 }
 
 func TestUpdateCheckFindsNewerRelease(t *testing.T) {
@@ -244,6 +245,8 @@ func TestExpectedDigestFromCompanion(t *testing.T) {
 
 func TestUpdateConfigProxyValidation(t *testing.T) {
 	h := newExtrasEnv(t)
+	setSetting("update_repo", "legacy/private")
+	setSetting("update_token", "legacy-token")
 
 	w := doExtrasReq(h, "PUT", "/api/update/config", map[string]interface{}{"proxy": "not-a-url"})
 	if w.Code != 400 {
@@ -256,6 +259,9 @@ func TestUpdateConfigProxyValidation(t *testing.T) {
 	if getSetting("update_proxy") != "http://127.0.0.1:7890" {
 		t.Errorf("代理没写进设置：%q", getSetting("update_proxy"))
 	}
+	if getSetting("update_repo") != "" || getSetting("update_token") != "" {
+		t.Errorf("保存配置时应清除旧仓库与 Token：repo=%q token=%q", getSetting("update_repo"), getSetting("update_token"))
+	}
 	// 传空表示关闭代理
 	doExtrasReq(h, "PUT", "/api/update/config", map[string]interface{}{"proxy": ""})
 	if getSetting("update_proxy") != "" {
@@ -264,12 +270,11 @@ func TestUpdateConfigProxyValidation(t *testing.T) {
 }
 
 func TestAssetURLUsesAPI(t *testing.T) {
-	newExtrasEnv(t) // getSetting 需要数据库
-	oldBase, oldRepo := updateAPIBase, getSetting("update_repo")
+	oldBase := updateAPIBase
 	updateAPIBase = "https://api.example.com"
-	setSetting("update_repo", "o/r")
-	defer func() { updateAPIBase = oldBase; setSetting("update_repo", oldRepo) }()
-	if got := assetURL(ghAsset{ID: 7}); got != "https://api.example.com/repos/o/r/releases/assets/7" {
+	defer func() { updateAPIBase = oldBase }()
+	want := "https://api.example.com/repos/" + defaultUpdateRepo + "/releases/assets/7"
+	if got := assetURL(ghAsset{ID: 7}); got != want {
 		t.Errorf("资产地址不对：%s", got)
 	}
 	// 没有 id 时退回浏览器地址，兼容旧响应

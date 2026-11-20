@@ -32,9 +32,9 @@ func TestCSVSafe(t *testing.T) {
 		{"@SUM(A1:A9)", "'@SUM(A1:A9)"},
 		{"+cmd|'/C calc'!A0", "'+cmd|'/C calc'!A0"},
 		{"-1+1", "'-1+1"},
-		{"-100.00", "-100.00"},   // 合法负金额不转义
-		{"1.00", "1.00"},         // 合法正数不转义
-		{"-1e3", "-1e3"},         // 科学计数数值不转义
+		{"-100.00", "-100.00"}, // 合法负金额不转义
+		{"1.00", "1.00"},       // 合法正数不转义
+		{"-1e3", "-1e3"},       // 科学计数数值不转义
 		{"正常商品", "正常商品"},
 		{"", ""},
 	}
@@ -112,4 +112,9 @@ func TestExportCSVEscapesFormula(t *testing.T) {
 	}
 }
 
-func min(a, b int) int { if a < b { return a }; return b }
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
