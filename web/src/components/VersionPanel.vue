@@ -254,7 +254,7 @@ async function applyUpdate() {
             <div v-if="applying" class="upd-progress" role="status">{{ applyText }}</div>
 
             <details class="upd-cfg" :open="cfgOpen" @toggle="cfgOpen = $event.target.open">
-              <summary>更新源设置（私有仓库需要 Token）</summary>
+              <summary>更新源：{{ upd?.repo || '默认仓库' }}（私有仓库需要 Token）</summary>
               <div class="upd-cfg-body">
                 <label>仓库</label>
                 <input class="input" v-model="cfg.repo" placeholder="owner/name" />
