@@ -368,11 +368,14 @@ async function applyUpdate() {
             <div v-if="progressVisible" class="upd-progress"
                  :class="{ done: liveProgress?.stage === 'done' || liveProgress?.stage === 'checked', bad: liveProgress?.stage === 'error' }">
               <div class="upd-progress-head">
-                <span role="status" aria-live="polite">{{ progressMessage }}</span>
+                <span role="status" aria-live="polite">
+                  <i class="upd-stage-dot" aria-hidden="true"></i>{{ progressMessage }}
+                </span>
                 <b class="num">{{ progressPercent }}%</b>
               </div>
               <div class="upd-progress-track" role="progressbar" aria-label="更新进度"
-                   aria-valuemin="0" aria-valuemax="100" :aria-valuenow="progressPercent">
+                   aria-valuemin="0" aria-valuemax="100" :aria-valuenow="progressPercent"
+                   :aria-valuetext="progressMessage + '，' + progressPercent + '%'">
                 <i :style="{ width: progressPercent + '%' }"></i>
               </div>
               <div v-if="liveProgress?.total_bytes" class="upd-progress-meta">

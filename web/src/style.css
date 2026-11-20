@@ -6013,3 +6013,381 @@ html[data-theme="dark"] .record-foot .modal-err {
   .topbar-actions .scope-pill { padding-inline: 6px; }
   .settle-strip .ss-nums b { font-size: 13px; }
 }
+
+/* ============================================================
+   设计系统 v2.4 · 视觉层次与操作反馈
+   只调整颜色、阴影、高光、位移和透明度，不参与页面布局与业务计算。
+   ============================================================ */
+:root {
+  --ambient-warm: rgba(255, 196, 34, .11);
+  --ambient-cool: rgba(47, 107, 255, .075);
+  --surface-wash: rgba(255, 255, 255, .72);
+  --nav-active-shadow: 0 6px 18px rgba(176, 125, 0, .12);
+  --button-shadow: 0 1px 2px rgba(20, 26, 40, .04);
+  --button-shadow-hover: 0 8px 20px rgba(20, 26, 40, .09);
+}
+
+:root[data-theme="dark"] {
+  --ambient-warm: rgba(242, 199, 68, .075);
+  --ambient-cool: rgba(78, 122, 232, .095);
+  --surface-wash: rgba(255, 255, 255, .025);
+  --nav-active-shadow: 0 8px 22px rgba(0, 0, 0, .26);
+  --button-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+  --button-shadow-hover: 0 10px 24px rgba(0, 0, 0, .34);
+}
+
+/* 环境光只铺在页面底层，卡片和表格仍是实色，不牺牲字面对比度。 */
+body {
+  background:
+    radial-gradient(1100px 620px at -4% -10%, var(--ambient-warm), transparent 62%),
+    radial-gradient(900px 640px at 104% 8%, var(--ambient-cool), transparent 64%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+.app-shell { isolation: isolate; }
+.brand-mark {
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 2px 8px rgba(245, 166, 0, .32),
+    inset 0 1px 0 rgba(255, 255, 255, .52);
+  transition: transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
+}
+.brand-mark::after {
+  content: "";
+  position: absolute;
+  inset: -18% 44% 42% -22%;
+  transform: rotate(-28deg);
+  background: linear-gradient(120deg, rgba(255,255,255,.62), transparent 72%);
+  pointer-events: none;
+}
+.side-brand:hover .brand-mark,
+.topbar-mobile-brand:hover .brand-mark {
+  transform: translateY(-1px) rotate(-2deg);
+  box-shadow:
+    0 6px 16px rgba(245, 166, 0, .30),
+    inset 0 1px 0 rgba(255, 255, 255, .6);
+}
+
+/* 侧栏和顶栏从纯白平面改为有方向的柔和表面。 */
+.sidebar {
+  background: linear-gradient(180deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 94%, var(--bg)) 100%);
+  box-shadow: 10px 0 38px rgba(20, 26, 40, .035);
+}
+.side-brand {
+  background:
+    radial-gradient(150px 90px at 8% 0%, var(--ambient-warm), transparent 76%),
+    linear-gradient(180deg, rgba(255,255,255,.10), transparent);
+}
+.topbar {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--surface) 94%, transparent),
+    color-mix(in srgb, var(--surface) 88%, var(--bg)));
+  backdrop-filter: saturate(1.2) blur(18px);
+}
+.topbar::after {
+  content: "";
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  bottom: -1px;
+  height: 1px;
+  opacity: .55;
+  background: linear-gradient(90deg, transparent, var(--brand-deep), transparent);
+  pointer-events: none;
+  transition: opacity var(--dur-3) ease;
+}
+.topbar.scrolled::after { opacity: .9; }
+
+/* 桌面导航：选中态增加渐变、投影和图标响应。 */
+.side-nav button {
+  overflow: hidden;
+  transition:
+    background var(--dur-1) ease,
+    color var(--dur-1) ease,
+    box-shadow var(--dur-2) var(--ease),
+    transform var(--dur-1) var(--ease);
+}
+.side-nav button svg {
+  flex: 0 0 auto;
+  transition: transform var(--dur-2) var(--ease), color var(--dur-1) ease;
+}
+.side-nav button:hover svg { transform: translateX(2px) scale(1.04); }
+.side-nav button.active {
+  background: linear-gradient(90deg, var(--brand-soft), color-mix(in srgb, var(--brand-soft) 46%, var(--surface)));
+  box-shadow: var(--nav-active-shadow);
+}
+.side-nav button.active svg {
+  color: var(--brand-deep);
+  transform: translateX(1px) scale(1.07);
+}
+.side-nav button.active::before { box-shadow: 0 0 10px color-mix(in srgb, var(--brand-deep) 45%, transparent); }
+
+/* 手机底部导航：图标底托形成清晰的选中状态，而不是只靠文字变色。 */
+@media (max-width: 900px) {
+  .tabbar {
+    background: color-mix(in srgb, var(--surface) 90%, transparent);
+    backdrop-filter: saturate(1.25) blur(20px);
+    box-shadow: 0 -8px 30px rgba(20, 26, 40, .10);
+  }
+  .tabbar > button:not(.tab-fab) {
+    position: relative;
+    transition: color var(--dur-2) ease, transform var(--dur-1) var(--ease);
+  }
+  .tabbar .tab-ico {
+    min-width: 38px;
+    min-height: 27px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    transition:
+      background var(--dur-2) ease,
+      box-shadow var(--dur-2) var(--ease),
+      transform var(--dur-2) var(--ease);
+  }
+  .tabbar > button.active:not(.tab-fab) .tab-ico {
+    background: var(--brand-soft);
+    box-shadow: 0 4px 14px rgba(176, 125, 0, .14);
+  }
+  .tabbar > button:not(.tab-fab):active .tab-ico { transform: scale(.92); }
+}
+
+/* 主按钮在鼠标设备上轻微抬升，按下立即回落；触屏仍保留明确按压反馈。 */
+.btn {
+  box-shadow: var(--button-shadow);
+  transition:
+    color var(--dur-1) ease,
+    background var(--dur-1) ease,
+    border-color var(--dur-1) ease,
+    box-shadow var(--dur-2) var(--ease),
+    transform var(--dur-1) var(--ease);
+}
+.btn-primary {
+  background-size: 140% 140%;
+  transition:
+    background-position var(--dur-3) var(--ease),
+    box-shadow var(--dur-2) var(--ease),
+    transform var(--dur-1) var(--ease);
+}
+.btn-primary .spin {
+  border-color: rgba(74, 54, 0, .18);
+  border-top-color: currentColor;
+}
+.btn:active:not(:disabled) { transform: translateY(0) scale(.975); }
+.btn-primary.is-saved { animation: savedPop .48s var(--ease); }
+@keyframes savedPop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.045); }
+  100% { transform: scale(1); }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .btn:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: var(--button-shadow-hover);
+  }
+  .btn-primary:not(:disabled):hover { background-position: 100% 50%; }
+  .panel {
+    transition: border-color var(--dur-2) ease, box-shadow var(--dur-2) var(--ease);
+  }
+  .panel:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-2);
+  }
+  .kpi-card:hover .kpi-label { color: var(--text); }
+  .kpi-card:hover .kpi-value { color: var(--brand-deep); }
+  .settings-entry:hover .se-icon {
+    transform: translateY(-1px) rotate(-3deg);
+    background: var(--brand);
+    color: #5b4100;
+    box-shadow: 0 6px 16px rgba(245, 180, 0, .22);
+  }
+  .settings-entry:hover .se-arrow { transform: translateX(3px); color: var(--brand-deep); }
+}
+.se-icon, .se-arrow {
+  transition:
+    transform var(--dur-2) var(--ease),
+    background var(--dur-2) ease,
+    color var(--dur-2) ease,
+    box-shadow var(--dur-2) var(--ease);
+}
+
+/* 概览首卡加一层极淡的品牌光晕，让视线自然落到本月利润。 */
+.hero-card,
+.stat-card.hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  box-shadow: 0 12px 34px rgba(179, 133, 17, .10);
+}
+.hero-card::before,
+.stat-card.hero::before {
+  content: "";
+  position: absolute;
+  width: 280px;
+  height: 220px;
+  right: -86px;
+  top: -118px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 207, 51, .23), transparent 68%);
+  pointer-events: none;
+  z-index: 0;
+}
+.hero-card > *,
+.stat-card.hero > * {
+  position: relative;
+  z-index: 1;
+}
+html[data-theme="dark"] .hero-card,
+html[data-theme="dark"] .stat-card.hero {
+  box-shadow: 0 14px 38px rgba(0, 0, 0, .28);
+}
+
+.panel,
+.kpi-card,
+.sum-card,
+.settings-entry {
+  background-image: linear-gradient(180deg, var(--surface-wash), transparent 46%);
+}
+.kpi-value { transition: color var(--dur-2) ease; }
+
+/* 实时连接与闲鱼绑定：常态只做很轻的呼吸，异常时用更明显的红色提醒。 */
+.presence.live .presence-dot,
+.gf-presence.on .gf-presence-dot {
+  animation: livePulse 2.8s ease-in-out infinite;
+}
+.gf-presence.bad .gf-presence-dot {
+  animation: alertPulse 1.7s ease-in-out infinite;
+}
+.sync-bar .sync-ico { animation: syncIconIn .42s var(--ease); }
+@keyframes livePulse {
+  0%, 100% { box-shadow: 0 0 0 3px var(--down-soft); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--down) 12%, transparent); }
+}
+@keyframes alertPulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(224, 73, 46, .12); }
+  50% { box-shadow: 0 0 0 6px rgba(224, 73, 46, .05); }
+}
+@keyframes syncIconIn {
+  from { opacity: 0; transform: translateY(-4px) scale(.86); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Toast 更像轻浮层：图标落位、细边框和柔和渐变让成功/失败更容易扫到。 */
+.toast-stack .toast {
+  background-image: linear-gradient(105deg, rgba(255,255,255,.07), transparent 48%);
+  border: 1px solid rgba(255, 255, 255, .10);
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+.toast-ico { animation: toastIconPop .42s var(--ease) both; }
+.toast-enter-active { transition-duration: .34s; }
+@keyframes toastIconPop {
+  0% { opacity: 0; transform: scale(.45) rotate(-12deg); }
+  72% { opacity: 1; transform: scale(1.08) rotate(2deg); }
+  100% { opacity: 1; transform: none; }
+}
+
+/* 在线更新：阶段点 + 流动光带，让「还在处理」和「已经完成」一眼可分。 */
+.upd-progress {
+  position: relative;
+  overflow: hidden;
+  transition:
+    background var(--dur-2) ease,
+    border-color var(--dur-2) ease,
+    color var(--dur-2) ease,
+    box-shadow var(--dur-2) var(--ease);
+}
+.upd-progress-head > span {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+.upd-stage-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  margin-top: .46em;
+  border-radius: 50%;
+  background: var(--blue);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 12%, transparent);
+  animation: stagePulse 1.35s ease-in-out infinite;
+}
+.upd-progress.done .upd-stage-dot {
+  background: var(--down);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--down) 14%, transparent);
+  animation: none;
+}
+.upd-progress.bad .upd-stage-dot {
+  background: var(--up);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--up) 13%, transparent);
+  animation: alertPulse 1.7s ease-in-out infinite;
+}
+.upd-progress-track {
+  box-shadow: inset 0 1px 2px rgba(20, 26, 40, .06);
+}
+.upd-progress-track i {
+  position: relative;
+  overflow: hidden;
+  transition: width .38s var(--ease);
+}
+.upd-progress:not(.done):not(.bad) .upd-progress-track i {
+  background: linear-gradient(90deg,
+    var(--blue),
+    color-mix(in srgb, var(--blue) 62%, white),
+    var(--blue));
+  background-size: 200% 100%;
+  animation: updateBarFlow 1.5s linear infinite;
+}
+.upd-progress:not(.done):not(.bad) {
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--blue) 9%, transparent);
+}
+.upd-progress.bad { animation: softIn .28s var(--ease); }
+@keyframes stagePulse {
+  0%, 100% { transform: scale(.86); opacity: .72; }
+  50% { transform: scale(1.14); opacity: 1; }
+}
+@keyframes updateBarFlow {
+  from { background-position: 100% 50%; }
+  to { background-position: -100% 50%; }
+}
+@keyframes softIn {
+  from { opacity: .55; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 900px) {
+  body { background-attachment: scroll; }
+  .topbar::after { left: 14px; right: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark,
+  .side-nav button,
+  .side-nav button svg,
+  .tabbar > button,
+  .tabbar .tab-ico,
+  .btn,
+  .se-icon,
+  .se-arrow,
+  .presence-dot,
+  .gf-presence-dot,
+  .sync-bar .sync-ico,
+  .toast-ico,
+  .upd-stage-dot,
+  .upd-progress-track i {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+html[data-motion="reduce"] .presence-dot,
+html[data-motion="reduce"] .gf-presence-dot,
+html[data-motion="reduce"] .sync-bar .sync-ico,
+html[data-motion="reduce"] .toast-ico,
+html[data-motion="reduce"] .upd-stage-dot,
+html[data-motion="reduce"] .upd-progress-track i,
+html[data-motion="reduce"] .btn-primary.is-saved,
+html[data-motion="reduce"] .upd-progress.bad {
+  animation: none !important;
+}
