@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -22,6 +23,25 @@ func TestHashPasswordScryptAndVerify(t *testing.T) {
 	h2, _ := hashPassword("s3cret-pass", "")
 	if h == h2 {
 		t.Error("随机 salt 应产生不同哈希")
+	}
+}
+
+func TestSessionCookieSecureFollowsRequestScheme(t *testing.T) {
+	httpReq := httptest.NewRequest("POST", "http://example.test/api/auth/login", nil)
+	httpRec := httptest.NewRecorder()
+	setSessionCookie(httpRec, httpReq, "token")
+	httpCookies := httpRec.Result().Cookies()
+	if len(httpCookies) != 1 || httpCookies[0].Secure {
+		t.Fatalf("局域网 HTTP 会话不应带 Secure：%+v", httpCookies)
+	}
+
+	httpsReq := httptest.NewRequest("POST", "http://example.test/api/auth/login", nil)
+	httpsReq.Header.Set("X-Forwarded-Proto", "https, http")
+	httpsRec := httptest.NewRecorder()
+	setSessionCookie(httpsRec, httpsReq, "token")
+	httpsCookies := httpsRec.Result().Cookies()
+	if len(httpsCookies) != 1 || !httpsCookies[0].Secure {
+		t.Fatalf("HTTPS 反代会话应带 Secure：%+v", httpsCookies)
 	}
 }
 

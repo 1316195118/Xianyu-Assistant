@@ -201,6 +201,8 @@ const costParts = computed(() => {
 })
 const costMax = computed(() => Math.max(1, ...costParts.value.map(p => p.value)))
 const profitMargin = computed(() => stats.value?.profit_margin || 0)
+const profitMarginLabel = computed(() =>
+  Number(stats.value?.total_sales || 0) > 0 ? profitMargin.value.toFixed(1) + '%' : '—')
 
 // 占比环形图：净利润 + 四项成本，一眼看结构占比
 const donut = computed(() => {
@@ -245,7 +247,7 @@ const donutCenter = computed(() => {
     const s = d.segs[i]
     return { label: s.label, value: fmtMoney(s.raw), sub: (s.pct > 0 && s.pct < 1 ? '<1' : Math.round(s.pct)) + '%', neg: s.raw < 0 }
   }
-  return { label: '累计净利', value: fmtMoney(d.profit), sub: '利润率 ' + profitMargin.value.toFixed(1) + '%', neg: d.profit < 0 }
+  return { label: '累计净利', value: fmtMoney(d.profit), sub: '利润率 ' + profitMarginLabel.value, neg: d.profit < 0 }
 })
 
 // Hero 展示的是「数据里最近有成交的那个月」：月初还没开单时，
@@ -462,7 +464,7 @@ const chart = computed(() => {
         <div class="kpi-label">累计净利润 <span class="kpi-tag">已成交</span></div>
         <div class="kpi-value num" :class="(stats?.total_profit || 0) >= 0 ? 'pos' : 'neg'"><AnimatedNumber :value="stats?.total_profit || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></div>
         <div class="kpi-foot">
-          利润率 {{ (stats?.profit_margin || 0).toFixed(1) }}%
+          利润率 {{ profitMarginLabel }}
           <span v-if="monthDelta" class="kpi-month-extra">
             · 本月净利 <b class="num">{{ fmtMoney(monthDelta.latest.profit) }}</b>
           </span>

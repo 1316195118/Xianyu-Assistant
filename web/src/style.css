@@ -6,7 +6,7 @@
   --border-strong: #dfe2e8;
   --text: #1f2329;
   --text-2: #5f6672;
-  --text-3: #9aa0aa;
+  --text-3: #6b7280;
   --brand: #ffcf33;
   --brand-deep: #f5b400;
   --brand-soft: #fff8e0;
@@ -110,6 +110,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 
 /* ---------- 问号说明（HelpTip）：把长段说明收进图标，鼠标悬停/点击展开 ---------- */
 .help-tip {
+  position: relative;
   display: inline-flex; align-items: center; justify-content: center;
   width: 15px; height: 15px; flex: 0 0 auto;
   padding: 0; margin-left: 6px; vertical-align: 1px;
@@ -118,6 +119,9 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
   font-size: 10px; font-weight: 800; line-height: 1;
   cursor: help; user-select: none;
   transition: border-color var(--dur-1) ease, color var(--dur-1) ease, background var(--dur-1) ease;
+}
+.help-tip::after {
+  content: ""; position: absolute; inset: -9px; border-radius: 50%;
 }
 .help-tip:hover, .help-tip[aria-expanded="true"] {
   border-color: var(--brand-deep); color: var(--text); background: var(--brand-soft);
@@ -1905,7 +1909,7 @@ input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
   --border-strong: #3d4859;
   --text: #e9edf4;
   --text-2: #aab5c5;
-  --text-3: #78859a;
+  --text-3: #8290a6;
   --brand: #f2c744;
   --brand-deep: #dda92a;
   --brand-soft: #3a3119;
@@ -3119,8 +3123,35 @@ html[data-theme="dark"] .upd-state.bad { background: #3a221f; border-color: #5a3
 .upd-ops { display: flex; align-items: center; gap: 10px; margin-top: 9px; flex-wrap: wrap; }
 .upd-ops .muted { font-size: 11px; }
 .upd-progress {
-  margin-top: 9px; padding: 8px 10px; border-radius: 8px;
+  margin-top: 9px; padding: 10px 11px; border-radius: 9px;
   background: var(--blue-soft); color: var(--blue); font-size: 12px; line-height: 1.5;
+  border: 1px solid color-mix(in srgb, var(--blue) 18%, transparent);
+}
+.upd-progress-head { display: flex; align-items: flex-start; gap: 12px; }
+.upd-progress-head span { flex: 1; min-width: 0; }
+.upd-progress-head b { flex: 0 0 auto; font-size: 11.5px; }
+.upd-progress-track {
+  height: 6px; margin-top: 8px; overflow: hidden; border-radius: 999px;
+  background: color-mix(in srgb, var(--blue) 15%, var(--surface));
+}
+.upd-progress-track i {
+  display: block; height: 100%; min-width: 3px; border-radius: inherit;
+  background: linear-gradient(90deg, var(--blue), color-mix(in srgb, var(--blue) 58%, white));
+  transition: width 320ms ease;
+}
+.upd-progress-meta { margin-top: 5px; font-size: 10.5px; color: var(--text-2); }
+.upd-progress.done {
+  color: var(--down); background: var(--down-soft); border-color: color-mix(in srgb, var(--down) 20%, transparent);
+}
+.upd-progress.done .upd-progress-track { background: color-mix(in srgb, var(--down) 14%, var(--surface)); }
+.upd-progress.done .upd-progress-track i { background: var(--down); }
+.upd-progress.bad {
+  color: #a5391f; background: var(--up-soft); border-color: #f3c7c2;
+}
+.upd-progress.bad .upd-progress-track { background: color-mix(in srgb, var(--up) 14%, var(--surface)); }
+.upd-progress.bad .upd-progress-track i { background: var(--up); }
+html[data-theme="dark"] .upd-progress.bad {
+  color: #ffb4a2; background: #3a221f; border-color: #5a3230;
 }
 .upd-cfg { margin-top: 10px; }
 .upd-cfg summary { cursor: pointer; font-size: 11.5px; color: var(--text-3); font-weight: 600; }
@@ -4623,7 +4654,7 @@ html[data-theme="dark"] .backup-warn { border-color: rgba(255,114,89,.35); }
 /* Hero 标题行的「算价」入口 */
 .hero-calc {
   display: inline-flex; align-items: center; gap: 3px;
-  padding: 2px 8px; border-radius: 6px; line-height: 1.5;
+  min-height: 32px; padding: 2px 8px; border-radius: 6px; line-height: 1.5;
   border: 1px solid var(--border-strong); background: var(--surface-2);
   color: var(--text-2); font-size: 11px; font-weight: 650; cursor: pointer;
 }

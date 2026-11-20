@@ -137,6 +137,31 @@ func TestUpdateApplyRejectsNonLinux(t *testing.T) {
 	}
 }
 
+func TestUpdateProgressEndpoint(t *testing.T) {
+	h := newExtrasEnv(t)
+	finishUpdateProgress("idle", "", "", 0)
+	t.Cleanup(func() { finishUpdateProgress("idle", "", "", 0) })
+
+	if !beginUpdateProgress(buildVersion) {
+		t.Fatal("空闲状态应能开始更新进度")
+	}
+	setUpdateDownloadProgress(512, 1024)
+	w := doExtrasReq(h, "GET", "/api/update/progress", nil)
+	if w.Code != 200 {
+		t.Fatalf("progress 应 200，实际 %d %s", w.Code, w.Body.String())
+	}
+	var out updateProgressInfo
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("progress json: %v", err)
+	}
+	if !out.Active || out.Stage != "downloading" || out.DownloadedBytes != 512 || out.TotalBytes != 1024 {
+		t.Errorf("进度状态不对：%+v", out)
+	}
+	if out.Percent < 40 || out.Percent > 60 {
+		t.Errorf("下载到一半的总体进度不合理：%d", out.Percent)
+	}
+}
+
 func TestUpdateApplyRejectsMissingDigest(t *testing.T) {
 	h := newExtrasEnv(t)
 	body := []byte("\x7fELFfakebinary")

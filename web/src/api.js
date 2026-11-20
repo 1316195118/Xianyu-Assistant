@@ -258,6 +258,7 @@ export const api = {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', timeoutMs: 120000
     })
   },
+  updateProgress() { return req('/api/update/progress', { timeoutMs: 8000 }) },
   saveUpdateConfig(payload) {
     return req('/api/update/config', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)

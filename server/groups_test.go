@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
 )
 
@@ -167,6 +168,113 @@ func callStats(t *testing.T) Stats {
 		t.Fatalf("unmarshal stats: %v", err)
 	}
 	return s
+}
+
+func TestStandaloneShippingCountedOnce(t *testing.T) {
+	os.Setenv("DB_PATH", t.TempDir()+"/shipping.db")
+	defer os.Unsetenv("DB_PATH")
+	if err := initDB(); err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer func() {
+		if db != nil {
+			db.Close()
+			db = nil
+		}
+	}()
+
+	_, err := insertItem(&Item{
+		Product: "两侧一起填", BuyPrice: 100, BuyShipping: 10,
+		SellPrice: 150, SellShipping: 5, SellNet: 150,
+	}, defaultShopID, nowStr())
+	if err != nil {
+		t.Fatalf("insertItem: %v", err)
+	}
+	s := callStats(t)
+	if s.TotalShipping != 15 {
+		t.Errorf("total_shipping=%v want 15（买运费 10 + 卖运费 5 各一次）", s.TotalShipping)
+	}
+	if s.TotalCost != 115 {
+		t.Errorf("total_cost=%v want 115", s.TotalCost)
+	}
+	if s.TotalProfit != 35 {
+		t.Errorf("total_profit=%v want 35", s.TotalProfit)
+	}
+}
+
+func TestMergeGroupsRollbackKeepsAllWrites(t *testing.T) {
+	os.Setenv("DB_PATH", t.TempDir()+"/merge-rollback.db")
+	defer os.Unsetenv("DB_PATH")
+	if err := initDB(); err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer func() {
+		if db != nil {
+			db.Close()
+			db = nil
+		}
+	}()
+
+	ts := nowStr()
+	mkItem := func(product string) int64 {
+		id, err := insertItem(&Item{Product: product, BuyPrice: 100}, defaultShopID, ts)
+		if err != nil {
+			t.Fatalf("insertItem: %v", err)
+		}
+		return id
+	}
+	mkGroup := func(title string, itemID int64) int64 {
+		res, err := db.Exec("INSERT INTO link_groups(shop_id,title,note,created_at,updated_at) VALUES(?,?,?,?,?)",
+			defaultShopID, title, "", ts, ts)
+		if err != nil {
+			t.Fatalf("insert group: %v", err)
+		}
+		gid, _ := res.LastInsertId()
+		if err := setGroupItems(gid, []int64{itemID}, defaultShopID); err != nil {
+			t.Fatalf("setGroupItems: %v", err)
+		}
+		return gid
+	}
+
+	targetItem := mkItem("主联单货")
+	sourceItem := mkItem("待并联单货")
+	target := mkGroup("主联单", targetItem)
+	source := mkGroup("待并联单", sourceItem)
+	if err := saveGroupExternals(source, defaultShopID, []GroupExternal{
+		{Product: "外部成交", Amount: 88},
+	}, "sell"); err != nil {
+		t.Fatalf("saveGroupExternals: %v", err)
+	}
+
+	if _, err := db.Exec(`
+        CREATE TRIGGER fail_group_delete
+        BEFORE DELETE ON link_groups
+        WHEN OLD.id = ` + strconv.FormatInt(source, 10) + `
+        BEGIN SELECT RAISE(ABORT, 'injected delete failure'); END`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	err = mergeGroupsTx(tx, target, []int64{target, source}, []int64{targetItem, sourceItem}, defaultShopID, "合并后标题")
+	if err == nil {
+		t.Fatal("注入删除失败后，mergeGroupsTx 应返回错误")
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+
+	var targetItems, sourceItems, sourceGroups, sourceExternals int
+	db.QueryRow("SELECT COUNT(*) FROM group_items WHERE group_id=?", target).Scan(&targetItems)
+	db.QueryRow("SELECT COUNT(*) FROM group_items WHERE group_id=?", source).Scan(&sourceItems)
+	db.QueryRow("SELECT COUNT(*) FROM link_groups WHERE id=?", source).Scan(&sourceGroups)
+	db.QueryRow("SELECT COUNT(*) FROM group_externals WHERE group_id=? AND shop_id=?", source, defaultShopID).Scan(&sourceExternals)
+	if targetItems != 1 || sourceItems != 1 || sourceGroups != 1 || sourceExternals != 1 {
+		t.Errorf("回滚后数据不完整: targetItems=%d sourceItems=%d sourceGroups=%d sourceExternals=%d",
+			targetItems, sourceItems, sourceGroups, sourceExternals)
+	}
 }
 
 // 外部成交（线下 / 其他平台）只存在联单里：不写 items、不出现在明细，

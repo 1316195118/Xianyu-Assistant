@@ -21,17 +21,17 @@ import (
 //   净利润 = 销售额 − 货品成本 − 运费 − 手续费
 
 type GroupStats struct {
-	BuyCount    int     `json:"buy_count"`
-	SellCount   int     `json:"sell_count"`
-	Sales       float64 `json:"sales"`
-	Net         float64 `json:"net"`
-	Goods       float64 `json:"goods"`
-	Shipping    float64 `json:"shipping"`
-	Fee         float64 `json:"fee"`
-	WuyouFee    float64 `json:"wuyou_fee"`
-	Profit      float64 `json:"profit"`
-	ProfitRate  float64 `json:"profit_rate"`
-	UnsoldCost  float64 `json:"unsold_cost"` // 尚未卖出部分的买进占用
+	BuyCount   int     `json:"buy_count"`
+	SellCount  int     `json:"sell_count"`
+	Sales      float64 `json:"sales"`
+	Net        float64 `json:"net"`
+	Goods      float64 `json:"goods"`
+	Shipping   float64 `json:"shipping"`
+	Fee        float64 `json:"fee"`
+	WuyouFee   float64 `json:"wuyou_fee"`
+	Profit     float64 `json:"profit"`
+	ProfitRate float64 `json:"profit_rate"`
+	UnsoldCost float64 `json:"unsold_cost"` // 尚未卖出部分的买进占用
 }
 
 type LinkGroup struct {
@@ -263,23 +263,32 @@ func handleGroups(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ts := nowStr()
-		res, err := db.Exec("INSERT INTO link_groups(shop_id, title, note, created_at, updated_at) VALUES(?,?,?,?,?)", shopID(r), in.Title, in.Note, ts, ts)
+		tx, err := db.Begin()
+		if err != nil {
+			writeError(w, 500, "开启事务失败")
+			return
+		}
+		defer tx.Rollback()
+		id, err := createGroupTx(tx, shopID(r), in.Title, in.Note, ts)
 		if err != nil {
 			writeError(w, 500, "创建失败: "+err.Error())
 			return
 		}
-		id, _ := res.LastInsertId()
 		// 外部成交只写 group_externals，不产生明细记录
-		if err := saveGroupExternals(id, shopID(r), in.Externals, "sell"); err != nil {
+		if err := saveGroupExternalsTx(tx, id, shopID(r), in.Externals, "sell"); err != nil {
 			writeError(w, 500, "保存外部卖出失败: "+err.Error())
 			return
 		}
-		if err := saveGroupExternals(id, shopID(r), in.ExtBuys, "buy"); err != nil {
+		if err := saveGroupExternalsTx(tx, id, shopID(r), in.ExtBuys, "buy"); err != nil {
 			writeError(w, 500, "保存外部买入失败: "+err.Error())
 			return
 		}
-		if err := setGroupItems(id, ids, shopID(r)); err != nil {
+		if err := setGroupItemsTx(tx, id, ids, shopID(r)); err != nil {
 			writeError(w, 500, "关联记录失败: "+err.Error())
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			writeError(w, 500, "提交失败: "+err.Error())
 			return
 		}
 		mergeAfterMutation(shopID(r))
@@ -309,29 +318,49 @@ func uniqueIDs(ids []int64) []int64 {
 	return out
 }
 
-// setGroupItems 重建联单成员。只允许关联本店记录，跨店 id 会被静默忽略。
-func setGroupItems(groupID int64, ids []int64, shopID int64) error {
-	tx, err := db.Begin()
-	if err != nil {
+func ensureGroupInShopTx(tx *sql.Tx, groupID, shopID int64) error {
+	var n int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM link_groups WHERE id=? AND shop_id=?", groupID, shopID).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("联单 %d 不存在", groupID)
+	}
+	return nil
+}
+
+// setGroupItemsTx 在调用方事务内重建联单成员。
+// 只允许关联本店记录，跨店 id 会被静默忽略。
+func setGroupItemsTx(tx *sql.Tx, groupID int64, ids []int64, shopID int64) error {
+	if err := ensureGroupInShopTx(tx, groupID, shopID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec("DELETE FROM group_items WHERE group_id=?", groupID); err != nil {
-		tx.Rollback()
 		return err
 	}
 	for _, id := range ids {
 		// 只关联真实存在的记录，忽略脏 id
 		var n int
 		if err := tx.QueryRow("SELECT COUNT(*) FROM items WHERE id=? AND shop_id=?", id, shopID).Scan(&n); err != nil {
-			tx.Rollback()
 			return err
 		}
 		if n > 0 {
 			if _, err := tx.Exec("INSERT OR IGNORE INTO group_items(group_id, item_id) VALUES(?,?)", groupID, id); err != nil {
-				tx.Rollback()
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+func setGroupItems(groupID int64, ids []int64, shopID int64) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := setGroupItemsTx(tx, groupID, ids, shopID); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -390,16 +419,11 @@ func loadGroupExternals(groupID, shopID int64) []GroupExternal {
 // saveGroupExternals 用编辑器提交的列表整体替换某一 kind 的外部成交。
 // 这些行只活在 group_externals 里：不写 items、不进明细、不参与全局统计，
 // 所以「整体替换」是安全的——删掉的只是本联单自己的备注级数据，不会动到任何单据。
-func saveGroupExternals(groupID, sid int64, list []GroupExternal, kind string) error {
+func saveGroupExternalsTx(tx *sql.Tx, groupID, sid int64, list []GroupExternal, kind string) error {
 	if kind != "buy" {
 		kind = "sell"
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
 	if _, err := tx.Exec("DELETE FROM group_externals WHERE group_id=? AND shop_id=? AND kind=?", groupID, sid, kind); err != nil {
-		tx.Rollback()
 		return err
 	}
 	ts := nowStr()
@@ -422,13 +446,88 @@ func saveGroupExternals(groupID, sid int64, list []GroupExternal, kind string) e
 			groupID, sid, kind, product, round2(e.Amount), qty,
 			strings.TrimSpace(e.Counterparty), when, strings.TrimSpace(e.Note),
 			normSource(e.Source), ts, ts); err != nil {
-			tx.Rollback()
 			return err
 		}
+	}
+	return nil
+}
+
+func saveGroupExternals(groupID, sid int64, list []GroupExternal, kind string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := saveGroupExternalsTx(tx, groupID, sid, list, kind); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
 
+func createGroupTx(tx *sql.Tx, shopID int64, title, note, ts string) (int64, error) {
+	res, err := tx.Exec("INSERT INTO link_groups(shop_id, title, note, created_at, updated_at) VALUES(?,?,?,?,?)",
+		shopID, title, note, ts, ts)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// mergeGroupsTx 把一组联单并入 target。成员、外部成交、标题和旧联单删除
+// 都在同一事务里完成，任何一步失败都会整体回滚。
+func mergeGroupsTx(tx *sql.Tx, target int64, sources, ids []int64, shopID int64, newTitle string) error {
+	if err := ensureGroupInShopTx(tx, target, shopID); err != nil {
+		return err
+	}
+	for _, sourceID := range sources {
+		if sourceID == target {
+			continue
+		}
+		if err := ensureGroupInShopTx(tx, sourceID, shopID); err != nil {
+			return err
+		}
+	}
+	if err := setGroupItemsTx(tx, target, ids, shopID); err != nil {
+		return err
+	}
+	for _, sourceID := range sources {
+		if sourceID == target {
+			continue
+		}
+		if _, err := tx.Exec("UPDATE group_externals SET group_id=? WHERE group_id=? AND shop_id=?", target, sourceID, shopID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM group_items WHERE group_id=?", sourceID); err != nil {
+			return err
+		}
+		res, err := tx.Exec("DELETE FROM link_groups WHERE id=? AND shop_id=?", sourceID, shopID)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n != 1 {
+			return fmt.Errorf("联单 %d 删除失败", sourceID)
+		}
+	}
+	ts := nowStr()
+	var res sql.Result
+	var err error
+	if newTitle != "" {
+		res, err = tx.Exec("UPDATE link_groups SET title=?, updated_at=? WHERE id=? AND shop_id=?", newTitle, ts, target, shopID)
+	} else {
+		res, err = tx.Exec("UPDATE link_groups SET updated_at=? WHERE id=? AND shop_id=?", ts, target, shopID)
+	}
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n != 1 {
+		return fmt.Errorf("联单 %d 更新失败", target)
+	}
+	return nil
+}
 
 // resolveGroupAfterMerge 自动合并可能把刚建/刚改的联单并进另一张，
 // 这时原 id 已经不存在了。返回真正活下来的那个 id，避免前端拿着死 id 继续编辑
@@ -537,21 +636,32 @@ func handleGroupByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "请至少选择一条记录")
 			return
 		}
-		if _, err := db.Exec("UPDATE link_groups SET title=?, note=?, updated_at=? WHERE id=?", in.Title, in.Note, nowStr(), id); err != nil {
-			writeError(w, 500, "更新失败")
+		tx, err := db.Begin()
+		if err != nil {
+			writeError(w, 500, "开启事务失败")
+			return
+		}
+		defer tx.Rollback()
+		if _, err := tx.Exec("UPDATE link_groups SET title=?, note=?, updated_at=? WHERE id=? AND shop_id=?",
+			in.Title, in.Note, nowStr(), id, shopID(r)); err != nil {
+			writeError(w, 500, "更新失败: "+err.Error())
 			return
 		}
 		// 先同步外部成交（可能新增 / 修改 / 删除），再重建成员表
-		if err := saveGroupExternals(id, shopID(r), in.Externals, "sell"); err != nil {
+		if err := saveGroupExternalsTx(tx, id, shopID(r), in.Externals, "sell"); err != nil {
 			writeError(w, 500, "保存外部卖出失败: "+err.Error())
 			return
 		}
-		if err := saveGroupExternals(id, shopID(r), in.ExtBuys, "buy"); err != nil {
+		if err := saveGroupExternalsTx(tx, id, shopID(r), in.ExtBuys, "buy"); err != nil {
 			writeError(w, 500, "保存外部买入失败: "+err.Error())
 			return
 		}
-		if err := setGroupItems(id, ids, shopID(r)); err != nil {
-			writeError(w, 500, "关联记录失败")
+		if err := setGroupItemsTx(tx, id, ids, shopID(r)); err != nil {
+			writeError(w, 500, "关联记录失败: "+err.Error())
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			writeError(w, 500, "提交失败: "+err.Error())
 			return
 		}
 		mergeAfterMutation(shopID(r))
@@ -730,7 +840,7 @@ func handleGroupCandidates(w http.ResponseWriter, r *http.Request) {
 	side := r.URL.Query().Get("side")
 	limit := 60
 
-	rows, err := db.Query(`SELECT ` + itemCols + ` FROM items WHERE shop_id=? ORDER BY
+	rows, err := db.Query(`SELECT `+itemCols+` FROM items WHERE shop_id=? ORDER BY
         COALESCE(NULLIF(sell_time,''), NULLIF(buy_time,''), '') DESC, id DESC`, shopID(r))
 	if err != nil {
 		writeError(w, 500, "查询候选失败")
@@ -907,12 +1017,19 @@ func autoGroupForStandalone(itemID int64, product string, sid int64) int64 {
 		title = fmt.Sprintf("%s (%d)", base, i)
 	}
 	ts := nowStr()
-	res, err := db.Exec("INSERT INTO link_groups(shop_id,title,note,created_at,updated_at) VALUES(?,?,?,?,?)", sid, title, "", ts, ts)
+	tx, err := db.Begin()
 	if err != nil {
 		return 0
 	}
-	gid, _ := res.LastInsertId()
-	if err := setGroupItems(gid, []int64{itemID}, sid); err != nil {
+	defer tx.Rollback()
+	gid, err := createGroupTx(tx, sid, title, "", ts)
+	if err != nil {
+		return 0
+	}
+	if err := setGroupItemsTx(tx, gid, []int64{itemID}, sid); err != nil {
+		return 0
+	}
+	if err := tx.Commit(); err != nil {
 		return 0
 	}
 	return gid
@@ -948,32 +1065,38 @@ func ensureSaleGroup(saleID int64, purchaseIDs []int64, title string, sid int64)
 		for _, g := range candGroups {
 			if ids, e := loadGroupItemIDs(g, sid); e == nil {
 				all = append(all, ids...)
+			} else {
+				return 0, e
 			}
 		}
 		all = uniqueIDs(all)
-		if err := setGroupItems(target, all, sid); err != nil {
+		tx, err := db.Begin()
+		if err != nil {
 			return 0, err
 		}
-		// 删除其余候选联单（多余副本）
-		for _, g := range candGroups {
-			if g == target {
-				continue
-			}
-			// 外部成交只挂在联单上：被合并的联单一并带走之前先挪到主联单，避免凭空消失
-			db.Exec("UPDATE group_externals SET group_id=? WHERE group_id=? AND shop_id=?", target, g, sid)
-			db.Exec("DELETE FROM group_items WHERE group_id=?", g)
-			db.Exec("DELETE FROM link_groups WHERE id=? AND shop_id=?", g, sid)
+		defer tx.Rollback()
+		if err := mergeGroupsTx(tx, target, candGroups, all, sid, title); err != nil {
+			return 0, err
 		}
-		db.Exec("UPDATE link_groups SET title=?, updated_at=? WHERE id=?", title, nowStr(), target)
+		if err := tx.Commit(); err != nil {
+			return 0, err
+		}
 	} else {
 		ts := nowStr()
-		res, e := db.Exec("INSERT INTO link_groups(shop_id,title,note,created_at,updated_at) VALUES(?,?,?,?,?)", sid, title, "", ts, ts)
-		if e != nil {
-			return 0, e
+		tx, err := db.Begin()
+		if err != nil {
+			return 0, err
 		}
-		target, _ = res.LastInsertId()
+		defer tx.Rollback()
+		target, err = createGroupTx(tx, sid, title, "", ts)
+		if err != nil {
+			return 0, err
+		}
 		ids := uniqueIDs(append([]int64{saleID}, purchaseIDs...))
-		if err := setGroupItems(target, ids, sid); err != nil {
+		if err := setGroupItemsTx(tx, target, ids, sid); err != nil {
+			return 0, err
+		}
+		if err := tx.Commit(); err != nil {
 			return 0, err
 		}
 	}
@@ -1163,20 +1286,26 @@ func autoMergeDuplicateGroups(sid int64) (int, error) {
 		for _, m := range members {
 			if ids, e := loadGroupItemIDs(m, sid); e == nil {
 				all = append(all, ids...)
+			} else {
+				return merged, e
 			}
 		}
 		all = uniqueIDs(all)
-		if err := setGroupItems(target, all, sid); err != nil {
+		tx, err := db.Begin()
+		if err != nil {
+			return merged, err
+		}
+		if err := mergeGroupsTx(tx, target, members, all, sid, ""); err != nil {
+			tx.Rollback()
+			return merged, err
+		}
+		if err := tx.Commit(); err != nil {
 			return merged, err
 		}
 		for _, m := range members {
-			if m == target {
-				continue
+			if m != target {
+				merged++
 			}
-			db.Exec("UPDATE group_externals SET group_id=? WHERE group_id=? AND shop_id=?", target, m, sid)
-			db.Exec("DELETE FROM group_items WHERE group_id=?", m)
-			db.Exec("DELETE FROM link_groups WHERE id=? AND shop_id=?", m, sid)
-			merged++
 		}
 	}
 	return merged, nil

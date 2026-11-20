@@ -374,16 +374,20 @@ func handleGroupMergeApply(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "这些联单里没有记录可合并")
 			return
 		}
-		if err := setGroupItems(target, all, sid); err != nil {
+		tx, err := db.Begin()
+		if err != nil {
+			writeError(w, 500, "开启事务失败")
+			return
+		}
+		defer tx.Rollback()
+		if err := mergeGroupsTx(tx, target, ids, all, sid, title); err != nil {
 			writeError(w, 500, "合并失败: "+err.Error())
 			return
 		}
-		for _, gid := range ids[1:] {
-			db.Exec("UPDATE group_externals SET group_id=? WHERE group_id=? AND shop_id=?", target, gid, sid)
-			db.Exec("DELETE FROM group_items WHERE group_id=?", gid)
-			db.Exec("DELETE FROM link_groups WHERE id=? AND shop_id=?", gid, sid)
+		if err := tx.Commit(); err != nil {
+			writeError(w, 500, "提交失败: "+err.Error())
+			return
 		}
-		db.Exec("UPDATE link_groups SET title=?, updated_at=? WHERE id=? AND shop_id=?", title, ts, target, sid)
 		refreshPurchaseIndex()
 		writeJSON(w, map[string]interface{}{"ok": true, "group_id": target, "title": title, "moved": len(all)})
 
@@ -414,15 +418,23 @@ func handleGroupMergeApply(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "这些记录里已经进联单或已作废，可用的不足两条")
 			return
 		}
-		res, err := db.Exec("INSERT INTO link_groups(shop_id, title, note, created_at, updated_at) VALUES(?,?,?,?,?)",
-			sid, title, "", ts, ts)
+		tx, err := db.Begin()
+		if err != nil {
+			writeError(w, 500, "开启事务失败")
+			return
+		}
+		defer tx.Rollback()
+		gid, err := createGroupTx(tx, sid, title, "", ts)
 		if err != nil {
 			writeError(w, 500, "创建联单失败: "+err.Error())
 			return
 		}
-		gid, _ := res.LastInsertId()
-		if err := setGroupItems(gid, ok, sid); err != nil {
+		if err := setGroupItemsTx(tx, gid, ok, sid); err != nil {
 			writeError(w, 500, "关联记录失败: "+err.Error())
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			writeError(w, 500, "提交失败: "+err.Error())
 			return
 		}
 		refreshPurchaseIndex()

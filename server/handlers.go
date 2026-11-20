@@ -228,6 +228,7 @@ func registerAPI(mux *http.ServeMux) {
 	// 在线更新：查 GitHub Release → 下载 → 校验 → 容器内替换并重启
 	mux.HandleFunc("/api/update/check", authWrap(handleUpdateCheck))
 	mux.HandleFunc("/api/update/apply", authWrap(handleUpdateApply))
+	mux.HandleFunc("/api/update/progress", authWrap(handleUpdateProgress))
 	mux.HandleFunc("/api/update/config", authWrap(handleUpdateConfig))
 	mux.HandleFunc("/api/stats/extras", authWrap(handleStatsExtras))
 	mux.HandleFunc("/api/consign/stats", authWrap(handleConsignStats))
@@ -1490,7 +1491,6 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 			s.TotalWuyouFee += it.SellWuyouFee
 			s.TotalCost += it.BuyPrice + it.BuyShipping + it.SellShipping + feeAll
 			s.TotalGoods += it.BuyPrice
-			s.TotalShipping += it.BuyShipping + it.SellShipping
 			s.TotalShipping += it.BuyShipping + it.SellShipping
 			s.TotalInvest += it.BuyPrice + it.BuyShipping
 			s.SoldCount++

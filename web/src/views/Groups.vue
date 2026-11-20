@@ -13,6 +13,10 @@ const props = defineProps({
   focusGroupId: { type: Number, default: null }
 })
 const emit = defineEmits(['notify', 'edit', 'view', 'focused'])
+function profitRateLabel(stats) {
+  const sales = Number(stats?.sales) || 0
+  return sales > 0 ? (Number(stats?.profit_rate) || 0).toFixed(1) + '%' : '—'
+}
 
 const groups = ref([])
 const loading = ref(false)
@@ -624,7 +628,7 @@ async function toggleSettle(g) {
 
         <div class="gc-line">
           <b class="gc-profit num" :class="(g.stats.profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(g.stats.profit || 0) }}</b>
-          <span class="gc-sub">净利润<span class="gc-rate-i">利润率 {{ (g.stats.profit_rate || 0).toFixed(1) }}%</span></span>
+          <span class="gc-sub">净利润<span class="gc-rate-i">利润率 {{ profitRateLabel(g.stats) }}</span></span>
         </div>
 
         <div class="gc-facts">
@@ -679,7 +683,7 @@ async function toggleSettle(g) {
           <div class="gd-body">
             <div class="gd-profit" :class="(detailGroup.stats.profit || 0) >= 0 ? 'pos' : 'neg'">
               <b class="num">{{ fmtMoney(detailGroup.stats.profit || 0) }}</b>
-              <span>净利润 · 利润率 {{ (detailGroup.stats.profit_rate || 0).toFixed(1) }}%</span>
+              <span>净利润 · 利润率 {{ profitRateLabel(detailGroup.stats) }}</span>
             </div>
             <div class="gc-metrics">
               <div><span>销售额</span><b class="num">{{ fmtMoney(detailGroup.stats.sales) }}</b></div>

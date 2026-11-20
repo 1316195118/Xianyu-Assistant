@@ -902,7 +902,8 @@ function onCardClick(r, e) {
       <div class="filter-main">
         <div class="search-wrap">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input class="input" v-model="q" @input="onSearchInput" placeholder="搜索商品 / 订单号 / 昵称 / 备注 / 时间" />
+          <input class="input" v-model="q" @input="onSearchInput" placeholder="搜索商品 / 订单号 / 昵称 / 备注 / 时间"
+                 aria-label="搜索明细" />
           <button v-if="q" class="search-clear" @click="clearSearch" aria-label="清除搜索">×</button>
         </div>
         <button class="btn btn-sm btn-quiet filter-toggle" @click="filterOpen = !filterOpen" :aria-expanded="filterOpen">
@@ -940,25 +941,27 @@ function onCardClick(r, e) {
           <div class="filter-foot">
             <div class="date-range">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></svg>
-              <input class="input date-input" type="date" v-model="from" title="开始日期" />
+              <input class="input date-input" type="date" v-model="from" title="开始日期" aria-label="开始日期" />
               <span class="muted">至</span>
-              <input class="input date-input" type="date" v-model="to" title="结束日期" />
+              <input class="input date-input" type="date" v-model="to" title="结束日期" aria-label="结束日期" />
             </div>
             <div class="amount-range">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 10h6M9 14h6"/></svg>
               <input class="input amount-input" type="number" min="0" step="0.01" v-model="minAmount"
                      placeholder="最低价" title="价格区间下限：买进价 / 卖出价 / 到手价 / 成本 任一项落在区间内即命中"
-                     @input="onSearchInput" @keyup.enter="reload(true)" />
+                     aria-label="最低金额" @input="onSearchInput" @keyup.enter="reload(true)" />
               <span class="muted">—</span>
               <input class="input amount-input" type="number" min="0" step="0.01" v-model="maxAmount"
-                     placeholder="最高价" title="价格区间上限"
+                     placeholder="最高价" title="价格区间上限" aria-label="最高金额"
                      @input="onSearchInput" @keyup.enter="reload(true)" />
             </div>
             <div class="sort-group">
-              <select class="select sort-select" v-model="sort" title="排序字段">
+              <select class="select sort-select" v-model="sort" title="排序字段" aria-label="排序字段">
                 <option v-for="o in sortOptions" :key="o.v" :value="o.v">{{ o.t }}</option>
               </select>
-              <button class="btn btn-sm btn-quiet" @click="order = order === 'desc' ? 'asc' : 'desc'" :title="order === 'desc' ? '当前降序，点击切升序' : '当前升序，点击切降序'">
+              <button class="btn btn-sm btn-quiet" @click="order = order === 'desc' ? 'asc' : 'desc'"
+                      :title="order === 'desc' ? '当前降序，点击切升序' : '当前升序，点击切降序'"
+                      :aria-label="order === 'desc' ? '当前降序，切换为升序' : '当前升序，切换为降序'">
                 {{ order === 'desc' ? '↓ 降序' : '↑ 升序' }}
               </button>
               <button class="btn btn-sm btn-ghost bi-entry" @click="emit('batch')" title="一次导入多张订单截图">
@@ -1002,13 +1005,13 @@ function onCardClick(r, e) {
       <span class="bb-ico" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4.5 4.5L19 7"/></svg></span>
       <span class="bb-text">已选 <b>{{ selected.length }}</b> 单</span>
       <div class="bulk-edit">
-        <select class="select" v-model="batchField" title="要批量修改的字段">
+        <select class="select" v-model="batchField" title="要批量修改的字段" aria-label="批量修改字段">
           <option value="note">备注</option><option value="buy_shipping">买运费金额</option>
           <option value="sell_shipping">卖运费金额</option><option value="buy_ship_tag">买运费标签</option>
           <option value="sell_ship_tag">卖运费标签</option><option value="buy_time">买进时间</option>
           <option value="sell_time">卖出时间</option>
         </select>
-        <input class="input" v-model="batchValue" placeholder="填入新值" @keyup.enter="applyBatchEdit" />
+        <input class="input" v-model="batchValue" placeholder="填入新值" aria-label="批量修改的新值" @keyup.enter="applyBatchEdit" />
         <button class="btn btn-sm btn-primary" :disabled="batchBusy" @click="applyBatchEdit">
           <span v-if="batchBusy" class="spin"></span>应用
         </button>
@@ -1033,7 +1036,7 @@ function onCardClick(r, e) {
       <div v-if="costOpen" class="cp-mask" @click.self="costOpen = false">
         <div class="cost-picker">
           <div class="cp-head">把选中的 <b>{{ selected.length }}</b> 张卖单挂到买进单</div>
-          <input class="input" v-model="costQ" placeholder="搜索商品 / 订单号 / 卖家" />
+          <input class="input" v-model="costQ" placeholder="搜索商品 / 订单号 / 卖家" aria-label="搜索可挂成本的买进单" />
           <div class="cp-list">
             <button v-for="p in costCandidates" :key="p.id" type="button" class="cp-item" @click="linkTo(p)">
               <span class="cp-name">{{ p.product || '未命名商品' }}</span>
@@ -1077,27 +1080,29 @@ function onCardClick(r, e) {
           <div v-else-if="estimateMode" class="al-list">
             <div class="al-pct">
               <span>按售价的</span>
-              <input class="input num al-pct-input" type="number" min="0" max="100" step="1" v-model.number="estimatePct" />
+              <input class="input num al-pct-input" type="number" min="0" max="100" step="1" v-model.number="estimatePct"
+                     aria-label="按售价计算成本的百分比" />
               <span>% 作为进价</span>
               <button class="btn btn-sm btn-quiet" @click="applyPct">重算全部</button>
               <span class="muted">可以逐条改，只有勾选的会写入</span>
             </div>
             <div v-for="r in estimateRows" :key="'e' + r.sale_id" class="al-row">
-              <input type="checkbox" v-model="r._pick" />
+              <input type="checkbox" v-model="r._pick" :aria-label="`选择 ${r.product || '未命名商品'} 的成本估算`" />
               <div class="al-main">
                 <div class="al-name cell-ellipsis" :title="r.product">{{ r.product || '未命名商品' }}</div>
                 <div class="al-meta muted">售价 {{ fmtMoney(r.sale_price) }}</div>
               </div>
               <div class="al-cost">
                 <span class="muted">成本</span>
-                <input class="input num al-cost-input" type="number" step="0.01" v-model.number="r._cost" />
+                <input class="input num al-cost-input" type="number" step="0.01" v-model.number="r._cost"
+                       :aria-label="`${r.product || '未命名商品'} 的单件成本`" />
               </div>
             </div>
           </div>
           <div v-else-if="!autoRows.length" class="al-empty muted">没有未挂成本的卖单，不用处理。</div>
           <div v-else class="al-list">
             <div v-for="r in autoPickable" :key="r.sale_id" class="al-row">
-              <input type="checkbox" v-model="r._pick" />
+              <input type="checkbox" v-model="r._pick" :aria-label="`选择 ${r.product || '未命名商品'} 自动挂成本`" />
               <div class="al-main">
                 <div class="al-name cell-ellipsis" :title="r.product">{{ r.product || '未命名商品' }}</div>
                 <div class="al-meta muted">
@@ -1105,7 +1110,7 @@ function onCardClick(r, e) {
                   <span v-if="r.reason === 'ambiguous'" class="al-flag">需确认</span>
                 </div>
               </div>
-              <select v-model.number="r._purchase" class="select al-sel">
+              <select v-model.number="r._purchase" class="select al-sel" :aria-label="`${r.product || '未命名商品'} 关联的买进单`">
                 <option v-for="c in r.candidates" :key="c.purchase_id" :value="c.purchase_id">
                   {{ c.product }} · 单价 {{ fmtMoney(c.unit_cost) }} · 剩 {{ c.left }} 件{{ c.match === 'similar' ? '（相似）' : '' }}
                 </option>
@@ -1117,7 +1122,7 @@ function onCardClick(r, e) {
             </button>
             <template v-if="showUnmatched">
               <div v-for="r in autoUnmatched" :key="r.sale_id" class="al-row off">
-                <input type="checkbox" disabled />
+                <input type="checkbox" disabled :aria-label="`${r.product || '未命名商品'} 没有匹配的买进单`" />
                 <div class="al-main">
                   <div class="al-name cell-ellipsis" :title="r.product">{{ r.product || '未命名商品' }}</div>
                   <div class="al-meta muted">售价 {{ fmtMoney(r.sale_price) }}<span v-if="r.sale_time"> · {{ shortTime(r.sale_time) }}</span></div>
@@ -1201,7 +1206,7 @@ function onCardClick(r, e) {
           </colgroup>
           <thead>
             <tr class="th-group">
-              <th rowspan="2" class="col-check"><input type="checkbox" :checked="allChecked" @change="toggleAll" /></th>
+              <th rowspan="2" class="col-check"><input type="checkbox" :checked="allChecked" @change="toggleAll" aria-label="选择本页全部记录" /></th>
               <th rowspan="2" class="col-prod">商品 / 交易对象</th>
               <th rowspan="2" class="col-group">联单 · 状态</th>
               <th v-if="showCols.shot" rowspan="2" class="col-shot">截图</th>
@@ -1220,7 +1225,8 @@ function onCardClick(r, e) {
           <tbody>
             <template v-for="(r, idx) in items" :key="r.id">
               <tr :data-rid="r.id" :class="{ selected: selected.includes(r.id), expandable: true, 'row-alt': idx % 2 === 1, 'is-discarded': isDiscarded(r), 'row-flash': flashId === r.id, 'row-leaving': leaving.includes(r.id) }" @click="expanded = expanded === r.id ? null : r.id">
-                <td class="col-check" @click.stop><input type="checkbox" :checked="selected.includes(r.id)" @change="toggleOne(r.id)" /></td>
+                <td class="col-check" @click.stop><input type="checkbox" :checked="selected.includes(r.id)" @change="toggleOne(r.id)"
+                  :aria-label="`选择 ${r.product || '未命名商品'}`" /></td>
                 <td class="cell-main">
                   <span v-if="isDiscarded(r)" class="seal seal-row seal-discard" aria-hidden="true">
                     <span class="seal-inner">
@@ -1381,7 +1387,10 @@ function onCardClick(r, e) {
           <div class="rec-card" :data-rid="r.id" :class="{ 'is-selected': selected.includes(r.id), 'is-pressing': pressingId === r.id, 'is-discarded': isDiscarded(r), 'row-flash': flashId === r.id, 'row-leaving': leaving.includes(r.id) }"
             @click="onCardClick(r, $event)">
           <div class="rc-head">
-            <label v-if="selectMode" class="rc-check" @touchstart.stop @click.stop><input type="checkbox" :checked="selected.includes(r.id)" @change="toggleOne(r.id)" /></label>
+            <label v-if="selectMode" class="rc-check" @touchstart.stop @click.stop>
+              <input type="checkbox" :checked="selected.includes(r.id)" @change="toggleOne(r.id)"
+                     :aria-label="`选择 ${r.product || '未命名商品'}`" />
+            </label>
             <div class="rc-title">
               <div class="rc-product">
                 <span class="badge mini rc-kind" :class="r.has_sell ? 'badge-sell' : 'badge-buy'">{{ r.has_sell ? '卖单' : '买单' }}</span>
@@ -1574,7 +1583,7 @@ function onCardClick(r, e) {
       <div class="pager">
         <span class="pager-info">共 <b>{{ fmtNum(total) }}</b> 条 · 第 <b>{{ page }}</b> / {{ totalPages() }} 页</span>
         <div class="pager-controls">
-          <select class="select page-size" v-model.number="pageSize">
+          <select class="select page-size" v-model.number="pageSize" aria-label="每页显示条数">
             <option :value="10">10 条/页</option><option :value="20">20 条/页</option><option :value="50">50 条/页</option>
           </select>
           <div class="pager-btns">

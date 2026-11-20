@@ -32,6 +32,8 @@ onMounted(async () => {
   finally { loading.value = false }
 })
 onUnmounted(() => {
+  stopCheckProgress()
+  stopProgressPolling()
   window.removeEventListener('keydown', onKey, true)
   document.body.classList.remove('overlay-open')
   try { lastFocus?.focus?.() } catch (e) { /* ignore */ }
@@ -97,26 +99,105 @@ const updBusy = ref(false)
 const updErr = ref('')
 const applying = ref(false)
 const applyText = ref('')
+const liveProgress = ref(null)
 const cfgOpen = ref(false)
 const cfgBusy = ref(false)
 const cfgMsg = ref('')
 const cfg = ref({ repo: '', token: '', proxy: '' })
+let checkTimer = null
+let progressTimer = null
+let checkSeq = 0
+let progressPollBusy = false
+const progressPercent = computed(() => {
+  const n = Number(liveProgress.value?.percent)
+  return Number.isFinite(n) ? Math.min(100, Math.max(0, Math.round(n))) : 0
+})
+const progressMessage = computed(() =>
+  liveProgress.value?.message || (applying.value ? applyText.value : (updBusy.value ? '正在检查更新…' : '')))
+const progressVisible = computed(() => !!progressMessage.value && (updBusy.value || applying.value || !!liveProgress.value))
+function fmtBytes(n) {
+  n = Number(n) || 0
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB'
+  if (n >= 1024) return (n / 1024).toFixed(1) + ' KB'
+  return Math.round(n) + ' B'
+}
 const updSize = computed(() => {
   const n = Number(upd.value?.asset?.size || 0)
-  if (!n) return ''
-  return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB'
+  return n ? fmtBytes(n) : ''
 })
+
+function stopCheckProgress() {
+  if (checkTimer) {
+    clearInterval(checkTimer)
+    checkTimer = null
+  }
+}
+
+function startCheckProgress() {
+  stopCheckProgress()
+  const seq = ++checkSeq
+  let pct = 5
+  liveProgress.value = {
+    active: true, stage: 'checking', percent: pct,
+    message: '正在连接 GitHub 获取最新版本…'
+  }
+  checkTimer = setInterval(() => {
+    if (seq !== checkSeq || !updBusy.value || applying.value) return
+    pct = Math.min(32, pct + 2)
+    liveProgress.value = { ...(liveProgress.value || {}), percent: pct }
+  }, 480)
+}
+
+function finishCheckProgress(ok, message) {
+  stopCheckProgress()
+  liveProgress.value = {
+    ...(liveProgress.value || {}), active: false, percent: 100,
+    stage: ok ? 'checked' : 'error', message, error: ok ? '' : message
+  }
+  const seq = checkSeq
+  setTimeout(() => {
+    if (seq === checkSeq && !applying.value) liveProgress.value = null
+  }, 1400)
+}
+
+function stopProgressPolling() {
+  if (progressTimer) {
+    clearInterval(progressTimer)
+    progressTimer = null
+  }
+}
+
+async function pollUpdateProgress() {
+  if (progressPollBusy) return
+  progressPollBusy = true
+  try {
+    const p = await api.updateProgress()
+    if (p && (p.active || p.stage)) liveProgress.value = p
+  } catch (e) { /* 服务重启期间短暂断开是正常的 */ }
+  finally { progressPollBusy = false }
+}
+
+function startProgressPolling() {
+  stopProgressPolling()
+  pollUpdateProgress()
+  progressTimer = setInterval(pollUpdateProgress, 650)
+}
 
 async function checkUpdate() {
   if (updBusy.value || applying.value) return
   updBusy.value = true; updErr.value = ''
+  startCheckProgress()
   try {
     const r = await api.updateCheck()
     upd.value = r
     cfg.value.repo = r.repo || ''
     cfg.value.proxy = r.proxy || ''
+    if (r.error) finishCheckProgress(false, '检查完成，但更新源需要处理')
+    else if (r.has_update) finishCheckProgress(true, `检查完成：发现新版本 v${r.latest}`)
+    else finishCheckProgress(true, '检查完成：当前已经是最新版本')
   } catch (e) {
     updErr.value = e.message || '检查更新失败'
+    finishCheckProgress(false, '检查更新失败：' + updErr.value)
   } finally { updBusy.value = false }
 }
 
@@ -151,6 +232,12 @@ async function waitNewVersion(expect) {
   const end = Date.now() + 90000
   while (Date.now() < end) {
     await new Promise((r) => setTimeout(r, 1500))
+    const left = Math.max(0, Math.ceil((end - Date.now()) / 1000))
+    liveProgress.value = {
+      ...(liveProgress.value || {}), active: true, stage: 'restarting',
+      message: `新版本正在启动，等待服务恢复…（最多 ${left} 秒）`,
+      percent: Math.max(96, progressPercent.value)
+    }
     try {
       const res = await fetch('/api/health', { cache: 'no-store' })
       if (!res.ok) continue
@@ -176,21 +263,48 @@ async function applyUpdate() {
   if (!ok) return
   applying.value = true
   applyText.value = '正在下载并校验…'
+  updErr.value = ''
+  liveProgress.value = {
+    active: true, stage: 'starting', percent: 2,
+    message: `已确认，正在准备更新到 v${upd.value.latest}…`,
+    from: upd.value.current, to: upd.value.latest
+  }
+  startProgressPolling()
   try {
     await api.updateApply()
     applyText.value = '已下载完成，正在重启服务…'
+    liveProgress.value = {
+      ...(liveProgress.value || {}), active: true, stage: 'restarting',
+      percent: Math.max(96, progressPercent.value),
+      message: '安装包已就绪，正在重启服务…'
+    }
     const okNew = await waitNewVersion(upd.value.latest)
     if (!okNew) {
       applyText.value = '没等到新版本启动。请刷新页面确认；若仍是旧版本，可到容器里执行 systemctl status xianyu-stat 查看原因。'
+      liveProgress.value = {
+        ...(liveProgress.value || {}), active: false, stage: 'error', percent: 100,
+        message: applyText.value, error: applyText.value
+      }
+      stopProgressPolling()
       applying.value = false
       return
+    }
+    stopProgressPolling()
+    liveProgress.value = {
+      ...(liveProgress.value || {}), active: false, stage: 'done', percent: 100,
+      message: '更新完成，正在刷新页面…'
     }
     applyText.value = '更新完成，正在刷新页面…'
     setTimeout(() => { try { location.reload() } catch (e) { /* ignore */ } }, 700)
   } catch (e) {
+    stopProgressPolling()
     updErr.value = e.message || '更新失败'
     applying.value = false
     applyText.value = ''
+    liveProgress.value = {
+      ...(liveProgress.value || {}), active: false, stage: 'error', percent: 100,
+      message: '更新失败：' + updErr.value, error: updErr.value
+    }
   }
 }
 </script>
@@ -251,7 +365,20 @@ async function applyUpdate() {
             </template>
             <div v-else class="upd-state muted">点「检查更新」看看有没有新版</div>
 
-            <div v-if="applying" class="upd-progress" role="status">{{ applyText }}</div>
+            <div v-if="progressVisible" class="upd-progress"
+                 :class="{ done: liveProgress?.stage === 'done' || liveProgress?.stage === 'checked', bad: liveProgress?.stage === 'error' }">
+              <div class="upd-progress-head">
+                <span role="status" aria-live="polite">{{ progressMessage }}</span>
+                <b class="num">{{ progressPercent }}%</b>
+              </div>
+              <div class="upd-progress-track" role="progressbar" aria-label="更新进度"
+                   aria-valuemin="0" aria-valuemax="100" :aria-valuenow="progressPercent">
+                <i :style="{ width: progressPercent + '%' }"></i>
+              </div>
+              <div v-if="liveProgress?.total_bytes" class="upd-progress-meta">
+                已下载 {{ fmtBytes(liveProgress.downloaded_bytes) }} / {{ fmtBytes(liveProgress.total_bytes) }}
+              </div>
+            </div>
 
             <details class="upd-cfg" :open="cfgOpen" @toggle="cfgOpen = $event.target.open">
               <summary>更新源：{{ upd?.repo || '默认仓库' }}（私有仓库需要 Token）</summary>

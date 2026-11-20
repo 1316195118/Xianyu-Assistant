@@ -52,7 +52,7 @@ async function generate() {
     lines.push('')
     lines.push(`销售额　${fmtMoney(sales)}`)
     lines.push(`已售成本 ${fmtMoney(cost)}`)
-    lines.push(`净利润　 ${fmtMoney(profit)}（利润率 ${margin.toFixed(1)}%）`)
+    lines.push(`净利润　 ${fmtMoney(profit)}（利润率 ${sales > 0 ? margin.toFixed(1) + '%' : '—'}）`)
     lines.push(`　其中：运费 ${fmtMoney(s.total_shipping || 0)} · 服务费 ${fmtMoney(s.total_fee || 0)}`)
     lines.push('')
     lines.push(`成交 ${fmtNum(s.sold_count || 0)} 单 · 平均每单利润 ${fmtMoney(s.avg_profit || 0)}`)

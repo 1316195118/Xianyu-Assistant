@@ -995,7 +995,7 @@ function onHeadEnd() {
             <HelpTip text="卖出单会按商品名自动关联到对应的买进单（可下方选择「不关联」）；买进单则新建一条。" />
           </div>
           <label class="merge-switch" v-if="!isEdit">
-            <input type="checkbox" v-model="allowMerge" />
+            <input type="checkbox" v-model="allowMerge" aria-label="自动关联同名买进单" />
             <span>自动关联同名买进单</span>
             <HelpTip text="关闭则本单作为独立卖出记录，不关联任何买进单。" />
           </label>
@@ -1017,7 +1017,8 @@ function onHeadEnd() {
               <button class="btn btn-sm" @click="retryLinkbox">重试</button>
             </div>
             <div class="linkbox-tools">
-              <input class="input" v-model="purchaseQuery" placeholder="搜索买进单：商品 / 订单号 / 卖家" />
+              <input class="input" v-model="purchaseQuery" placeholder="搜索买进单：商品 / 订单号 / 卖家"
+                     aria-label="搜索可关联的买进单" />
               <button class="btn btn-sm" @click="autoSelectSimilar()">匹配相似</button>
               <button class="btn btn-sm" @click="purchasePickerOpen = !purchasePickerOpen">
                 {{ purchasePickerOpen ? '收起列表' : '选择买单' }}
@@ -1025,7 +1026,8 @@ function onHeadEnd() {
             </div>
             <div v-if="purchasePickerOpen" class="linkbox-list">
               <label v-for="p in purchaseCandidates" :key="p.id" class="linkbox-item" :class="{ on: selectedPurchases.includes(p.id) }">
-                <input type="checkbox" :checked="selectedPurchases.includes(p.id)" @change="togglePurchase(p.id)" />
+                <input type="checkbox" :checked="selectedPurchases.includes(p.id)" @change="togglePurchase(p.id)"
+                       :aria-label="`关联买进单 ${p.product || '未命名商品'}`" />
                 <div class="linkbox-main">
                   <div class="linkbox-title">{{ p.product || '未命名商品' }}</div>
                   <div class="muted" style="font-size:11px">{{ p.buy_order_no || '—' }} · {{ p.buy_time || '—' }}</div>
@@ -1066,7 +1068,8 @@ function onHeadEnd() {
         <!-- 商品名 -->
         <div class="field" style="margin-top:16px">
           <label>商品名称 <span class="req">*</span><HelpTip text="同名是自动配对的依据：买进侧与卖出侧商品名一致时，会合并成一条记录并算利润" /></label>
-          <input class="input" v-model="form.product" placeholder="如：网心云OEC-Turbo盒子" :class="{ 'is-err': errors.product }" @input="clearErr('product')" />
+          <input class="input" v-model="form.product" placeholder="如：网心云OEC-Turbo盒子" aria-label="商品名称"
+                 :class="{ 'is-err': errors.product }" @input="clearErr('product')" />
           <span v-if="errors.product" class="field-err">{{ errors.product }}</span>
           <div v-if="priceHint && !readonly" class="price-hint">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
@@ -1086,7 +1089,7 @@ function onHeadEnd() {
         <!-- 货物来源：买卖两侧都可能有（卖单可能是代卖/回收来的货），放在顶层 -->
         <div class="field" style="margin-top:12px">
           <label>货物来源<HelpTip text="这批货是怎么来的：自采=自己采购，回收=从回收商收，寄卖=代卖别人的货（无进货成本，卖出后钱归寄卖人），代采=垫钱帮别人买（成本归委托人），闲鱼=从闲鱼买入。寄卖 / 代采都不计入自己的经营口径，只在「寄卖」页单独记账。闲鱼同步进来的单据自动记为「闲鱼」，卖单也能单独标。" /></label>
-          <select class="select" v-model="form.source">
+          <select class="select" v-model="form.source" aria-label="货物来源">
             <option value="">未标注</option>
             <option value="自采">自采</option>
             <option value="回收">回收</option>
@@ -1100,7 +1103,7 @@ function onHeadEnd() {
         <div class="field" style="margin-top:12px">
           <label>归属{{ form.source === '寄卖' || form.source === '代采' ? '（必填）' : '' }}<HelpTip text="这单货是谁的。寄卖填寄卖人、代采填委托人（如「张三」），之后能在「寄卖」页单独查他寄卖了多少钱 / 应还你多少钱、多少单、卖了什么；其它单据也能选填。输入关键字自动匹配，点输入框看全部已有归属。" /></label>
           <div class="owner-pick">
-            <input class="input" v-model="form.owner" placeholder="输入或选择归属人，如 张三"
+            <input class="input" v-model="form.owner" placeholder="输入或选择归属人，如 张三" aria-label="归属人"
                    autocomplete="off" @focus="ownerOpen = true" @input="ownerOpen = true" @blur="ownerBlur" />
             <div v-if="ownerAll.length" class="owner-quick">
               <button v-for="n in ownerAll.slice(0, 8)" :key="'q'+n" type="button" class="owner-quick-chip"
@@ -1125,17 +1128,19 @@ function onHeadEnd() {
           <div class="form-grid tight">
             <div class="field">
               <label>买进价</label>
-              <input class="input num" type="number" step="0.01" v-model.number="form.buy_price" placeholder="0.00" :class="{ 'is-err': errors.buy_price }" @input="clearErr('buy_price')" />
+              <input class="input num" type="number" step="0.01" v-model.number="form.buy_price" placeholder="0.00"
+                     aria-label="买进价" :class="{ 'is-err': errors.buy_price }" @input="clearErr('buy_price')" />
               <span v-if="errors.buy_price" class="field-err">{{ errors.buy_price }}</span>
             </div>
             <div class="field">
               <label>件数<HelpTip text="一单多件：同一单里买了多个同款时，填实际数量" /></label>
-              <input class="input num" type="number" step="1" min="1" v-model.number="form.quantity" placeholder="1" :class="{ 'is-err': errors.quantity }" @input="clearErr('quantity')" />
+              <input class="input num" type="number" step="1" min="1" v-model.number="form.quantity" placeholder="1"
+                     aria-label="件数" :class="{ 'is-err': errors.quantity }" @input="clearErr('quantity')" />
               <span v-if="errors.quantity" class="field-err">{{ errors.quantity }}</span>
             </div>
             <div class="field">
               <label>买进运费</label>
-              <input class="input num" type="number" step="0.01" v-model.number="form.buy_shipping" placeholder="0.00"
+              <input class="input num" type="number" step="0.01" v-model.number="form.buy_shipping" placeholder="0.00" aria-label="买进运费"
                      :disabled="form.buy_ship_tag === '自提'" :class="{ 'is-err': errors.buy_shipping }" @input="clearErr('buy_shipping')" />
               <span v-if="form.buy_ship_tag === '自提'" class="field-hint muted">自提：买运费固定 0</span>
               <span v-if="errors.buy_shipping" class="field-err">{{ errors.buy_shipping }}</span>
@@ -1143,28 +1148,30 @@ function onHeadEnd() {
             <div class="field full">
               <label>运费标签</label>
               <div class="tag-row">
-                <select class="select" :value="customBuy ? '__new__' : form.buy_ship_tag" @change="onTagSelect('buy', $event)">
+                <select class="select" :value="customBuy ? '__new__' : form.buy_ship_tag" aria-label="买进运费标签"
+                        @change="onTagSelect('buy', $event)">
                   <option value="">无标签</option>
                   <option v-for="t in tags" :key="t.id" :value="t.name">{{ t.name }}</option>
                   <option value="__new__">+ 新增标签…</option>
                 </select>
                 <template v-if="customBuy">
-                  <input class="input" v-model="newTag" placeholder="输入新标签名" @keyup.enter="saveNewTag" />
+                  <input class="input" v-model="newTag" placeholder="输入新标签名" aria-label="新增买进运费标签"
+                         @keyup.enter="saveNewTag" />
                   <button class="btn btn-sm" @click="saveNewTag">添加</button>
                 </template>
               </div>
             </div>
             <div class="field">
               <label>买进订单号</label>
-              <input class="input mono" v-model="form.buy_order_no" placeholder="纯数字，可检索" />
+              <input class="input mono" v-model="form.buy_order_no" placeholder="纯数字，可检索" aria-label="买进订单号" />
             </div>
             <div class="field">
               <label>卖家昵称</label>
-              <input class="input" v-model="form.buy_counterparty" placeholder="对方昵称，可检索" />
+              <input class="input" v-model="form.buy_counterparty" placeholder="对方昵称，可检索" aria-label="卖家昵称" />
             </div>
             <div class="field full">
               <label>买进时间</label>
-              <input class="input" type="datetime-local" step="1" v-model="buyTimeLocal" />
+              <input class="input" type="datetime-local" step="1" v-model="buyTimeLocal" aria-label="买进时间" />
               <span v-if="timeApprox" class="time-approx-tip">仅还原出日期（来自支付宝交易号），时分秒为 00:00:00，可对照截图手动补全</span>
             </div>
           </div>
@@ -1182,14 +1189,16 @@ function onHeadEnd() {
           <div class="form-grid tight">
             <div class="field">
               <label>成交价</label>
-              <input class="input num" type="number" step="0.01" v-model.number="form.sell_price" placeholder="0.00" :class="{ 'is-err': errors.sell_price }" @input="clearErr('sell_price'); recalcNet()" />
+              <input class="input num" type="number" step="0.01" v-model.number="form.sell_price" placeholder="0.00"
+                     aria-label="成交价" :class="{ 'is-err': errors.sell_price }" @input="clearErr('sell_price'); recalcNet()" />
               <span v-if="errors.sell_price" class="field-err">{{ errors.sell_price }}</span>
             </div>
             <div class="field" v-if="!matchedParent">
               <label>单件成本<HelpTip text="这批货的进货成本（含买运费分摊）。关联了买进单时会自动带出，没关联就直接填这里；填了它，明细和统计里的利润才会扣掉成本。已经在联单里、联单又有买进单的卖单，会按成交价占比自动分摊一份成本，不用手填。" /></label>
-              <input class="input num" type="number" step="0.01" v-model.number="form.unit_cost" placeholder="0.00" :disabled="form.cost_free" />
+              <input class="input num" type="number" step="0.01" v-model.number="form.unit_cost" placeholder="0.00"
+                     aria-label="单件成本" :disabled="form.cost_free" />
               <label class="cf-check">
-                <input type="checkbox" v-model="form.cost_free" />
+                <input type="checkbox" v-model="form.cost_free" aria-label="这单没有货品成本" />
                 这单没有货品成本（代卖 / 寄卖 / 赠送）
               </label>
               <span v-if="allocCost > 0 && !Number(form.unit_cost)" class="field-hint muted">
@@ -1198,17 +1207,21 @@ function onHeadEnd() {
             </div>
             <div class="field">
               <label>软件服务费<HelpTip text="成本项，从成交额里扣除" /></label>
-              <input class="input num" type="number" step="0.01" v-model.number="form.sell_fee" placeholder="0.00" :class="{ 'is-err': errors.sell_fee }" @input="clearErr('sell_fee'); recalcNet()" />
+              <input class="input num" type="number" step="0.01" v-model.number="form.sell_fee" placeholder="0.00"
+                     aria-label="软件服务费" :class="{ 'is-err': errors.sell_fee }" @input="clearErr('sell_fee'); recalcNet()" />
               <span v-if="errors.sell_fee" class="field-err">{{ errors.sell_fee }}</span>
             </div>
             <div class="field">
               <label>无忧卖类目软件服务费<HelpTip text="成本项，从成交额里扣除" /></label>
-              <input class="input num" type="number" step="0.01" v-model.number="form.sell_wuyou_fee" placeholder="0.00" :class="{ 'is-err': errors.sell_wuyou_fee }" @input="clearErr('sell_wuyou_fee'); recalcNet()" />
+              <input class="input num" type="number" step="0.01" v-model.number="form.sell_wuyou_fee" placeholder="0.00"
+                     aria-label="无忧卖类目软件服务费" :class="{ 'is-err': errors.sell_wuyou_fee }"
+                     @input="clearErr('sell_wuyou_fee'); recalcNet()" />
               <span v-if="errors.sell_wuyou_fee" class="field-err">{{ errors.sell_wuyou_fee }}</span>
             </div>
             <div class="field">
               <label>到手价<HelpTip text="自动计算：成交价 − 卖运费 − 软件服务费 − 无忧卖类目费。改了其中任一项会立刻重算；平台有补贴/优惠时可以手动改，保存以这里为准。到手价只用于展示与对账，不参与净利润计算。" /></label>
-              <input class="input num" type="number" step="0.01" v-model.number="form.sell_net" placeholder="0.00" :class="{ 'is-err': errors.sell_net }" @input="clearErr('sell_net')" />
+              <input class="input num" type="number" step="0.01" v-model.number="form.sell_net" placeholder="0.00"
+                     aria-label="到手价" :class="{ 'is-err': errors.sell_net }" @input="clearErr('sell_net')" />
               <span v-if="errors.sell_net" class="field-err">{{ errors.sell_net }}</span>
             </div>
             <div class="field">
@@ -1216,7 +1229,7 @@ function onHeadEnd() {
                 <label>卖出运费<HelpTip text="成本项，从利润里扣除" /></label>
                 <a class="link link-mini" @click="autoNet">按 成交价−服务费 算到手</a>
               </div>
-              <input class="input num" type="number" step="0.01" v-model.number="form.sell_shipping" placeholder="0.00"
+              <input class="input num" type="number" step="0.01" v-model.number="form.sell_shipping" placeholder="0.00" aria-label="卖出运费"
                      :disabled="form.sell_ship_tag === '自提'" :class="{ 'is-err': errors.sell_shipping }" @input="clearErr('sell_shipping'); recalcNet()" />
               <span v-if="form.sell_ship_tag === '自提'" class="field-hint muted">自提：卖运费固定 0</span>
               <span v-if="errors.sell_shipping" class="field-err">{{ errors.sell_shipping }}</span>
@@ -1224,28 +1237,30 @@ function onHeadEnd() {
             <div class="field full">
               <label>运费标签</label>
               <div class="tag-row">
-                <select class="select" :value="customSell ? '__new__' : form.sell_ship_tag" @change="onTagSelect('sell', $event)">
+                <select class="select" :value="customSell ? '__new__' : form.sell_ship_tag" aria-label="卖出运费标签"
+                        @change="onTagSelect('sell', $event)">
                   <option value="">无标签</option>
                   <option v-for="t in tags" :key="t.id" :value="t.name">{{ t.name }}</option>
                   <option value="__new__">+ 新增标签…</option>
                 </select>
                 <template v-if="customSell">
-                  <input class="input" v-model="newTag" placeholder="输入新标签名" @keyup.enter="saveNewTag" />
+                  <input class="input" v-model="newTag" placeholder="输入新标签名" aria-label="新增卖出运费标签"
+                         @keyup.enter="saveNewTag" />
                   <button class="btn btn-sm" @click="saveNewTag">添加</button>
                 </template>
               </div>
             </div>
             <div class="field">
               <label>卖出订单号</label>
-              <input class="input mono" v-model="form.sell_order_no" placeholder="纯数字，可检索" />
+              <input class="input mono" v-model="form.sell_order_no" placeholder="纯数字，可检索" aria-label="卖出订单号" />
             </div>
             <div class="field">
               <label>买家昵称</label>
-              <input class="input" v-model="form.sell_counterparty" placeholder="对方昵称，可检索" />
+              <input class="input" v-model="form.sell_counterparty" placeholder="对方昵称，可检索" aria-label="买家昵称" />
             </div>
             <div class="field full">
               <label>卖出时间</label>
-              <input class="input" type="datetime-local" step="1" v-model="sellTimeLocal" />
+              <input class="input" type="datetime-local" step="1" v-model="sellTimeLocal" aria-label="卖出时间" />
               <span v-if="timeApprox" class="time-approx-tip">仅还原出日期（来自支付宝交易号），时分秒为 00:00:00，可对照截图手动补全</span>
             </div>
           </div>
@@ -1254,7 +1269,7 @@ function onHeadEnd() {
 
         <div class="field" style="margin-top:14px">
           <label>备注</label>
-          <input class="input" v-model="form.note" placeholder="地址、支付宝交易号等任意信息，均可被检索" />
+          <input class="input" v-model="form.note" placeholder="地址、支付宝交易号等任意信息，均可被检索" aria-label="备注" />
         </div>
 
         <div v-if="isEdit" class="field attachment-field">

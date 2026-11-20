@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 )
@@ -43,6 +44,103 @@ var (
 	updateGOARCH  = runtime.GOARCH
 	updateExePath = os.Executable
 )
+
+type updateProgressInfo struct {
+	Active          bool   `json:"active"`
+	Stage           string `json:"stage"`
+	Message         string `json:"message"`
+	Percent         int    `json:"percent"`
+	DownloadedBytes int64  `json:"downloaded_bytes"`
+	TotalBytes      int64  `json:"total_bytes"`
+	From            string `json:"from"`
+	To              string `json:"to"`
+	Error           string `json:"error"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+var updateProgress = struct {
+	sync.Mutex
+	info updateProgressInfo
+}{}
+
+func beginUpdateProgress(from string) bool {
+	updateProgress.Lock()
+	defer updateProgress.Unlock()
+	if updateProgress.info.Active {
+		return false
+	}
+	updateProgress.info = updateProgressInfo{
+		Active: true, Stage: "checking", Message: "正在检查最新版本…",
+		Percent: 4, From: from, UpdatedAt: nowStr(),
+	}
+	return true
+}
+
+func setUpdateStage(stage, message string, percent int) {
+	updateProgress.Lock()
+	defer updateProgress.Unlock()
+	updateProgress.info.Active = true
+	updateProgress.info.Stage = stage
+	updateProgress.info.Message = message
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	updateProgress.info.Percent = percent
+	updateProgress.info.Error = ""
+	updateProgress.info.UpdatedAt = nowStr()
+}
+
+func setUpdateDownloadProgress(done, total int64) {
+	updateProgress.Lock()
+	defer updateProgress.Unlock()
+	updateProgress.info.Active = true
+	updateProgress.info.Stage = "downloading"
+	updateProgress.info.DownloadedBytes = done
+	updateProgress.info.TotalBytes = total
+	if total > 0 {
+		pct := 8 + int(float64(done)/float64(total)*72)
+		if pct < 8 {
+			pct = 8
+		}
+		if pct > 80 {
+			pct = 80
+		}
+		updateProgress.info.Percent = pct
+		updateProgress.info.Message = fmt.Sprintf("正在下载安装包… %d%%", int(float64(done)/float64(total)*100))
+	} else {
+		updateProgress.info.Percent = 8
+		updateProgress.info.Message = "正在下载安装包…"
+	}
+	updateProgress.info.UpdatedAt = nowStr()
+}
+
+func finishUpdateProgress(stage, message, errText string, percent int) {
+	updateProgress.Lock()
+	defer updateProgress.Unlock()
+	updateProgress.info.Active = false
+	updateProgress.info.Stage = stage
+	updateProgress.info.Message = message
+	updateProgress.info.Error = errText
+	updateProgress.info.Percent = percent
+	updateProgress.info.UpdatedAt = nowStr()
+}
+
+func updateProgressSnapshot() updateProgressInfo {
+	updateProgress.Lock()
+	defer updateProgress.Unlock()
+	return updateProgress.info
+}
+
+func handleUpdateProgress(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, 405, "method not allowed")
+		return
+	}
+	writeJSON(w, updateProgressSnapshot())
+}
 
 // updateHTTPClient 每次按当前设置构造：容器里多半要经过代理才能连 GitHub，
 // 代理写进设置就立即生效，不用重启服务。
@@ -256,75 +354,93 @@ func handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "一键更新只支持 Linux (amd64) 容器；当前是 "+updateGOOS+"/"+updateGOARCH+"，请手动下载替换")
 		return
 	}
+	if !beginUpdateProgress(buildVersion) {
+		writeError(w, 409, "已有一次更新正在进行，请等它完成后再试")
+		return
+	}
+	fail := func(code int, message string) {
+		finishUpdateProgress("error", message, message, updateProgressSnapshot().Percent)
+		writeError(w, code, message)
+	}
+
+	setUpdateStage("checking", "正在连接 GitHub 检查最新版本…", 6)
 	rel, err := fetchLatestRelease()
 	if err != nil {
 		if errors.Is(err, errNoRelease) {
-			writeError(w, 400, "没有可用的发布版本")
+			fail(400, "没有可用的发布版本")
 			return
 		}
-		writeError(w, 502, err.Error())
+		fail(502, err.Error())
 		return
 	}
 	latest := strings.TrimPrefix(strings.TrimSpace(rel.TagName), "v")
 	if compareVersions(latest, buildVersion) <= 0 {
-		writeError(w, 400, "当前已经是最新版本（"+buildVersion+"）")
+		fail(400, "当前已经是最新版本（"+buildVersion+"）")
 		return
 	}
+	updateProgress.Lock()
+	updateProgress.info.To = latest
+	updateProgress.Unlock()
+	setUpdateStage("checking", "已找到 v"+latest+"，正在确认安装包…", 8)
 	asset, ok := pickAsset(rel)
 	if !ok {
-		writeError(w, 400, "这次发布里没有 "+updateAssetLinux+"，请检查发布产物")
+		fail(400, "这次发布里没有 "+updateAssetLinux+"，请检查发布产物")
 		return
 	}
 	if asset.Size <= 0 || asset.Size > updateMaxBytes {
-		writeError(w, 400, "安装包大小异常，已取消更新")
+		fail(400, "安装包大小异常，已取消更新")
 		return
 	}
 
 	exe, err := updateExePath()
 	if err != nil {
-		writeError(w, 500, "找不到程序路径："+err.Error())
+		fail(500, "找不到程序路径："+err.Error())
 		return
 	}
 	dir := filepath.Dir(exe)
 	tmpDir := filepath.Join(dir, ".update")
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
-		writeError(w, 500, "创建更新目录失败：可能是容器内没有写权限")
+		fail(500, "创建更新目录失败：可能是容器内没有写权限")
 		return
 	}
 	tmpBin := filepath.Join(tmpDir, "xianyu-stat.new")
 
-	sum, err := downloadAsset(asset, tmpBin)
+	setUpdateDownloadProgress(0, asset.Size)
+	sum, err := downloadAsset(asset, tmpBin, setUpdateDownloadProgress)
 	if err != nil {
 		os.Remove(tmpBin)
-		writeError(w, 502, err.Error())
+		fail(502, err.Error())
 		return
 	}
+	setUpdateStage("verifying", "安装包下载完成，正在校验 SHA-256…", 84)
 	want, err := expectedDigest(rel, asset)
 	if err != nil {
 		os.Remove(tmpBin)
-		writeError(w, 400, err.Error())
+		fail(400, err.Error())
 		return
 	}
 	if !strings.EqualFold(sum, want) {
 		os.Remove(tmpBin)
-		writeError(w, 400, "校验失败：下载到的文件和发布时的 sha256 不一致，已中止更新")
+		fail(400, "校验失败：下载到的文件和发布时的 sha256 不一致，已中止更新")
 		return
 	}
 	if err := checkExecutable(tmpBin); err != nil {
 		os.Remove(tmpBin)
-		writeError(w, 400, err.Error())
+		fail(400, err.Error())
 		return
 	}
 
+	setUpdateStage("installing", "校验通过，正在准备替换程序…", 92)
 	script := filepath.Join(tmpDir, "apply.sh")
 	if err := writeApplyScript(script, dir, exe); err != nil {
-		writeError(w, 500, "写更新脚本失败："+err.Error())
+		fail(500, "写更新脚本失败："+err.Error())
 		return
 	}
 	if err := spawnDetached(script); err != nil {
-		writeError(w, 500, "启动更新脚本失败："+err.Error())
+		fail(500, "启动更新脚本失败："+err.Error())
 		return
 	}
+	setUpdateStage("restarting", "安装包已就绪，服务将在几秒内重启…", 96)
 	writeJSON(w, map[string]interface{}{
 		"ok": true, "from": buildVersion, "to": latest,
 		"message": "已开始更新，程序会在几秒内重启",
@@ -341,7 +457,25 @@ func assetURL(a ghAsset) string {
 	return a.URL
 }
 
-func downloadAsset(asset ghAsset, dest string) (string, error) {
+type progressWriter struct {
+	dst      io.Writer
+	done     int64
+	total    int64
+	last     time.Time
+	callback func(int64, int64)
+}
+
+func (w *progressWriter) Write(p []byte) (int, error) {
+	n, err := w.dst.Write(p)
+	w.done += int64(n)
+	if w.callback != nil && (w.last.IsZero() || time.Since(w.last) >= 120*time.Millisecond) {
+		w.last = time.Now()
+		w.callback(w.done, w.total)
+	}
+	return n, err
+}
+
+func downloadAsset(asset ghAsset, dest string, onProgress func(int64, int64)) (string, error) {
 	req, err := http.NewRequest(http.MethodGet, assetURL(asset), nil)
 	if err != nil {
 		return "", err
@@ -366,7 +500,8 @@ func downloadAsset(asset ghAsset, dest string) (string, error) {
 	}
 	defer f.Close()
 	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, updateMaxBytes+1))
+	pw := &progressWriter{dst: f, total: asset.Size, callback: onProgress}
+	n, err := io.Copy(io.MultiWriter(pw, h), io.LimitReader(resp.Body, updateMaxBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("下载中断：%v", err)
 	}
@@ -375,6 +510,9 @@ func downloadAsset(asset ghAsset, dest string) (string, error) {
 	}
 	if asset.Size > 0 && n != asset.Size {
 		return "", fmt.Errorf("下载不完整：应为 %d 字节，实际 %d", asset.Size, n)
+	}
+	if onProgress != nil {
+		onProgress(n, asset.Size)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }

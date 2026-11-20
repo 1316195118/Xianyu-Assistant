@@ -424,14 +424,14 @@ func handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 		needLogin = true
 	}
 	writeJSON(w, map[string]interface{}{
-		"shops":         out,
-		"shop_id":       cur,
-		"authenticated": cur > 0,
-		"role":          sessionRole(r),
-		"global":        authEnabled(),   // 是否设置了全局密码
-		"has_session":   hasAnySession(r), // 任意有效会话（全局或店铺）
+		"shops":          out,
+		"shop_id":        cur,
+		"authenticated":  cur > 0,
+		"role":           sessionRole(r),
+		"global":         authEnabled(),    // 是否设置了全局密码
+		"has_session":    hasAnySession(r), // 任意有效会话（全局或店铺）
 		"global_session": isGlobalAdmin(r), // 是否全局密码会话（可自由切换店铺）
-		"need_login":    needLogin,
+		"need_login":     needLogin,
 	})
 }
 
@@ -470,7 +470,7 @@ func handleShopLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	exp := time.Now().Add(7 * 24 * time.Hour).Unix()
-	setSessionCookie(w, signTokenShop(exp, "admin", in.ShopID))
+	setSessionCookie(w, r, signTokenShop(exp, "admin", in.ShopID))
 	writeJSON(w, map[string]interface{}{"ok": true, "shop_id": in.ShopID, "name": name})
 }
 
@@ -507,7 +507,7 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 				setSetting("auth_salt", salt)
 			}
 		}
-		setSessionCookie(w, signToken(exp))
+		setSessionCookie(w, r, signToken(exp))
 		writeJSON(w, map[string]bool{"ok": true})
 		return
 	}
@@ -519,7 +519,7 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 					setSetting("readonly_password_hash", nh)
 				}
 			}
-			setSessionCookie(w, signTokenRole(exp, "readonly"))
+			setSessionCookie(w, r, signTokenRole(exp, "readonly"))
 			writeJSON(w, map[string]bool{"ok": true})
 			return
 		}
@@ -527,10 +527,21 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	writeError(w, 401, "密码错误")
 }
 
-func setSessionCookie(w http.ResponseWriter, tok string) {
+func requestIsHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	proto := r.Header.Get("X-Forwarded-Proto")
+	if i := strings.IndexByte(proto, ','); i >= 0 {
+		proto = proto[:i]
+	}
+	return strings.EqualFold(strings.TrimSpace(proto), "https")
+}
+
+func setSessionCookie(w http.ResponseWriter, r *http.Request, tok string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: authCookie, Value: tok, Path: "/", MaxAge: 7 * 24 * 3600,
-		HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		HttpOnly: true, Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode,
 	})
 }
 
@@ -539,7 +550,10 @@ func handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: authCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	http.SetCookie(w, &http.Cookie{
+		Name: authCookie, Value: "", Path: "/", MaxAge: -1,
+		HttpOnly: true, Secure: requestIsHTTPS(r), SameSite: http.SameSiteLaxMode,
+	})
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -599,10 +613,7 @@ func handleAuthPassword(w http.ResponseWriter, r *http.Request) {
 	bumpAuthVersion()
 	// 设置/修改成功后无条件签发新会话，避免刚开启密码就被踢回登录页
 	tok := signToken(time.Now().Add(7 * 24 * time.Hour).Unix())
-	http.SetCookie(w, &http.Cookie{
-		Name: authCookie, Value: tok, Path: "/", MaxAge: 7 * 24 * 3600,
-		HttpOnly: true, SameSite: http.SameSiteLaxMode,
-	})
+	setSessionCookie(w, r, tok)
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
