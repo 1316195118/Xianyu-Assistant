@@ -34,9 +34,13 @@ func initDB() error {
 	if err != nil {
 		return err
 	}
-	// 少量并发连接：单连接时任何「rows 迭代中又发起查询」都会把整个服务拖死。
-	d.SetMaxOpenConns(4)
-	d.SetMaxIdleConns(4)
+	// 多人同时打开概览、明细和联单时，同一页面会并发读取多份数据。
+	// SQLite 可以并行读、串行写；保留更大的连接池用于读并发，写冲突仍由 busy_timeout 排队。
+	// 同时保留足够空闲连接，避免每次刷新都重新打开数据库文件。
+	d.SetMaxOpenConns(16)
+	d.SetMaxIdleConns(8)
+	d.SetConnMaxIdleTime(10 * time.Minute)
+	d.SetConnMaxLifetime(30 * time.Minute)
 	db = d
 	if err := createSchema(); err != nil {
 		return err

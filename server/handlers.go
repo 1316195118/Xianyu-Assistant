@@ -420,6 +420,13 @@ func handleBatchDelete(w http.ResponseWriter, r *http.Request) {
 // 支持与明细相同的 q/status/from/to 过滤（默认全量）。
 func handleTrend(w http.ResponseWriter, r *http.Request) {
 	where, args := buildWhere(r) // shop-scope: buildWhere 内部已带 shop_id 条件
+	sid := shopID(r)
+	if r.URL.Query().Get("all") == "1" {
+		sid = -1
+	}
+	// 派生分摊数据必须在主查询之前取完。不能拿着 items 的 Rows 再去申请第二条连接，
+	// 否则多用户同时刷新趋势时会把连接池里的连接互相锁死。
+	alloc := loadGroupAlloc(sid)
 	rows, err := db.Query("SELECT "+itemCols+" FROM items WHERE "+where, args...)
 	if err != nil {
 		writeError(w, 500, "趋势统计失败")
@@ -428,11 +435,6 @@ func handleTrend(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	// 与总账口径一致：成本在「卖出」时结转，不在「进货」时先记一笔。
 	// 否则进货月利润被压成负数、不进货的月份利润率虚高，和「已售成本」的说法也对不上。
-	sid := shopID(r)
-	if r.URL.Query().Get("all") == "1" {
-		sid = -1
-	}
-	alloc := loadGroupAlloc(sid)
 	byMonth := map[string]*trendBucket{}
 	var noTime trendBucket
 	for rows.Next() {
@@ -798,16 +800,16 @@ func listRecords(w http.ResponseWriter, r *http.Request) {
 	sqlStr := "SELECT " + itemCols + " FROM items WHERE " + where +
 		" ORDER BY " + orderClause(r) + " LIMIT ? OFFSET ?"
 	args2 := append(append([]interface{}{}, args...), pageSize, offset)
+	// 联单分摊成本：列表里把「自己没填成本、但联单有买进单」的卖单按分摊值显示，
+	// 否则编辑弹窗与行内成本会显示 0，和首页/排行的口径对不上。
+	// 必须在打开 items 查询前取完，避免多用户刷新明细时嵌套占用连接。
+	alloc := loadGroupAlloc(shopID(r))
 	rows, err := db.Query(sqlStr, args2...)
 	if err != nil {
 		writeError(w, 500, "查询失败")
 		return
 	}
 	defer rows.Close()
-
-	// 联单分摊成本：列表里把「自己没填成本、但联单有买进单」的卖单按分摊值显示，
-	// 否则编辑弹窗与行内成本会显示 0，和首页/排行的口径对不上。
-	alloc := loadGroupAlloc(shopID(r))
 
 	items := []Item{}
 	for rows.Next() {
@@ -1371,12 +1373,6 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	// 与商品利润排行同一口径，否则首页净利润会因为联单卖单成本是 0 而虚高。
 	alloc := loadGroupAlloc(sid)
 
-	rows, err := db.Query("SELECT "+itemCols+" FROM items WHERE "+where, args...)
-	if err != nil {
-		writeError(w, 500, "统计失败")
-		return
-	}
-
 	var s Stats
 	// 在联单里的明细 id：判断「无成本卖单」要用——联单里的卖单算联单的账，不算无成本。
 	var inGroupSet = map[int64]bool{}
@@ -1397,6 +1393,14 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		gRows.Close()
+	}
+
+	// 所有派生集合都准备好后再读主表。这样任何并发请求都只需占用一条连接，
+	// 多人同时刷新首页不会出现每个请求各拿一条、再一起等第二条连接的死锁。
+	rows, err := db.Query("SELECT "+itemCols+" FROM items WHERE "+where, args...)
+	if err != nil {
+		writeError(w, 500, "统计失败")
+		return
 	}
 	today := time.Now().Format("2006-01-02")
 	weekStart := time.Now().AddDate(0, 0, -int((time.Now().Weekday()+6)%7)).Format("2006-01-02")

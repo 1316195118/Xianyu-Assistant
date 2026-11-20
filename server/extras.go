@@ -345,6 +345,9 @@ func handlePriceHint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sid := shopID(r)
+	// 联单分摊：手填成本为 0 的卖单，用所在联单按售价占比分摊的单件成本。
+	// 先取完派生数据再打开历史卖单查询，避免多人并发输入时占用两条连接互相等待。
+	alloc := loadGroupAlloc(sid)
 	rows, err := db.Query(`SELECT sell_price, sell_time, id, unit_cost, parent_id FROM items
         WHERE shop_id=? AND product_norm=? AND sell_price>0 AND discarded_at=''
         ORDER BY id DESC LIMIT 100`, sid, nq)
@@ -353,8 +356,6 @@ func handlePriceHint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	// 联单分摊：手填成本为 0 的卖单，用所在联单按售价占比分摊的单件成本
-	alloc := loadGroupAlloc(sid)
 	var sum, max, min float64
 	count := 0
 	var lastPrice float64
@@ -449,6 +450,13 @@ func handleStatsExtras(w http.ResponseWriter, r *http.Request) {
 		gr.Close()
 	}
 
+	// 滞销阈值（天）：默认 60，可在设置中以 stale_threshold 覆盖。
+	// 必须在打开明细查询前读取；否则单连接测试和多用户并发都会在这里互相等待。
+	staleThreshold := 60
+	if v, e := strconv.Atoi(getSetting("stale_threshold")); e == nil && v > 0 {
+		staleThreshold = v
+	}
+
 	rows, err := db.Query("SELECT "+itemCols+" FROM items WHERE shop_id=? AND substr(created_at,1,10)>=?",
 		shopID(r), windowFrom)
 	if err != nil {
@@ -467,11 +475,6 @@ func handleStatsExtras(w http.ResponseWriter, r *http.Request) {
 	lastDeal := map[string]string{} // 商品 -> 最近成交日，用于近 90 天销售额
 	var holdingCost, salesTotal float64
 	unsold := 0
-	// 滞销阈值（天）：默认 60，可在设置中以 stale_threshold 覆盖
-	staleThreshold := 60
-	if v, e := strconv.Atoi(getSetting("stale_threshold")); e == nil && v > 0 {
-		staleThreshold = v
-	}
 	staleItems := []map[string]interface{}{}
 	for rows.Next() {
 		it, e := scanItem(rows)

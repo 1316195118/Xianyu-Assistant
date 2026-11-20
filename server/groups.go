@@ -840,6 +840,21 @@ func handleGroupCandidates(w http.ResponseWriter, r *http.Request) {
 	side := r.URL.Query().Get("side")
 	limit := 60
 
+	// 已经进了任何联单的明细都不再是候选——不管那张联单有没有完结。
+	// 理由：一条记录被两张联单同时引用，成本会被算两次，用户明确要求「候选里不允许出现」。
+	// 编辑某张联单时，它自己的成员由前端补回候选列表（标「已选」），不受这里影响。
+	// 先关闭派生集合查询，再打开主候选查询，避免高并发下连接池互锁。
+	grouped := map[int64]bool{}
+	if sr, e := db.Query(`SELECT DISTINCT gi.item_id FROM group_items gi
+        JOIN link_groups g ON g.id=gi.group_id WHERE g.shop_id=?`, shopID(r)); e == nil {
+		for sr.Next() {
+			var iid int64
+			if sr.Scan(&iid) == nil {
+				grouped[iid] = true
+			}
+		}
+		sr.Close()
+	}
 	rows, err := db.Query(`SELECT `+itemCols+` FROM items WHERE shop_id=? ORDER BY
         COALESCE(NULLIF(sell_time,''), NULLIF(buy_time,''), '') DESC, id DESC`, shopID(r))
 	if err != nil {
@@ -855,20 +870,6 @@ func handleGroupCandidates(w http.ResponseWriter, r *http.Request) {
 	out := []cand{}
 	nq := normProduct(similar)
 	qlow := strings.ToLower(q)
-	// 已经进了任何联单的明细都不再是候选——不管那张联单有没有完结。
-	// 理由：一条记录被两张联单同时引用，成本会被算两次，用户明确要求「候选里不允许出现」。
-	// 编辑某张联单时，它自己的成员由前端补回候选列表（标「已选」），不受这里影响。
-	grouped := map[int64]bool{}
-	if sr, e := db.Query(`SELECT DISTINCT gi.item_id FROM group_items gi
-        JOIN link_groups g ON g.id=gi.group_id WHERE g.shop_id=?`, shopID(r)); e == nil {
-		for sr.Next() {
-			var iid int64
-			if sr.Scan(&iid) == nil {
-				grouped[iid] = true
-			}
-		}
-		sr.Close()
-	}
 	for rows.Next() {
 		it, e := scanItem(rows)
 		if e != nil {
