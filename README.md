@@ -65,7 +65,7 @@
 ### 6. 部署简单
 
 - 单文件二进制：前端已经嵌进去，`./xianyu-stat` 起来就能用
-- 或者 `docker compose up -d`，数据用命名卷分开存，删容器不丢
+- 或者 `docker compose pull && docker compose up -d`，数据用命名卷分开存，删容器不丢
 
 ---
 
@@ -107,15 +107,7 @@ PORT=8080 ./xianyu-stat
 
 1. 在 UGOS 的「Docker → 项目」里新建项目 `xianyu-stat`，建议项目目录使用 `/volume1/docker/xianyu-stat`（以 NAS 实际共享目录为准）。
 2. 下载 [docker-compose.yml](https://raw.githubusercontent.com/1316195118/Xianyu-Assistant/master/docker-compose.yml)，或直接把仓库里的这个文件粘贴到 UGOS 的「Docker → 项目 → Compose」。镜像固定使用 `latest`，不需要填写版本号。
-3. 在项目目录新建 `.env`，只需要设置对外端口：
-
-   ```dotenv
-   XIANYU_PORT=18083
-   ```
-
-   Compose 的 `environment` 只保留运行端口 `PORT=8080` 和时区 `TZ=Asia/Shanghai`，其他路径由镜像和卷负责。若 NAS 不能直连 GitHub，进入应用「设置 → 版本信息 → 在线更新」填写代理即可。
-
-4. 在 UGOS 的 SSH 终端执行：
+3. 在 UGOS 的 SSH 终端执行：
 
    ```bash
    cd /volume1/docker/xianyu-stat
@@ -126,7 +118,9 @@ PORT=8080 ./xianyu-stat
 
    也可以在 UGOS 项目界面里直接执行「拉取镜像」再「启动」。`latest` 会在项目发布新镜像时自动指向最新版。
 
-5. 浏览器打开 `http://绿联NAS的局域网IP:18083`，第一次进入时设置管理密码。若改过 `.env` 里的 `XIANYU_PORT`，以实际端口为准。
+4. 浏览器打开 `http://绿联NAS的局域网IP:18083`，第一次进入时设置管理密码。需要换端口时，直接修改 Compose 文件里的 `"18083:8080"`。
+
+Compose 的 `environment` 只保留运行端口 `PORT=8080` 和时区 `TZ=Asia/Shanghai`，其他路径由镜像和卷负责。若 NAS 不能直连 GitHub，进入应用「设置 → 版本信息 → 在线更新」填写代理即可。
 
 日常维护：
 

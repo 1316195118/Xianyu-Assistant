@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
     ports:
       # 绿联 NAS 的 8080 常被系统服务占用，默认改用 18083。
-      - "${XIANYU_PORT:-18083}:8080"
+      - "18083:8080"
     environment:
       TZ: Asia/Shanghai
       PORT: "8080"

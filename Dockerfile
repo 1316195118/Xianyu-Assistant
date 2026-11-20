@@ -16,6 +16,7 @@ RUN chmod +x /app/xianyu-stat
 #   /data   数据库（DB_PATH）
 #   /config 其他运行期文件，如附件截图（CONFIG_DIR）
 #   /backup 备份（BACKUP_DIR）
+# Compose 只需覆盖 PORT 和 TZ；下面这些路径与默认端口已经内置。
 ENV DB_PATH=/data/xianyu.db \
     CONFIG_DIR=/config \
     BACKUP_DIR=/backup \
