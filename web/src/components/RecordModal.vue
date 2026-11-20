@@ -87,8 +87,7 @@ const blank = () => ({
 const form = reactive(blank())
 
 // ---------- 归属人（寄卖人 / 代采委托人）候选：输入单字自动匹配，点输入框看全部 ----------
-// 归属只属于「别人的货」：寄卖（代卖别人的货）、代采（垫钱帮别人买）。
-// 来源切到自己的货时自动清空，避免挂错人。
+// 寄卖 / 代采会按来源调整成本口径；其它来源也允许填写归属，切换来源时不能把用户刚填的人名清掉。
 watch(() => form.source, (v) => {
   if (hydrating) return
   if (v === '寄卖') {
@@ -99,8 +98,7 @@ watch(() => form.source, (v) => {
     // 代采是我先垫钱买：成本要如实填（后面按垫付金额向归属人收），只保留归属
     form.cost_free = false
   } else {
-    // 离开「别人的货」时撤掉归属与自动加的「无成本」（用户仍可手动勾）
-    form.owner = ''
+    // 其它来源只撤掉自动加的「无成本」，归属是用户手动填写的业务数据，必须保留。
     form.cost_free = false
   }
 })
@@ -113,9 +111,21 @@ const ownerCandidates = computed(() => {
   return ownerAll.value.filter((n) => !q || n.includes(q))
 })
 async function loadOwners() {
-  try { ownerAll.value = (await api.consignOwners()).owners || [] } catch (e) { /* 忽略 */ }
+  try {
+    const names = (await api.consignOwners()).owners || []
+    ownerAll.value = [...new Set(names.map((n) => String(n || '').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+  } catch (e) { /* 忽略 */ }
 }
-function pickOwner(n) { form.owner = n; ownerOpen.value = false }
+function pickOwner(n) {
+  const name = String(n || '').trim()
+  if (!name) return
+  form.owner = name
+  if (!ownerAll.value.includes(name)) {
+    ownerAll.value = [...ownerAll.value, name].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+  }
+  ownerOpen.value = false
+}
 function ownerBlur() { setTimeout(() => { ownerOpen.value = false }, 130) }
 
 // ---------- 同商品历史成交价：输入商品名后给定价参考 ----------
@@ -1104,7 +1114,8 @@ function onHeadEnd() {
           <label>归属{{ form.source === '寄卖' || form.source === '代采' ? '（必填）' : '' }}<HelpTip text="这单货是谁的。寄卖填寄卖人、代采填委托人（如「张三」），之后能在「寄卖」页单独查他寄卖了多少钱 / 应还你多少钱、多少单、卖了什么；其它单据也能选填。输入关键字自动匹配，点输入框看全部已有归属。" /></label>
           <div class="owner-pick">
             <input class="input" v-model="form.owner" placeholder="输入或选择归属人，如 张三" aria-label="归属人"
-                   autocomplete="off" @focus="ownerOpen = true" @input="ownerOpen = true" @blur="ownerBlur" />
+                   autocomplete="off" @focus="ownerOpen = true" @input="ownerOpen = true" @blur="ownerBlur"
+                   @keydown.enter.prevent="form.owner.trim() && pickOwner(form.owner)" />
             <div v-if="ownerAll.length" class="owner-quick">
               <button v-for="n in ownerAll.slice(0, 8)" :key="'q'+n" type="button" class="owner-quick-chip"
                       :class="{ on: form.owner === n }" @click="form.owner = n">{{ n }}</button>
@@ -1112,7 +1123,9 @@ function onHeadEnd() {
             <div v-if="ownerOpen" class="owner-list">
               <button v-for="n in ownerCandidates" :key="n" type="button" class="owner-item" @pointerdown.prevent="pickOwner(n)">{{ n }}</button>
               <button v-if="form.owner.trim() && !ownerCandidates.includes(form.owner.trim())"
-                      type="button" class="owner-item owner-new" @pointerdown.prevent="pickOwner(form.owner.trim())">新增「{{ form.owner.trim() }}」</button>
+                      type="button" class="owner-item owner-new" @pointerdown.prevent="pickOwner(form.owner.trim())">
+                新增「{{ form.owner.trim() }}」<span>Enter</span>
+              </button>
             </div>
           </div>
         </div>
@@ -1206,7 +1219,7 @@ function onHeadEnd() {
               </span>
             </div>
             <div class="field">
-              <label>软件服务费<HelpTip text="成本项，从成交额里扣除" /></label>
+              <label>软件服务费<HelpTip text="成本项，按软件服务费 + 基础软件服务费合计，从成交额里扣除" /></label>
               <input class="input num" type="number" step="0.01" v-model.number="form.sell_fee" placeholder="0.00"
                      aria-label="软件服务费" :class="{ 'is-err': errors.sell_fee }" @input="clearErr('sell_fee'); recalcNet()" />
               <span v-if="errors.sell_fee" class="field-err">{{ errors.sell_fee }}</span>

@@ -448,7 +448,7 @@ async function toggleSettle(g) {
   try {
     const r = await api.settleGroup(g.id, !isSettled(g))
     if (r.ok) {
-      emit('notify', r.settled ? '联单已完结，其买单不再计入在库占用资金' : '已重新开启联单')
+      emit('notify', r.settled ? '联单已完结并锁定对账' : '已重新开启联单')
       load()
     }
   } catch (e) { emit('notify', '操作失败：' + e.message, true) }

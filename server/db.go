@@ -451,13 +451,15 @@ func backfillGroupColumns() error {
 const dealTimeExpr = "COALESCE(NULLIF(sell_time,''), NULLIF(buy_time,''), '')"
 
 type gfBillRow struct {
-	OrderNo string
-	Actual  float64
-	Auction float64
-	Tech    float64
-	Wuyou   float64
-	Billed  bool
-	PostFee float64 // 商品邮费（POST_FEE）：预留给「闲鱼同步时带入买运费」。默认 0，开关关闭时不会写入。
+	OrderNo    string
+	Actual     float64
+	Auction    float64
+	Tech       float64
+	Basic      float64
+	Wuyou      float64
+	Billed     bool
+	FeeVersion int
+	PostFee    float64 // 商品邮费（POST_FEE）：预留给「闲鱼同步时带入买运费」。默认 0，开关关闭时不会写入。
 }
 
 func createBillCacheTable() error {
@@ -466,8 +468,10 @@ func createBillCacheTable() error {
         actual     REAL NOT NULL DEFAULT 0,
         auction    REAL NOT NULL DEFAULT 0,
         tech       REAL NOT NULL DEFAULT 0,
+        basic      REAL NOT NULL DEFAULT 0,
         wuyou      REAL NOT NULL DEFAULT 0,
         billed     INTEGER NOT NULL DEFAULT 0,
+        fee_version INTEGER NOT NULL DEFAULT 0,
         post_fee   REAL NOT NULL DEFAULT 0,
         fetched_at TEXT NOT NULL DEFAULT ''
     )`)
@@ -479,6 +483,22 @@ func createBillCacheTable() error {
 	db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('gf_bills') WHERE name='post_fee'").Scan(&pf)
 	if pf == 0 {
 		if _, err := db.Exec("ALTER TABLE gf_bills ADD COLUMN post_fee REAL NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+	}
+	// basic：基础软件服务费。旧版曾把它与软件服务费合在 tech 里；
+	// fee_version=0 表示旧缓存，下一次同步会重新拉取并拆分。
+	var basic int
+	db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('gf_bills') WHERE name='basic'").Scan(&basic)
+	if basic == 0 {
+		if _, err := db.Exec("ALTER TABLE gf_bills ADD COLUMN basic REAL NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+	}
+	var version int
+	db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('gf_bills') WHERE name='fee_version'").Scan(&version)
+	if version == 0 {
+		if _, err := db.Exec("ALTER TABLE gf_bills ADD COLUMN fee_version INTEGER NOT NULL DEFAULT 0"); err != nil {
 			return err
 		}
 	}
@@ -500,14 +520,14 @@ func loadBillCache(orderNos []string) map[string]*gfBillRow {
 		for _, s := range part {
 			args = append(args, s)
 		}
-		rows, err := db.Query("SELECT order_no, actual, auction, tech, wuyou, billed, post_fee FROM gf_bills WHERE order_no IN ("+ph+")", args...)
+		rows, err := db.Query("SELECT order_no, actual, auction, tech, basic, wuyou, billed, fee_version, post_fee FROM gf_bills WHERE order_no IN ("+ph+")", args...)
 		if err != nil {
 			return out
 		}
 		for rows.Next() {
 			var r gfBillRow
 			var billed int
-			if rows.Scan(&r.OrderNo, &r.Actual, &r.Auction, &r.Tech, &r.Wuyou, &billed, &r.PostFee) == nil {
+			if rows.Scan(&r.OrderNo, &r.Actual, &r.Auction, &r.Tech, &r.Basic, &r.Wuyou, &billed, &r.FeeVersion, &r.PostFee) == nil {
 				r.Billed = billed == 1
 				out[r.OrderNo] = &r
 			}
@@ -531,12 +551,14 @@ func saveBillFact(r gfBillRow) {
 	if r.Billed {
 		billed = 1
 	}
-	db.Exec(`INSERT INTO gf_bills(order_no,actual,auction,tech,wuyou,billed,post_fee,fetched_at)
-        VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(order_no) DO UPDATE SET
+	db.Exec(`INSERT INTO gf_bills(order_no,actual,auction,tech,basic,wuyou,billed,fee_version,post_fee,fetched_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(order_no) DO UPDATE SET
         actual=excluded.actual, auction=excluded.auction, tech=excluded.tech,
-        wuyou=excluded.wuyou, billed=excluded.billed, post_fee=excluded.post_fee,
+        basic=excluded.basic, wuyou=excluded.wuyou, billed=excluded.billed,
+        fee_version=excluded.fee_version, post_fee=excluded.post_fee,
         fetched_at=excluded.fetched_at`,
-		r.OrderNo, r.Actual, r.Auction, r.Tech, r.Wuyou, billed, r.PostFee, nowStr())
+		r.OrderNo, r.Actual, r.Auction, r.Tech, r.Basic, r.Wuyou, billed,
+		r.FeeVersion, r.PostFee, nowStr())
 }
 
 // createConsignTables 寄卖结算记录（谁结过多少钱），幂等建表。

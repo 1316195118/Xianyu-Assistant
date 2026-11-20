@@ -107,6 +107,81 @@ func TestGFSoldOrderPriceUsesTransactionTotal(t *testing.T) {
 	}
 }
 
+// 订单里的“软件服务费”必须等于软件服务费 + 基础软件服务费；
+// 无忧卖类目服务费单独保存，不混入这一项。
+func TestGFSoftwareFeeCombinesTechnicalAndBasic(t *testing.T) {
+	b := &gfBill{}
+	gfAddExpenseAmount(b, gfExpenseSoftwareBiz, 9)
+	gfAddExpenseAmount(b, gfExpenseBasicBiz, 5.4)
+	gfAddExpenseAmount(b, gfExpenseWuyouBiz, 14.4)
+
+	if b.Tech != 9 || b.Basic != 5.4 || b.Wuyou != 14.4 {
+		t.Fatalf("classified fee wrong: tech=%v basic=%v wuyou=%v", b.Tech, b.Basic, b.Wuyou)
+	}
+	if got := gfSoftwareFee(b); got != 14.4 {
+		t.Fatalf("software fee=%v, want 14.4 (technical + basic)", got)
+	}
+}
+
+// 旧缓存曾把两类软件服务费合在 tech 中，必须自动失效并在下次同步重新拉取。
+func TestGFBillCacheVersionInvalidatesLegacyFeeData(t *testing.T) {
+	if !gfBillCacheNeedsRefresh(nil) {
+		t.Error("missing cache should require a bill query")
+	}
+	if !gfBillCacheNeedsRefresh(&gfBillRow{Billed: true, FeeVersion: 0}) {
+		t.Error("legacy bill cache should be invalidated")
+	}
+	if !gfBillCacheNeedsRefresh(&gfBillRow{Billed: false, FeeVersion: gfBillCacheVersion}) {
+		t.Error("unbilled cache should be refreshed")
+	}
+	if gfBillCacheNeedsRefresh(&gfBillRow{Billed: true, FeeVersion: gfBillCacheVersion}) {
+		t.Error("current billed cache should remain valid")
+	}
+
+	newExtrasEnv(t)
+	const orderNo = "GF-FEE-CACHE"
+	saveBillFact(gfBillRow{
+		OrderNo: orderNo, Actual: 900, Auction: 900,
+		Tech: 9, Basic: 5.4, Wuyou: 14.4,
+		Billed: true, FeeVersion: gfBillCacheVersion,
+	})
+	got := loadBillCache([]string{orderNo})[orderNo]
+	if got == nil {
+		t.Fatal("bill cache row missing")
+	}
+	if got.Tech != 9 || got.Basic != 5.4 || got.Wuyou != 14.4 ||
+		got.FeeVersion != gfBillCacheVersion || !got.Billed {
+		t.Fatalf("cached fee split wrong: %+v", *got)
+	}
+}
+
+func TestGFBillCacheSchemaUpgradeAddsFeeSplitColumns(t *testing.T) {
+	newExtrasEnv(t)
+	if _, err := db.Exec(`DROP TABLE gf_bills`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE gf_bills (
+        order_no TEXT PRIMARY KEY, actual REAL NOT NULL DEFAULT 0,
+        auction REAL NOT NULL DEFAULT 0, tech REAL NOT NULL DEFAULT 0,
+        wuyou REAL NOT NULL DEFAULT 0, billed INTEGER NOT NULL DEFAULT 0,
+        post_fee REAL NOT NULL DEFAULT 0, fetched_at TEXT NOT NULL DEFAULT ''
+    )`); err != nil {
+		t.Fatal(err)
+	}
+	if err := createBillCacheTable(); err != nil {
+		t.Fatalf("createBillCacheTable upgrade: %v", err)
+	}
+	for _, col := range []string{"basic", "fee_version"} {
+		var n int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('gf_bills') WHERE name=?`, col).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Errorf("upgrade missing column %s", col)
+		}
+	}
+}
+
 // 预览只把与闲鱼金额不同的已有卖单标成待补正；补正一致后不应反复出现。
 func TestGFMarkExistingOnlyMarksFinancialDifferences(t *testing.T) {
 	newExtrasEnv(t)

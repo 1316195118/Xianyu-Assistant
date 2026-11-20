@@ -1,9 +1,11 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onActivated, onDeactivated, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { api } from '../api'
 import { confirm } from '../confirm'
 import { maskCloser } from '../maskClose'
 import { fmtMoney, fmtNum } from '../utils'
+
+const RecordModal = defineAsyncComponent(() => import('../components/RecordModal.vue'))
 
 // 寄卖账本：别人的货放在这卖（寄卖），或垫钱替别人买（代采），都按归属人分账、可结算。
 // 这两类单都不计入首页利润 / 成本（后端按 source 排除），只在这里统计。
@@ -15,6 +17,8 @@ const err = ref('')
 const loading = ref(true)
 const loadedAt = ref(null)
 const q = ref('')
+const searchOpen = ref(false)
+const searchIndex = ref(0)
 const active = ref('')
 const from = ref('')
 const to = ref('')
@@ -33,15 +37,29 @@ const historyKind = ref('sell')
 const history = ref([])
 const historyLoading = ref(false)
 const historyErr = ref('')
+
+const assignOpen = ref(false)
+const assignTarget = ref(null)
+const assignName = ref('')
+const assignNames = ref([])
+const assignBusy = ref(false)
+const assignErr = ref('')
+
+const itemDetail = ref(null)
+const itemLoadingId = ref(0)
+
 const settleDialog = ref(null)
 const historyDialog = ref(null)
+const assignDialog = ref(null)
 let settleReturnFocus = null
 let historyReturnFocus = null
+let assignReturnFocus = null
 
 let loadSeq = 0
 let settingRange = false
 const settleMask = maskCloser(closeSettle)
 const historyMask = maskCloser(closeHistory)
+const assignMask = maskCloser(closeAssign)
 
 const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100
@@ -106,6 +124,8 @@ onActivated(() => {
 onDeactivated(() => {
   settleOpen.value = false
   historyOpen.value = false
+  assignOpen.value = false
+  itemDetail.value = null
   document.body.classList.remove('overlay-open')
 })
 onBeforeUnmount(() => {
@@ -113,8 +133,8 @@ onBeforeUnmount(() => {
   document.body.classList.remove('overlay-open')
 })
 watch(() => props.refreshKey, load)
-watch([settleOpen, historyOpen], ([settling, viewingHistory]) => {
-  document.body.classList.toggle('overlay-open', settling || viewingHistory)
+watch([settleOpen, historyOpen, assignOpen, itemDetail], ([settling, viewingHistory, assigning, viewingItem]) => {
+  document.body.classList.toggle('overlay-open', settling || viewingHistory || assigning || !!viewingItem)
 })
 watch([from, to], (value, old) => {
   if (!settingRange && old && (value[0] !== old[0] || value[1] !== old[1])) rangeKey.value = 'custom'
@@ -123,14 +143,93 @@ watch([from, to], (value, old) => {
 
 const isBuy = computed(() => tab.value === 'buy')
 const total = computed(() => data.value?.total || {})
+const historyOrders = computed(() => Number(isBuy.value ? total.value.buy_history_orders : total.value.history_orders) || 0)
+const historyLatest = computed(() => String((isBuy.value ? total.value.buy_history_latest : total.value.history_latest) || ''))
 const rawList = computed(() => {
   if (!data.value) return []
   return (isBuy.value ? data.value.buyers : data.value.owners) || []
 })
+
+function normalizeOwnerSearch(value) {
+  return String(value || '').toLocaleLowerCase('zh-CN').replace(/[\s·•._\-，,。]/g, '')
+}
+
+function editDistance(a, b) {
+  const left = Array.from(a)
+  const right = Array.from(b)
+  const prev = Array.from({ length: right.length + 1 }, (_, i) => i)
+  for (let i = 1; i <= left.length; i++) {
+    let diagonal = prev[0]
+    prev[0] = i
+    for (let j = 1; j <= right.length; j++) {
+      const above = prev[j]
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diagonal + (left[i - 1] === right[j - 1] ? 0 : 1))
+      diagonal = above
+    }
+  }
+  return prev[right.length]
+}
+
+function ownerMatchScore(name, keyword) {
+  const source = normalizeOwnerSearch(name)
+  const key = normalizeOwnerSearch(keyword)
+  if (!key) return 0
+  if (!source) return -1
+  if (source === key) return 1000
+  if (source.startsWith(key)) return 900 - Math.max(0, source.length - key.length)
+  const at = source.indexOf(key)
+  if (at >= 0) return 760 - at * 12 - Math.max(0, source.length - key.length)
+
+  let cursor = 0
+  for (const ch of source) {
+    if (ch === key[cursor]) cursor++
+    if (cursor === key.length) break
+  }
+  if (cursor === key.length) return 560 - Math.max(0, source.length - key.length) * 8
+
+  const distance = editDistance(source, key)
+  const tolerance = key.length <= 2 ? 1 : Math.max(1, Math.floor(key.length / 3))
+  return distance <= tolerance ? 420 - distance * 80 - Math.abs(source.length - key.length) * 8 : -1
+}
+
+const allOwnerNames = computed(() => {
+  const names = isBuy.value ? data.value?.buyer_names : data.value?.owner_names
+  return Array.isArray(names) ? names : []
+})
+
+const ownerChoices = computed(() => {
+  const rangeMap = new Map(rawList.value.map((owner) => [owner.owner, owner]))
+  const order = new Map(allOwnerNames.value.map((name, index) => [name, index]))
+  const names = [...new Set([...allOwnerNames.value, ...rawList.value.map((owner) => owner.owner)])]
+    .filter((name) => name && name !== '未指定归属')
+  const keyword = q.value.trim()
+  return names
+    .map((name) => {
+      const current = rangeMap.get(name)
+      return {
+        owner: name,
+        inRange: !!current,
+        orders: Number(current?.orders) || 0,
+        pending: Number(current?.pending) || 0,
+        score: ownerMatchScore(name, keyword),
+        order: order.get(name) ?? Number.MAX_SAFE_INTEGER
+      }
+    })
+    .filter((item) => !keyword || item.score >= 0)
+    .sort((a, b) => {
+      if (!!b.inRange !== !!a.inRange) return Number(b.inRange) - Number(a.inRange)
+      if (keyword && b.score !== a.score) return b.score - a.score
+      if (!keyword && a.order !== b.order) return a.order - b.order
+      if (b.pending !== a.pending) return b.pending - a.pending
+      return a.owner.localeCompare(b.owner, 'zh-CN')
+    })
+    .slice(0, 8)
+})
+
 const list = computed(() => {
   const keyword = q.value.trim()
   const filtered = keyword
-    ? rawList.value.filter((owner) => String(owner.owner || '').includes(keyword))
+    ? rawList.value.filter((owner) => ownerMatchScore(owner.owner, keyword) >= 0)
     : [...rawList.value]
   return filtered.sort((a, b) => {
     const pendingOrder = Number(isPending(b.pending)) - Number(isPending(a.pending))
@@ -217,6 +316,8 @@ function switchTab(key) {
   if (tab.value === key) return
   tab.value = key
   active.value = ''
+  q.value = ''
+  searchOpen.value = false
 }
 
 function resetFilters() {
@@ -227,10 +328,63 @@ function resetFilters() {
 
 function clearSearch() {
   q.value = ''
+  searchIndex.value = 0
+  searchOpen.value = true
 }
 
 function pickOwner(name) {
   active.value = active.value === name ? '' : name
+}
+
+function onSearchFocus() {
+  searchOpen.value = true
+  searchIndex.value = 0
+}
+
+function onSearchInput() {
+  searchOpen.value = true
+  searchIndex.value = 0
+}
+
+function closeSearchSoon() {
+  setTimeout(() => {
+    searchOpen.value = false
+  }, 120)
+}
+
+function selectSearchOwner(owner) {
+  q.value = owner
+  active.value = owner
+  searchOpen.value = false
+  searchIndex.value = 0
+  if (!rawList.value.some((row) => row.owner === owner)) applyRange('all')
+}
+
+function onSearchKeydown(event) {
+  if (event.key === 'Escape') {
+    searchOpen.value = false
+    return
+  }
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    searchOpen.value = true
+    if (ownerChoices.value.length) {
+      searchIndex.value = (searchIndex.value + 1) % ownerChoices.value.length
+    }
+    return
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    searchOpen.value = true
+    if (ownerChoices.value.length) {
+      searchIndex.value = (searchIndex.value - 1 + ownerChoices.value.length) % ownerChoices.value.length
+    }
+    return
+  }
+  if (event.key === 'Enter' && searchOpen.value && ownerChoices.value.length) {
+    event.preventDefault()
+    selectSearchOwner(ownerChoices.value[Math.min(searchIndex.value, ownerChoices.value.length - 1)].owner)
+  }
 }
 
 function initial(name) {
@@ -249,11 +403,8 @@ function settleProgress(owner) {
   return base > 0 ? Math.min(100, Math.max(0, (settled / base) * 100)) : 0
 }
 
-function itemPreview(owner) {
-  const names = (owner.items || []).map((item) => item.product).filter(Boolean)
-  if (!names.length) return '暂无商品明细'
-  const visible = names.slice(0, 2).join('、')
-  return names.length > 2 ? `${visible} 等 ${names.length} 件` : visible
+function previewItems(owner) {
+  return (owner.items || []).filter((item) => item.product).slice(0, 2)
 }
 
 function dayOf(value) {
@@ -297,15 +448,29 @@ function closeHistory() {
   restoreFocus(historyReturnFocus)
 }
 
+function closeAssign() {
+  if (!assignOpen.value) return
+  assignOpen.value = false
+  assignErr.value = ''
+  restoreFocus(assignReturnFocus)
+}
+
 function onOverlayKeydown(event) {
   if (document.querySelector('.confirm-mask')) return
-  const dialog = settleOpen.value ? settleDialog.value : historyOpen.value ? historyDialog.value : null
+  const dialog = settleOpen.value
+    ? settleDialog.value
+    : historyOpen.value
+      ? historyDialog.value
+      : assignOpen.value
+        ? assignDialog.value
+        : null
   if (!dialog) return
 
   if (event.key === 'Escape') {
     event.preventDefault()
     if (settleOpen.value) closeSettle()
-    else closeHistory()
+    else if (historyOpen.value) closeHistory()
+    else closeAssign()
     return
   }
   if (event.key !== 'Tab') return
@@ -375,6 +540,72 @@ async function openHistory(owner) {
   historyOpen.value = true
   nextTick(() => historyDialog.value?.querySelector('.modal-head .x')?.focus())
   await fetchHistory()
+}
+
+async function openAssign(owner) {
+  assignReturnFocus = rememberFocus(document.activeElement)
+  assignTarget.value = owner
+  assignName.value = ''
+  assignErr.value = ''
+  assignBusy.value = false
+  assignOpen.value = true
+  nextTick(() => assignDialog.value?.querySelector('#cs-assign-owner')?.focus())
+  try {
+    assignNames.value = (await api.consignOwners()).owners || []
+  } catch (e) {
+    assignNames.value = []
+  }
+}
+
+async function submitAssign() {
+  if (assignBusy.value || !assignTarget.value) return
+  const owner = assignName.value.trim()
+  if (!owner) {
+    assignErr.value = '请填写归属人'
+    return
+  }
+  const itemIds = (assignTarget.value.items || []).map((item) => item.id).filter(Boolean)
+  if (!itemIds.length) {
+    assignErr.value = '没有可补录归属的单据'
+    return
+  }
+  assignBusy.value = true
+  assignErr.value = ''
+  try {
+    const result = await api.consignAssignOwner({
+      owner,
+      kind: isBuy.value ? 'buy' : 'sell',
+      item_ids: itemIds
+    })
+    closeAssign()
+    emit('notify', `已将 ${fmtNum(result.updated || itemIds.length)} 笔单据补到「${owner}」`)
+    await load()
+  } catch (e) {
+    assignErr.value = e.message || '补录归属失败'
+  } finally {
+    assignBusy.value = false
+  }
+}
+
+async function openItemDetail(item) {
+  if (!item?.id || itemLoadingId.value) return
+  itemLoadingId.value = item.id
+  try {
+    itemDetail.value = await api.record(item.id)
+  } catch (e) {
+    emit('notify', `读取商品详情失败：${e.message}`, true)
+  } finally {
+    itemLoadingId.value = 0
+  }
+}
+
+function closeItemDetail() {
+  itemDetail.value = null
+}
+
+function onItemSaved() {
+  closeItemDetail()
+  load()
 }
 
 async function delSettlement(row) {
@@ -480,10 +711,58 @@ async function delSettlement(row) {
           <span class="cs-date-sep" aria-hidden="true">至</span>
           <input class="input date-input" type="date" v-model="to" aria-label="结束日期" />
         </div>
-        <div class="search-wrap cs-search">
+        <div class="search-wrap cs-search cs-owner-search" :class="{ 'is-open': searchOpen }">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input class="input" v-model="q" :aria-label="isBuy ? '搜索委托人' : '搜索寄卖人'" :placeholder="isBuy ? '搜委托人' : '搜寄卖人'" />
+          <input
+            class="input"
+            v-model="q"
+            :aria-label="isBuy ? '搜索委托人' : '搜索寄卖人'"
+            :placeholder="isBuy ? '搜委托人，支持相似匹配' : '搜寄卖人，支持相似匹配'"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="cs-owner-options"
+            :aria-expanded="searchOpen"
+            :aria-activedescendant="searchOpen && ownerChoices.length ? `cs-owner-option-${searchIndex}` : undefined"
+            @focus="onSearchFocus"
+            @input="onSearchInput"
+            @blur="closeSearchSoon"
+            @keydown="onSearchKeydown"
+          />
           <button v-if="q" class="cs-search-clear" aria-label="清空搜索" @click="clearSearch">×</button>
+          <div v-if="searchOpen" id="cs-owner-options" class="cs-owner-suggest" role="listbox" :aria-label="isBuy ? '委托人候选' : '寄卖人候选'">
+            <div class="cs-owner-suggest-head">
+              <b>{{ q.trim() ? '相似匹配' : '快捷选择' }}</b>
+              <span>{{ q.trim() ? ownerChoices.length + ' 个候选' : '点选即筛选' }}</span>
+            </div>
+            <button
+              v-for="(choice, index) in ownerChoices"
+              :id="`cs-owner-option-${index}`"
+              :key="choice.owner"
+              type="button"
+              class="cs-owner-option"
+              :class="{ on: index === searchIndex }"
+              role="option"
+              :aria-selected="index === searchIndex"
+              @mouseenter="searchIndex = index"
+              @pointerdown.prevent="selectSearchOwner(choice.owner)"
+            >
+              <span class="cs-option-avatar" aria-hidden="true">{{ initial(choice.owner) }}</span>
+              <span class="cs-option-copy">
+                <b>{{ choice.owner }}</b>
+                <small v-if="choice.inRange">{{ choice.orders }} 单 · 待{{ isBuy ? '收' : '结' }} {{ fmtMoney(choice.pending) }}</small>
+                <small v-else>其他日期有单据</small>
+              </span>
+              <span v-if="choice.inRange && isPending(choice.pending)" class="cs-option-dot" aria-hidden="true"></span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+            <div v-if="!ownerChoices.length" class="cs-owner-suggest-empty">
+              没有找到相似归属人，换个字试试。
+            </div>
+            <div v-if="ownerChoices.length" class="cs-owner-suggest-foot">
+              <span>↑↓ 选择</span>
+              <span>Enter 确定</span>
+            </div>
+          </div>
         </div>
       </div>
       <button v-if="active" class="cs-active-filter" @click="active = ''">
@@ -531,6 +810,7 @@ async function delSettlement(row) {
               <svg class="cs-chev" :class="{ up: active === owner.owner }" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
             </button>
             <div class="cs-owner-actions">
+              <button v-if="owner.owner === '未指定归属'" class="btn btn-sm btn-quiet" @click="openAssign(owner)">补归属</button>
               <button class="btn btn-sm btn-primary" :disabled="!isPending(owner.pending)" @click="openSettle(owner)">
                 {{ isBuy ? '收款' : '结算' }}
               </button>
@@ -563,7 +843,23 @@ async function delSettlement(row) {
 
           <div class="cs-owner-preview">
             <span class="cs-preview-label">最近商品</span>
-            <span>{{ itemPreview(owner) }}</span>
+            <div class="cs-preview-list">
+              <button
+                v-for="item in previewItems(owner)"
+                :key="item.id"
+                type="button"
+                class="cs-preview-item"
+                :disabled="itemLoadingId === item.id"
+                :title="`查看「${item.product}」的完整信息`"
+                @click="openItemDetail(item)"
+              >
+                <span>{{ item.product }}</span>
+                <small v-if="itemLoadingId === item.id">读取中</small>
+                <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+              <span v-if="!previewItems(owner).length" class="cs-preview-empty">暂无商品明细</span>
+              <span v-else-if="owner.items.length > 2" class="cs-preview-more">等 {{ owner.items.length }} 件</span>
+            </div>
           </div>
 
           <div v-if="active === owner.owner" class="cs-owner-detail">
@@ -573,7 +869,10 @@ async function delSettlement(row) {
             </div>
             <div class="cs-item-row" v-for="item in owner.items" :key="item.id">
               <div class="cs-item-main">
-                <b :title="item.product">{{ item.product }}</b>
+                <button type="button" class="cs-item-link" :title="item.product" :disabled="itemLoadingId === item.id" @click="openItemDetail(item)">
+                  {{ item.product }}
+                  <span v-if="itemLoadingId === item.id">读取中…</span>
+                </button>
                 <span>{{ dayOf(isBuy ? item.buy_time : item.sell_time) }} · {{ item.counterparty || '未填写对方' }}</span>
               </div>
               <div class="cs-item-amount">
@@ -598,18 +897,74 @@ async function delSettlement(row) {
           <svg v-if="isBuy" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
           <svg v-else width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9"/><path d="M16 3.1a4 4 0 0 1 0 7.8"/></svg>
         </div>
-        <div class="empty-title">{{ rawList.length ? '没有匹配的往来人' : (isBuy ? '这个区间没有代采单' : '这个区间没有寄卖单') }}</div>
+        <div class="empty-title">
+          {{ rawList.length
+            ? '没有匹配的往来人'
+            : rangeKey !== 'all' && historyOrders
+              ? `${rangeText}没有${isBuy ? '代采' : '寄卖'}单`
+              : (isBuy ? '这个区间没有代采单' : '这个区间没有寄卖单') }}
+        </div>
         <div class="empty-sub">
           <template v-if="rawList.length">换个名字，或清除当前筛选后再看。</template>
+          <template v-else-if="rangeKey !== 'all' && historyOrders">
+            全部历史还有 {{ fmtNum(historyOrders) }} 单{{ historyLatest ? `，最近一单在 ${historyLatest.slice(0, 10)}` : '' }}。日期筛选没有改坏数据，切到全部时间即可查看。
+          </template>
           <template v-else-if="isBuy">录入买单时把「货物来源」选为「代采」并填写委托人，垫付款会按人汇总到这里。</template>
           <template v-else>录入或编辑卖单时把「货物来源」选为「寄卖」并填写寄卖人，销售款会按人汇总到这里。</template>
         </div>
         <div class="cs-empty-actions">
           <button v-if="rawList.length || q" class="btn btn-sm btn-quiet" @click="resetFilters">清除筛选</button>
-          <button v-else class="btn btn-sm btn-primary" @click="applyRange('all')">查看全部时间</button>
+          <button v-else-if="rangeKey !== 'all'" class="btn btn-sm btn-primary" @click="applyRange('all')">查看全部历史</button>
+          <button v-else class="btn btn-sm btn-quiet" @click="resetFilters">回到本月</button>
         </div>
       </div>
     </section>
+
+    <RecordModal v-if="itemDetail" :record="itemDetail" view-only @close="closeItemDetail" @saved="onItemSaved" />
+
+    <div v-if="assignOpen" class="modal-mask set-sheet" @pointerdown="assignMask.onPointerDown" @click="assignMask.onClick">
+      <div ref="assignDialog" class="modal cs-assign-modal" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="cs-assign-title">
+        <div class="modal-head cs-modal-head">
+          <div class="cs-modal-person">
+            <span class="cs-avatar" aria-hidden="true">?</span>
+            <div>
+              <span>{{ isBuy ? '补录代采委托人' : '补录寄卖人' }}</span>
+              <h3 id="cs-assign-title">未指定归属</h3>
+            </div>
+          </div>
+          <button class="x" @click="closeAssign" aria-label="关闭">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="cs-assign-copy">
+            这里有 {{ assignTarget?.items?.length || 0 }} 笔{{ isBuy ? '代采垫付' : '寄卖销售' }}还没有归属。补录后会一起移到该归属人名下，金额和单据内容不变。
+          </p>
+          <div class="field">
+            <label for="cs-assign-owner">归属人</label>
+            <input
+              id="cs-assign-owner"
+              v-model="assignName"
+              class="input"
+              list="cs-assign-owner-names"
+              maxlength="100"
+              autocomplete="off"
+              placeholder="输入姓名，或选择已有归属人"
+              @keydown.enter.prevent="submitAssign"
+            />
+            <datalist id="cs-assign-owner-names">
+              <option v-for="name in assignNames" :key="name" :value="name" />
+            </datalist>
+          </div>
+          <div v-if="assignErr" class="alert-err" role="alert">{{ assignErr }}</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" @click="closeAssign">取消</button>
+          <button class="btn btn-primary cs-confirm-btn" :disabled="assignBusy || !assignName.trim()" @click="submitAssign">
+            <span v-if="assignBusy" class="spin"></span>
+            {{ assignBusy ? '正在补录…' : '保存归属' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div v-if="settleOpen" class="modal-mask set-sheet" @pointerdown="settleMask.onPointerDown" @click="settleMask.onClick">
       <div ref="settleDialog" class="modal cs-settle-modal" role="dialog" aria-modal="true" tabindex="-1" :aria-label="isBuy ? '代采收款' : '寄卖结算'">

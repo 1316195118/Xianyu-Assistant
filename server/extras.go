@@ -1377,6 +1377,10 @@ func handleConsignStats(w http.ResponseWriter, r *http.Request) {
 	buyOrder := []string{}
 	allSellNet := map[string]float64{}
 	allBuyAmount := map[string]float64{}
+	allSellNames := map[string]int{}
+	allBuyNames := map[string]int{}
+	historySellOrders, historyBuyOrders := 0, 0
+	historySellLatest, historyBuyLatest := "", ""
 
 	for rows.Next() {
 		it, e := scanItem(rows)
@@ -1389,6 +1393,13 @@ func handleConsignStats(w http.ResponseWriter, r *http.Request) {
 		}
 		if it.Source == "寄卖" {
 			allSellNet[name] += it.SellNet
+			if name != "未指定归属" {
+				allSellNames[name]++
+			}
+			historySellOrders++
+			if it.SellTime > historySellLatest {
+				historySellLatest = it.SellTime
+			}
 			if !inRange(it.SellTime) {
 				continue
 			}
@@ -1415,6 +1426,13 @@ func handleConsignStats(w http.ResponseWriter, r *http.Request) {
 			}
 			amount := it.BuyPrice + it.BuyShipping
 			allBuyAmount[name] += amount
+			if name != "未指定归属" {
+				allBuyNames[name]++
+			}
+			historyBuyOrders++
+			if it.BuyTime > historyBuyLatest {
+				historyBuyLatest = it.BuyTime
+			}
 			if !inRange(it.BuyTime) {
 				continue
 			}
@@ -1470,15 +1488,32 @@ func handleConsignStats(w http.ResponseWriter, r *http.Request) {
 		bPending += v.Pending
 		bSettled += v.Settled
 	}
+	sortedNames := func(counts map[string]int) []string {
+		names := make([]string, 0, len(counts))
+		for name := range counts {
+			names = append(names, name)
+		}
+		sort.Slice(names, func(i, j int) bool {
+			if counts[names[i]] == counts[names[j]] {
+				return names[i] < names[j]
+			}
+			return counts[names[i]] > counts[names[j]]
+		})
+		return names
+	}
 
 	writeJSON(w, map[string]interface{}{
-		"owners": owners,
-		"buyers": buyers,
+		"owners":      owners,
+		"buyers":      buyers,
+		"owner_names": sortedNames(allSellNames),
+		"buyer_names": sortedNames(allBuyNames),
 		"total": map[string]interface{}{
 			"orders": tOrders, "sales": round2(tSales), "net": round2(tNet),
 			"pending": round2(tPending), "settled": round2(tSettled),
 			"buy_orders": bOrders, "buy_amount": round2(bAmount),
 			"buy_pending": round2(bPending), "buy_settled": round2(bSettled),
+			"history_orders": historySellOrders, "history_latest": historySellLatest,
+			"buy_history_orders": historyBuyOrders, "buy_history_latest": historyBuyLatest,
 		},
 	})
 }
@@ -1589,20 +1624,121 @@ func handleConsignOwners(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "方法不允许")
 		return
 	}
-	rows, err := db.Query(`SELECT DISTINCT owner FROM items WHERE shop_id=? AND owner<>'' AND source IN ('寄卖','代采') ORDER BY owner`, shopID(r))
+	rows, err := db.Query(`SELECT DISTINCT TRIM(owner) AS owner FROM items
+		WHERE shop_id=? AND TRIM(owner)<>'' ORDER BY owner`, shopID(r))
 	if err != nil {
 		writeError(w, 500, "读取归属列表失败")
 		return
 	}
 	defer rows.Close()
 	names := []string{}
+	seen := map[string]bool{}
 	for rows.Next() {
 		var n string
-		if rows.Scan(&n) == nil && strings.TrimSpace(n) != "" {
-			names = append(names, strings.TrimSpace(n))
+		if rows.Scan(&n) == nil {
+			n = strings.TrimSpace(n)
+			if n != "" && !seen[n] {
+				seen[n] = true
+				names = append(names, n)
+			}
 		}
 	}
 	writeJSON(w, map[string]interface{}{"owners": names})
+}
+
+// handleConsignAssignOwner POST /api/consign/assign-owner
+// 给历史遗留的「未指定归属」单据批量补录归属；只改仍然为空的对应来源单据。
+func handleConsignAssignOwner(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		writeError(w, 405, "方法不允许")
+		return
+	}
+	var in struct {
+		Owner   string  `json:"owner"`
+		Kind    string  `json:"kind"`
+		ItemIDs []int64 `json:"item_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, 400, "请求体解析失败")
+		return
+	}
+	owner := strings.TrimSpace(in.Owner)
+	if owner == "" {
+		writeError(w, 400, "请填写归属人")
+		return
+	}
+	source := map[string]string{"sell": "寄卖", "buy": "代采"}[in.Kind]
+	if source == "" {
+		writeError(w, 400, "账本类型无效")
+		return
+	}
+	if len(in.ItemIDs) == 0 || len(in.ItemIDs) > 500 {
+		writeError(w, 400, "没有待补归属的单据")
+		return
+	}
+
+	seen := map[int64]bool{}
+	ids := make([]int64, 0, len(in.ItemIDs))
+	for _, id := range in.ItemIDs {
+		if id > 0 && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		writeError(w, 400, "没有待补归属的单据")
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		writeError(w, 500, "补录归属失败")
+		return
+	}
+	defer tx.Rollback()
+	ts := nowStr()
+	updated := 0
+	for _, id := range ids {
+		res, e := tx.Exec(`UPDATE items SET owner=?, updated_at=?
+			WHERE id=? AND shop_id=? AND source=? AND TRIM(owner)=''`,
+			owner, ts, id, shopID(r), source)
+		if e != nil {
+			writeError(w, 500, "补录归属失败")
+			return
+		}
+		n, _ := res.RowsAffected()
+		updated += int(n)
+	}
+	if updated == 0 {
+		writeError(w, 409, "这些单据已经有归属，请刷新后重试")
+		return
+	}
+	// 同一账本的全部空归属都补录完时，把历史上落在占位名下的结算流水一起迁移。
+	// 否则订单换了归属人，之前的已结/已收金额会留在「未指定归属」，余额会凭空变大。
+	var remaining int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM items
+		WHERE shop_id=? AND source=? AND discarded_at='' AND TRIM(owner)=''`,
+		shopID(r), source).Scan(&remaining); err != nil {
+		writeError(w, 500, "补录归属失败")
+		return
+	}
+	moved := int64(0)
+	if remaining == 0 {
+		res, e := tx.Exec(`UPDATE consign_settlements SET owner=?
+			WHERE shop_id=? AND owner='未指定归属' AND kind=?`,
+			owner, shopID(r), in.Kind)
+		if e != nil {
+			writeError(w, 500, "迁移历史收款失败")
+			return
+		}
+		moved, _ = res.RowsAffected()
+	}
+	if err := tx.Commit(); err != nil {
+		writeError(w, 500, "补录归属失败")
+		return
+	}
+	realtimeHub.publish("POST", "/api/consign/assign-owner", "", "补录寄卖归属："+owner, shopID(r))
+	writeJSON(w, map[string]interface{}{"ok": true, "owner": owner, "updated": updated, "settlements_moved": moved})
 }
 
 // handleConsignSettlementByID DELETE /api/consign/settlements/{id}

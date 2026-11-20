@@ -107,7 +107,7 @@ func TestLinkGroupCRUD(t *testing.T) {
 	}
 }
 
-// 完结联单后，其买单应从全局「待售在库占用资金」中释放；取消完结应恢复。
+// 联单里的卖单带走成本后，在库只保留未卖部分；完结状态不额外整批释放。
 func TestSettleReleasesHolding(t *testing.T) {
 	os.Setenv("DB_PATH", t.TempDir()+"/settle.db")
 	defer os.Unsetenv("DB_PATH")
@@ -118,8 +118,8 @@ func TestSettleReleasesHolding(t *testing.T) {
 
 	// 一个买进单：货 1000 + 运费 20 = 1020 占用资金
 	pid, _ := insertItem(&Item{Product: "完结测试货", BuyPrice: 1000, BuyShipping: 20, Quantity: 1}, defaultShopID, nowStr())
-	// 一个卖出单（挂在上面买进单下）
-	sid, _ := insertItem(&Item{Product: "完结测试货", ParentID: pid, UnitCost: 1000, SellPrice: 1200, SellNet: 1180}, defaultShopID, nowStr())
+	// 一个卖出单（挂在上面买进单下，成本由联单分摊）
+	sid, _ := insertItem(&Item{Product: "完结测试货", ParentID: pid, SellPrice: 1200, SellNet: 1180}, defaultShopID, nowStr())
 
 	// 建一个含该买单的联单
 	res, _ := db.Exec("INSERT INTO link_groups(title,created_at,updated_at) VALUES(?,?,?)", "完结测试联单", nowStr(), nowStr())
@@ -128,7 +128,7 @@ func TestSettleReleasesHolding(t *testing.T) {
 		t.Fatalf("setGroupItems: %v", err)
 	}
 
-	// 新口径：进了联单的买单不再占在库，不需要完结
+	// 该批货只有 1 件且已全部卖出，联单分摊会冲掉完整采购成本。
 	before := callStats(t)
 	if before.HoldingCost > 0.01 {
 		t.Errorf("进联单后 holding=%v want 0", before.HoldingCost)
@@ -156,6 +156,46 @@ func TestSettleReleasesHolding(t *testing.T) {
 	}
 	if restore.ReleasedCost != 0 {
 		t.Errorf("恢复后 released=%v want 0", restore.ReleasedCost)
+	}
+}
+
+func TestHoldingSubtractsSoldCostsOnce(t *testing.T) {
+	os.Setenv("DB_PATH", t.TempDir()+"/holding.db")
+	defer os.Unsetenv("DB_PATH")
+	if err := initDB(); err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	// 普通采购 1020，手工填成本卖单冲掉 300，在库应剩 720。
+	insertItem(&Item{Product: "普通货", BuyPrice: 1000, BuyShipping: 20, Quantity: 2}, defaultShopID, nowStr())
+	insertItem(&Item{Product: "普通货", UnitCost: 300, SellPrice: 600, SellNet: 580}, defaultShopID, nowStr())
+
+	// 联单采购 500（2 件），卖出 1 件后按件数分摊 250；未卖的 250 仍在库。
+	buyID, _ := insertItem(&Item{Product: "联单货", BuyPrice: 500, Quantity: 2}, defaultShopID, nowStr())
+	sellID, _ := insertItem(&Item{Product: "联单货", ParentID: buyID, SellPrice: 600, SellNet: 580}, defaultShopID, nowStr())
+	res, err := db.Exec("INSERT INTO link_groups(title,created_at,updated_at) VALUES(?,?,?)",
+		"在库口径测试", nowStr(), nowStr())
+	if err != nil {
+		t.Fatalf("insert group: %v", err)
+	}
+	gid, _ := res.LastInsertId()
+	if err := setGroupItems(gid, []int64{buyID, sellID}, defaultShopID); err != nil {
+		t.Fatalf("setGroupItems: %v", err)
+	}
+
+	s := callStats(t)
+	if s.HoldingCost != 970 {
+		t.Errorf("holding=%v want 970（1020 − 300 + 500 − 250）", s.HoldingCost)
+	}
+	if got := round2(s.Stock30 + s.Stock60 + s.Stock90 + s.StockOld); got != s.HoldingCost {
+		t.Errorf("库龄分档合计=%v, holding=%v，应一致", got, s.HoldingCost)
+	}
+	if s.TotalInvest != 1520 {
+		t.Errorf("invest=%v want 1520", s.TotalInvest)
+	}
+	if s.TotalGoods != 550 {
+		t.Errorf("goods=%v want 550（手工 300 + 联单分摊 250）", s.TotalGoods)
 	}
 }
 

@@ -558,9 +558,16 @@ type gfBill struct {
 	Actual  float64 // 真实成交额（商品部分，不含运费）
 	Auction float64 // 商品标价
 	Cash    float64 // 货款收入（若有）
-	Tech    float64 // 软件服务费 + 基础软件服务费
+	Tech    float64 // 软件服务费
+	Basic   float64 // 基础软件服务费
 	Wuyou   float64 // 无忧卖服务费
 	HasInc  bool
+}
+
+// gfBillCacheNeedsRefresh 旧缓存没有拆分基础软件服务费，
+// 或缓存里尚未出账时，需要重新核对账单。
+func gfBillCacheNeedsRefresh(c *gfBillRow) bool {
+	return c == nil || !c.Billed || c.FeeVersion < gfBillCacheVersion
 }
 
 func (c *gfClient) incomeDetail(from, to string) (map[string]*gfBill, error) {
@@ -675,10 +682,34 @@ func (c *gfClient) incomeOrders(from, to string) ([]gfBillOrder, error) {
 	return out, nil
 }
 
+const (
+	gfExpenseWuyouBiz    = "IDLE_WYM_CATEGORY_FEE_STD_PROCESS"
+	gfExpenseSoftwareBiz = "IDLE_TECHNICAL_SERVICE_FEE_STD_PROCESS"
+	gfExpenseBasicBiz    = "IDLE_ALL_SERVICE_FEE_STD_PROCESS"
+	gfBillCacheVersion   = 1
+)
+
 var gfExpenseBiz = []string{
-	"IDLE_WYM_CATEGORY_FEE_STD_PROCESS",      // 无忧卖服务费
-	"IDLE_TECHNICAL_SERVICE_FEE_STD_PROCESS", // 软件服务费
-	"IDLE_ALL_SERVICE_FEE_STD_PROCESS",       // 基础软件服务费
+	gfExpenseWuyouBiz,    // 无忧卖类目软件服务费
+	gfExpenseSoftwareBiz, // 软件服务费
+	gfExpenseBasicBiz,    // 基础软件服务费
+}
+
+// gfAddExpenseAmount 把平台账单的三类扣费归到对应字段。
+// 订单里的“软件服务费”在生成同步行时统一取 Tech + Basic。
+func gfAddExpenseAmount(b *gfBill, biz string, amount float64) {
+	switch biz {
+	case gfExpenseWuyouBiz:
+		b.Wuyou += amount
+	case gfExpenseBasicBiz:
+		b.Basic += amount
+	case gfExpenseSoftwareBiz:
+		b.Tech += amount
+	}
+}
+
+func gfSoftwareFee(b *gfBill) float64 {
+	return gfRound2(b.Tech + b.Basic)
 }
 
 func (c *gfClient) expenseDetail(from, to string) (map[string]*gfBill, error) {
@@ -722,12 +753,7 @@ func (c *gfClient) expenseDetail(from, to string) (map[string]*gfBill, error) {
 					out[no] = b
 				}
 				amt := gfFloat(gfPath(r, "expendDeductAmount"))
-				switch biz {
-				case "IDLE_WYM_CATEGORY_FEE_STD_PROCESS":
-					b.Wuyou += amt
-				default:
-					b.Tech += amt
-				}
+				gfAddExpenseAmount(b, biz, amt)
 			}
 			if len(rows) < 50 {
 				break
@@ -991,6 +1017,7 @@ func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan
 						continue
 					}
 					b.Tech += v.Tech
+					b.Basic += v.Basic
 					b.Wuyou += v.Wuyou
 				}
 			}
@@ -1017,13 +1044,14 @@ func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan
 	needMonths := make([]string, 0, len(sell))
 	for _, o := range sell {
 		c := cache[o.OrderNo]
-		if c == nil || !c.Billed {
+		if gfBillCacheNeedsRefresh(c) {
 			needMonths = append(needMonths, o.Time)
 		}
 	}
 	ranges := gfBillRanges(needMonths)
 
 	bills := map[string]*gfBill{}
+	feeReady := map[string]bool{}
 	var warn []string
 	if len(ranges) > 0 {
 		for _, r := range ranges {
@@ -1054,10 +1082,19 @@ func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan
 					b := bills[k]
 					if b == nil {
 						bills[k] = v
-						continue
+					} else {
+						b.Tech += v.Tech
+						b.Basic += v.Basic
+						b.Wuyou += v.Wuyou
 					}
-					b.Tech += v.Tech
-					b.Wuyou += v.Wuyou
+				}
+				// 支出账单整体查询成功时，收入账单里的无手续费订单也算核对完成。
+				// 任何一类支出查询失败则不升级缓存版本，下次同步继续重试。
+				for k := range inc {
+					feeReady[k] = true
+				}
+				for k := range exp {
+					feeReady[k] = true
 				}
 			}
 		}
@@ -1065,16 +1102,25 @@ func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan
 
 	// 联网结果写回缓存：以后同一单不用再查，费用也不会因为某次查询失败而丢失
 	for k, v := range bills {
-		if v.HasInc || v.Tech > 0 || v.Wuyou > 0 {
+		if v.HasInc || v.Tech > 0 || v.Basic > 0 || v.Wuyou > 0 {
+			feeVersion := 0
+			if feeReady[k] {
+				feeVersion = gfBillCacheVersion
+			} else if old := cache[k]; old != nil {
+				v.Tech, v.Basic, v.Wuyou = old.Tech, old.Basic, old.Wuyou
+				feeVersion = old.FeeVersion
+			}
 			saveBillFact(gfBillRow{OrderNo: k, Actual: v.Actual, Auction: v.Auction,
-				Tech: v.Tech, Wuyou: v.Wuyou, Billed: v.HasInc})
+				Tech: v.Tech, Basic: v.Basic, Wuyou: v.Wuyou, Billed: v.HasInc,
+				FeeVersion: feeVersion})
 		}
 	}
 	// 缓存里有、这次没查到的，用缓存兜底
 	merged := map[string]*gfBill{}
 	for k, c := range cache {
-		if c.Billed || c.Tech > 0 || c.Wuyou > 0 {
-			merged[k] = &gfBill{Actual: c.Actual, Auction: c.Auction, Tech: c.Tech, Wuyou: c.Wuyou, HasInc: c.Billed}
+		if c.Billed || c.Tech > 0 || c.Basic > 0 || c.Wuyou > 0 {
+			merged[k] = &gfBill{Actual: c.Actual, Auction: c.Auction,
+				Tech: c.Tech, Basic: c.Basic, Wuyou: c.Wuyou, HasInc: c.Billed}
 		}
 	}
 	for k, v := range bills {
@@ -1105,7 +1151,7 @@ func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan
 		row.Billed = b != nil && b.HasInc
 		if row.Billed {
 			row.Price = gfRound2(b.Actual)
-			row.Fee = gfRound2(b.Tech)
+			row.Fee = gfSoftwareFee(b)
 			row.Wuyou = gfRound2(b.Wuyou)
 		} else {
 			row.Price = gfRound2(o.ListPrice)

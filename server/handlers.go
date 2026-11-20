@@ -15,6 +15,105 @@ import (
 
 func round2(f float64) float64 { return math.Round(f*100) / 100 }
 
+// 在库成本台账：先把所有有效采购作为库存占用，再让已售单据按实际带走成本冲减。
+// 手工填写的单件成本与联单派生分摊都走同一套冲减，避免一边整批排除、一边重复扣。
+type holdingLot struct {
+	ID        int64
+	Product   string
+	Norm      string
+	Gross     float64
+	Remaining float64
+	BuyTime   string
+	AgeBand   int
+}
+
+type holdingDeduction struct {
+	ParentID int64
+	Norm     string
+	Amount   float64
+	SellTime string
+}
+
+func holdingAgeBand(buyTime string) int {
+	if len(buyTime) < 10 {
+		return 0
+	}
+	t, err := time.Parse("2006-01-02", buyTime[:10])
+	if err != nil {
+		return 0
+	}
+	switch days := int(time.Since(t).Hours() / 24); {
+	case days <= 30:
+		return 0
+	case days <= 60:
+		return 1
+	case days <= 90:
+		return 2
+	default:
+		return 3
+	}
+}
+
+// applyHoldingDeductions 按卖单时间依次冲减采购批次：
+// 先冲同一关联买进单，再优先冲同商品、卖出前已入库的批次，最后才做全库存兜底。
+// 这样仍有商品级明细可看，也保证确已填写成本、但商品名不一致的历史数据不会继续虚增在库。
+func applyHoldingDeductions(lots []holdingLot, deductions []holdingDeduction) []holdingLot {
+	for i := range lots {
+		lots[i].Remaining = round2(lots[i].Gross)
+		if lots[i].Norm == "" {
+			lots[i].Norm = normProduct(lots[i].Product)
+		}
+	}
+	sort.SliceStable(lots, func(i, j int) bool {
+		if lots[i].BuyTime == lots[j].BuyTime {
+			return lots[i].ID < lots[j].ID
+		}
+		return lots[i].BuyTime < lots[j].BuyTime
+	})
+	sort.SliceStable(deductions, func(i, j int) bool {
+		return deductions[i].SellTime < deductions[j].SellTime
+	})
+
+	consume := func(amount float64, match func(int) bool) float64 {
+		for i := range lots {
+			if amount <= 0.005 {
+				break
+			}
+			if lots[i].Remaining <= 0.005 || !match(i) {
+				continue
+			}
+			take := math.Min(amount, lots[i].Remaining)
+			lots[i].Remaining = round2(lots[i].Remaining - take)
+			if lots[i].Remaining < 0.005 {
+				lots[i].Remaining = 0
+			}
+			amount = round2(amount - take)
+		}
+		return amount
+	}
+
+	for _, d := range deductions {
+		left := round2(d.Amount)
+		if left <= 0.005 {
+			continue
+		}
+		if d.ParentID > 0 {
+			left = consume(left, func(i int) bool { return lots[i].ID == d.ParentID })
+		}
+		if left > 0.005 && d.Norm != "" {
+			left = consume(left, func(i int) bool {
+				return lots[i].Norm == d.Norm && (d.SellTime == "" || lots[i].BuyTime == "" || lots[i].BuyTime <= d.SellTime)
+			})
+			left = consume(left, func(i int) bool { return lots[i].Norm == d.Norm })
+		}
+		left = consume(left, func(i int) bool {
+			return d.SellTime == "" || lots[i].BuyTime == "" || lots[i].BuyTime <= d.SellTime
+		})
+		consume(left, func(int) bool { return true })
+	}
+	return lots
+}
+
 // Item = 一条记录。
 // kind=purchase：买进单（整批货，parent_id=0，可挂 N 个卖出单）
 // kind=sale：卖出单（parent_id>0，挂到某个买进单）
@@ -233,6 +332,7 @@ func registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/stats/extras", authWrap(handleStatsExtras))
 	mux.HandleFunc("/api/consign/stats", authWrap(handleConsignStats))
 	mux.HandleFunc("/api/consign/owners", authWrap(handleConsignOwners))
+	mux.HandleFunc("/api/consign/assign-owner", authWrap(handleConsignAssignOwner))
 	mux.HandleFunc("/api/consign/settle", authWrap(handleConsignSettle))
 	mux.HandleFunc("/api/consign/settlements", authWrap(handleConsignSettlements))
 	mux.HandleFunc("/api/consign/settlements/", authWrap(handleConsignSettlementByID))
@@ -1242,6 +1342,7 @@ func handleRecordByID(w http.ResponseWriter, r *http.Request) {
 		it.SellOrderNo, it.SellTime, it.SellCounterparty = in.SellOrderNo, in.SellTime, in.SellCounterparty
 		it.Note = in.Note
 		it.Source = normSource(in.Source)
+		it.Owner = strings.TrimSpace(in.Owner)
 		// 单件成本：独立卖单可以直接填（改成本），0 也要能写回去
 		if in.UnitCost >= 0 && in.ParentID == 0 {
 			it.UnitCost = in.UnitCost
@@ -1309,7 +1410,7 @@ type Stats struct {
 	TotalCost     float64 `json:"total_cost"`      // 完全成本 = 货 + 运费 + 软件服务费 + 无忧卖服务费
 	TotalProfit   float64 `json:"total_profit"`    // 利润 = 销售额 − 总成本
 	TotalPrice    float64 `json:"total_price"`     // 成交总额（未扣费）
-	HoldingCost   float64 `json:"holding_cost"`    // 待售在库占用资金（已扣除完结联单里的买单）
+	HoldingCost   float64 `json:"holding_cost"`    // 在库占用 = 有效采购 − 已填成本卖单 − 联单已分摊成本
 	ReleasedCost  float64 `json:"released_cost"`   // 已完结联单释放的占用资金（透明展示）
 	TotalShipping float64 `json:"total_shipping"`  // 运费支出合计 = Σ(买运费 + 卖运费)
 	TotalWuyouFee float64 `json:"total_wuyou_fee"` // 无忧卖类目软件服务费合计
@@ -1374,26 +1475,29 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 	alloc := loadGroupAlloc(sid)
 
 	var s Stats
-	// 在联单里的明细 id：判断「无成本卖单」要用——联单里的卖单算联单的账，不算无成本。
-	var inGroupSet = map[int64]bool{}
-	var gRows *sql.Rows
-	var ge error
+	// 待售“件数”历史上按未进联单的采购批次统计，保留这一展示口径；
+	// 在库成本则按全部采购减已售成本计算，两者用途不同。
+	groupItemIDs := map[int64]bool{}
+	var gr *sql.Rows
+	var gre error
 	if sid < 0 {
-		gRows, ge = db.Query(`SELECT DISTINCT gi.item_id FROM group_items gi
-        JOIN link_groups g ON g.id=gi.group_id`)
+		gr, gre = db.Query(`SELECT DISTINCT gi.item_id FROM group_items gi
+			JOIN link_groups g ON g.id=gi.group_id`)
 	} else {
-		gRows, ge = db.Query(`SELECT DISTINCT gi.item_id FROM group_items gi
-        JOIN link_groups g ON g.id=gi.group_id WHERE g.shop_id=?`, sid)
+		gr, gre = db.Query(`SELECT DISTINCT gi.item_id FROM group_items gi
+			JOIN link_groups g ON g.id=gi.group_id WHERE g.shop_id=?`, sid)
 	}
-	if ge == nil {
-		for gRows.Next() {
+	if gre == nil {
+		for gr.Next() {
 			var iid int64
-			if gRows.Scan(&iid) == nil {
-				inGroupSet[iid] = true
+			if gr.Scan(&iid) == nil {
+				groupItemIDs[iid] = true
 			}
 		}
-		gRows.Close()
+		gr.Close()
 	}
+	var lots []holdingLot
+	var saleDeductions []holdingDeduction
 
 	// 所有派生集合都准备好后再读主表。这样任何并发请求都只需占用一条连接，
 	// 多人同时刷新首页不会出现每个请求各拿一条、再一起等第二条连接的死锁。
@@ -1446,29 +1550,18 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 
 		switch it.Kind {
 		case "purchase":
-			// 经营口径：进货不算成本，只有卖出去才结转。这里只统计「总投入」和「在库成本」。
-			// 在库 = 所有买单 − 已进联单的买单（不需要完结）。
+			// 经营口径：进货不算已售成本，只有卖出去才结转。
+			// 在库先记全部有效采购，循环结束后再按卖单实际成本冲减。
 			gross := it.BuyPrice + it.BuyShipping
 			s.TotalInvest += gross
-			if !inGroupSet[it.ID] && it.SettledAt == "" {
-				s.HoldingCost += gross
-				s.PendingCount++
-				days := 0
-				if len(it.BuyTime) >= 10 {
-					if t, e := time.Parse("2006-01-02", it.BuyTime[:10]); e == nil {
-						days = int(time.Since(t).Hours() / 24)
-					}
+			if it.SettledAt == "" && gross > 0 {
+				if !groupItemIDs[it.ID] {
+					s.PendingCount++
 				}
-				switch {
-				case days <= 30:
-					s.Stock30 += gross
-				case days <= 60:
-					s.Stock60 += gross
-				case days <= 90:
-					s.Stock90 += gross
-				default:
-					s.StockOld += gross
-				}
+				lots = append(lots, holdingLot{
+					ID: it.ID, Product: it.Product, Norm: normProduct(it.Product),
+					Gross: round2(gross), BuyTime: it.BuyTime, AgeBand: holdingAgeBand(it.BuyTime),
+				})
 			}
 		case "sale":
 			// 销售额取成交价；已售成本 = 这一单带走的货品成本 + 卖运费 + 服务费。
@@ -1486,6 +1579,19 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 			s.TotalShipping += it.SellShipping
 			s.TotalCost += goods + it.SellShipping + feeAll
 			s.SoldCount++
+			if !it.CostFree {
+				deduct := 0.0
+				if it.UnitCost > 0 {
+					deduct = round2(it.UnitCost * float64(qty))
+				} else if v, ok := alloc[it.ID]; ok {
+					deduct = round2(v * float64(qty))
+				}
+				if deduct > 0 {
+					saleDeductions = append(saleDeductions, holdingDeduction{
+						ParentID: it.ParentID, Norm: normProduct(it.Product), Amount: deduct, SellTime: it.SellTime,
+					})
+				}
+			}
 		case "standalone":
 			// 独立完整记录（旧数据/两侧一起填）
 			s.TotalSales += it.SellPrice
@@ -1536,6 +1642,23 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rows.Close() // 关闭后再查已完结联单，避免占用连接
+	lots = applyHoldingDeductions(lots, saleDeductions)
+	for _, lot := range lots {
+		if lot.Remaining <= 0.005 {
+			continue
+		}
+		s.HoldingCost += lot.Remaining
+		switch lot.AgeBand {
+		case 1:
+			s.Stock60 += lot.Remaining
+		case 2:
+			s.Stock90 += lot.Remaining
+		case 3:
+			s.StockOld += lot.Remaining
+		default:
+			s.Stock30 += lot.Remaining
+		}
+	}
 
 	// 口径自洽：销售额用成交总额（未扣费），完全成本 = 货品 + 运费 + 服务费，
 	// 因此 总成本 = TotalGoods + TotalShipping + TotalFee，利润不会因加了服务费而重复扣减。
@@ -1827,56 +1950,71 @@ func loadGroupAlloc(sid int64) map[int64]float64 {
 	}
 	iRows.Close()
 
+	for _, ids := range members {
+		items := make([]Item, 0, len(ids))
+		for _, id := range ids {
+			it, ok := idx[id]
+			if ok {
+				items = append(items, it)
+			}
+		}
+		for id, unit := range groupAllocForItems(items) {
+			out[id] = unit
+		}
+	}
+	return out
+}
+
+// groupAllocForItems 只算一组联单成员之间的成本分摊，供全局统计与联单卡片共用。
+func groupAllocForItems(items []Item) map[int64]float64 {
+	out := map[int64]float64{}
 	type sellEntry struct {
 		id    int64
 		price float64
 		qty   float64
 	}
-	for _, ids := range members {
-		var buySum, buyQty float64
-		var sells []sellEntry
-		for _, id := range ids {
-			it, ok := idx[id]
-			if !ok || it.Kind == "discarded" {
-				continue
-			}
-			qty := float64(it.Quantity)
-			if qty < 1 {
-				qty = 1
-			}
-			switch it.Kind {
-			case "purchase":
-				buySum += it.BuyPrice + it.BuyShipping
-				buyQty += qty
-			case "sale":
-				// 自己填过单件成本、或明确标记了「无成本」的，不吃联单分摊
-				if it.UnitCost > 0 || it.CostFree {
-					continue
-				}
-				sells = append(sells, sellEntry{it.ID, it.SellPrice, qty})
-			}
-		}
-		if buySum <= 0 || len(sells) == 0 {
+	var buySum, buyQty float64
+	var sells []sellEntry
+	for _, it := range items {
+		if it.Kind == "discarded" {
 			continue
 		}
-		var sellQty, sellPriceSum float64
-		for _, s := range sells {
-			sellQty += s.qty
-			sellPriceSum += s.price
+		qty := float64(it.Quantity)
+		if qty < 1 {
+			qty = 1
 		}
-		allocTotal := buySum
-		if buyQty > 0 && sellQty < buyQty {
-			allocTotal = buySum * sellQty / buyQty
-		}
-		for _, s := range sells {
-			share := 0.0
-			if sellPriceSum > 0 {
-				share = s.price / sellPriceSum
-			} else {
-				share = s.qty / sellQty
+		switch it.Kind {
+		case "purchase":
+			buySum += it.BuyPrice + it.BuyShipping
+			buyQty += qty
+		case "sale":
+			// 自己填过单件成本、或明确标记了「无成本」的，不吃联单分摊。
+			if it.UnitCost > 0 || it.CostFree {
+				continue
 			}
-			out[s.id] = round2(allocTotal * share / s.qty)
+			sells = append(sells, sellEntry{it.ID, it.SellPrice, qty})
 		}
+	}
+	if buySum <= 0 || len(sells) == 0 {
+		return out
+	}
+	var sellQty, sellPriceSum float64
+	for _, s := range sells {
+		sellQty += s.qty
+		sellPriceSum += s.price
+	}
+	allocTotal := buySum
+	if buyQty > 0 && sellQty < buyQty {
+		allocTotal = buySum * sellQty / buyQty
+	}
+	for _, s := range sells {
+		share := 0.0
+		if sellPriceSum > 0 {
+			share = s.price / sellPriceSum
+		} else {
+			share = s.qty / sellQty
+		}
+		out[s.id] = round2(allocTotal * share / s.qty)
 	}
 	return out
 }
@@ -1893,18 +2031,6 @@ func effectiveUnitCost(it Item, alloc map[int64]float64) float64 {
 }
 
 func computeProductProfit(sid int64) []productProfitRow {
-	inGroup := map[int64]bool{}
-	if gRows, e := db.Query(`SELECT DISTINCT gi.item_id FROM group_items gi
-        JOIN link_groups g ON g.id=gi.group_id WHERE g.shop_id=?`, sid); e == nil {
-		for gRows.Next() {
-			var iid int64
-			if gRows.Scan(&iid) == nil {
-				inGroup[iid] = true
-			}
-		}
-		gRows.Close()
-	}
-
 	// 所在联单里有买进单的明细：成本由联单买单核算，不能再算「未挂成本」。
 	// 与明细页 type=unlinked 的 SQL 保持同一口径，两处数字才对得上。
 	groupedWithBuy := loadGroupedWithBuy(sid)
@@ -1919,6 +2045,8 @@ func computeProductProfit(sid int64) []productProfitRow {
 	defer rows.Close()
 
 	agg := map[string]*productProfitRow{}
+	var lots []holdingLot
+	var saleDeductions []holdingDeduction
 	get := func(name string) *productProfitRow {
 		raw := normProduct(name)
 		key := raw
@@ -1947,11 +2075,13 @@ func computeProductProfit(sid int64) []productProfitRow {
 		}
 		switch it.Kind {
 		case "purchase":
-			// 没进联单也没单独完结的，算这个商品的在库成本
-			if !inGroup[it.ID] && it.SettledAt == "" {
-				p := get(it.Product)
-				p.Stock += it.BuyPrice + it.BuyShipping
-				p.StockQty++
+			// 先汇总有效采购，卖单循环结束后按实际带走成本冲减。
+			gross := it.BuyPrice + it.BuyShipping
+			if !isExternalGoods(it.Source) && it.SettledAt == "" && gross > 0 {
+				lots = append(lots, holdingLot{
+					ID: it.ID, Product: it.Product, Norm: normProduct(it.Product),
+					Gross: round2(gross), BuyTime: it.BuyTime, AgeBand: holdingAgeBand(it.BuyTime),
+				})
 			}
 		case "sale":
 			p := get(it.Product)
@@ -1970,6 +2100,19 @@ func computeProductProfit(sid int64) []productProfitRow {
 			if it.CostFree {
 				p.CostFree++
 			}
+			if !it.CostFree && !isExternalGoods(it.Source) {
+				deduct := 0.0
+				if it.UnitCost > 0 {
+					deduct = round2(it.UnitCost * float64(qty))
+				} else if v, ok := alloc[it.ID]; ok {
+					deduct = round2(v * float64(qty))
+				}
+				if deduct > 0 {
+					saleDeductions = append(saleDeductions, holdingDeduction{
+						ParentID: it.ParentID, Norm: normProduct(it.Product), Amount: deduct, SellTime: it.SellTime,
+					})
+				}
+			}
 			// 只算「还能处理、也确实没有成本来源」的单：
 			//   - 已单独完结 / 进了完结联单的，再挂会破坏联单核算；
 			//   - 已经在联单里、且联单有买进单的，成本由联单核算，不该重复提示；
@@ -1985,6 +2128,15 @@ func computeProductProfit(sid int64) []productProfitRow {
 			p.Cost += it.BuyPrice + it.BuyShipping + it.SellShipping + feeAll
 			p.Sold++
 		}
+	}
+	lots = applyHoldingDeductions(lots, saleDeductions)
+	for _, lot := range lots {
+		if lot.Remaining <= 0.005 {
+			continue
+		}
+		p := get(lot.Product)
+		p.Stock += lot.Remaining
+		p.StockQty++
 	}
 
 	out := make([]productProfitRow, 0, len(agg))

@@ -1218,7 +1218,7 @@ function onCardClick(r, e) {
               <th class="th-right col-price" title="卖单取卖出成交价，买单取买进价">成交价</th>
               <th v-if="showCols.shipping" class="th-right col-num col-ship" title="买运费 + 卖运费">运费</th>
               <th class="th-right col-num" title="卖单：到手价（卖价−运费−服务费）；买单：总成本（买价+运费）">到手价</th>
-              <th v-if="showCols.fee" class="th-right col-num col-fee" title="软件服务费 + 无忧卖服务费">服务费</th>
+              <th v-if="showCols.fee" class="th-right col-num col-fee" title="软件服务费 + 基础软件服务费 + 无忧卖服务费">服务费</th>
               <th class="th-right col-num col-profit" title="成交价 − 货品成本 − 卖运费 − 服务费（买单没有利润，显示 —）">利润</th>
             </tr>
           </thead>
@@ -1341,7 +1341,7 @@ function onCardClick(r, e) {
                       </div>
                       <div v-if="r.has_buy" class="dg-item"><span>买运费 / 标签</span><b>{{ fmtMoney(r.buy_shipping) }} {{ r.buy_ship_tag || '' }}</b></div>
                       <div v-if="r.has_sell" class="dg-item"><span>卖运费 / 标签</span><b>{{ fmtMoney(r.sell_shipping) }} {{ r.sell_ship_tag || '' }}</b></div>
-                      <div v-if="r.has_sell" class="dg-item"><span>软件服务费</span><b>{{ feePending(r) ? '待结算' : fmtMoney(r.sell_fee || 0) }}</b></div>
+                      <div v-if="r.has_sell" class="dg-item"><span title="软件服务费 + 基础软件服务费">软件服务费</span><b>{{ feePending(r) ? '待结算' : fmtMoney(r.sell_fee || 0) }}</b></div>
                       <div v-if="r.has_sell" class="dg-item"><span>无忧卖服务费</span><b>{{ fmtMoney(r.sell_wuyou_fee || 0) }}</b></div>
                     </div>
                   </div>
@@ -1532,7 +1532,7 @@ function onCardClick(r, e) {
             <div v-if="r.has_buy"><span>卖家昵称</span><b>{{ r.buy_counterparty || '—' }}</b></div>
             <div v-if="r.has_sell"><span>卖订单号</span><b class="mono">{{ r.sell_order_no || '—' }}</b></div>
             <div v-if="r.has_sell"><span>买家昵称</span><b>{{ r.sell_counterparty || '—' }}</b></div>
-            <div v-if="r.has_sell"><span>软件服务费</span><b>{{ fmtMoney(r.sell_fee || 0) }}</b></div>
+            <div v-if="r.has_sell"><span title="软件服务费 + 基础软件服务费">软件服务费</span><b>{{ fmtMoney(r.sell_fee || 0) }}</b></div>
             <div v-if="r.has_sell"><span>无忧卖服务费</span><b>{{ fmtMoney(r.sell_wuyou_fee || 0) }}</b></div>
             <div><span>运费支出</span><b>{{ fmtMoney(r.buy_shipping + r.sell_shipping) }}</b></div>
             <div><span>运货标签</span><b>{{ [r.buy_ship_tag, r.sell_ship_tag].filter(Boolean).join(' / ') || '—' }}</b></div>

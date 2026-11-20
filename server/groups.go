@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS link_groups (
     shop_id INTEGER NOT NULL DEFAULT 1,     -- 所属店铺；联单不允许跨店
     title TEXT NOT NULL DEFAULT '',
     note TEXT NOT NULL DEFAULT '',
-    settled_at TEXT NOT NULL DEFAULT '',   -- 非空=已完结（存完结时间），完结后其买单不再计入全局在库占用资金
+    settled_at TEXT NOT NULL DEFAULT '',   -- 非空=已完结（存完结时间），只锁定联单对账，不整批释放未售库存
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -100,6 +100,7 @@ CREATE INDEX IF NOT EXISTS idx_group_externals_group ON group_externals(group_id
 
 func computeGroupStats(items []Item, exts []GroupExternal) GroupStats {
 	var s GroupStats
+	alloc := groupAllocForItems(items)
 	for _, it := range items {
 		feeAll := it.SellFee + it.SellWuyouFee
 		s.Shipping += it.BuyShipping + it.SellShipping
@@ -114,6 +115,17 @@ func computeGroupStats(items []Item, exts []GroupExternal) GroupStats {
 			s.Net += it.SellNet
 			s.Fee += feeAll
 			s.WuyouFee += it.SellWuyouFee
+			if !it.CostFree {
+				qty := it.Quantity
+				if qty < 1 {
+					qty = 1
+				}
+				if it.UnitCost > 0 {
+					s.UnsoldCost -= round2(it.UnitCost * float64(qty))
+				} else if unit, ok := alloc[it.ID]; ok {
+					s.UnsoldCost -= round2(unit * float64(qty))
+				}
+			}
 		case "standalone":
 			// 独立完整记录：买 / 卖两侧都在一条里
 			s.BuyCount++
@@ -136,6 +148,9 @@ func computeGroupStats(items []Item, exts []GroupExternal) GroupStats {
 			s.Sales += e.Amount
 			s.Net += e.Amount
 		}
+	}
+	if s.UnsoldCost < 0 {
+		s.UnsoldCost = 0
 	}
 	s.Sales = round2(s.Sales)
 	s.Net = round2(s.Net)
@@ -960,7 +975,7 @@ func handleGroupsByItem(w http.ResponseWriter, r *http.Request) {
 }
 
 // /api/groups/{id}/settle：完结 / 重开联单。
-// 完结后该联单里的买单不再计入全局「待售在库 · 占用资金」。
+// 完结只锁定联单对账；全局在库成本始终按卖单实际带走的成本冲减。
 // 入参 {settled:bool} 缺省则按当前状态取反。
 func handleGroupSettle(w http.ResponseWriter, r *http.Request, id int64) {
 	if r.Method != "POST" {

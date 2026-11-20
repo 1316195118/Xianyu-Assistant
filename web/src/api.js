@@ -110,6 +110,7 @@ export const api = {
       body: JSON.stringify(record)
     })
   },
+  record(id) { return req('/api/records/' + id) },
   update(id, record) {
     return req('/api/records/' + id, {
       method: 'PUT',
@@ -411,6 +412,11 @@ export const api = {
     return req('/api/consign/stats' + (q ? '?' + q : ''))
   },
   consignOwners() { return req('/api/consign/owners') },
+  consignAssignOwner(payload) {
+    return req('/api/consign/assign-owner', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    })
+  },
   consignSettle(payload) {
     return req('/api/consign/settle', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
