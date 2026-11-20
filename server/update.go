@@ -62,6 +62,7 @@ func updateProxy() string { return strings.TrimSpace(getSetting("update_proxy"))
 var errNoRelease = errors.New("no release")
 
 type ghAsset struct {
+	ID     int64  `json:"id"`
 	Name   string `json:"name"`
 	Size   int64  `json:"size"`
 	URL    string `json:"browser_download_url"`
@@ -330,8 +331,18 @@ func handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// assetURL 用 API 的资产地址而不是 browser_download_url：
+// 私有仓库的浏览器下载地址对 Token 请求会回 404，只有 API 资产地址
+// （带 octet-stream）才稳定可用；公开仓库同样适用。
+func assetURL(a ghAsset) string {
+	if a.ID > 0 {
+		return fmt.Sprintf("%s/repos/%s/releases/assets/%d", updateAPIBase, updateRepoName(), a.ID)
+	}
+	return a.URL
+}
+
 func downloadAsset(asset ghAsset, dest string) (string, error) {
-	req, err := http.NewRequest(http.MethodGet, asset.URL, nil)
+	req, err := http.NewRequest(http.MethodGet, assetURL(asset), nil)
 	if err != nil {
 		return "", err
 	}
@@ -381,7 +392,7 @@ func expectedDigest(rel *ghRelease, asset ghAsset) (string, error) {
 		if !strings.EqualFold(a.Name, companion) {
 			continue
 		}
-		req, err := http.NewRequest(http.MethodGet, a.URL, nil)
+		req, err := http.NewRequest(http.MethodGet, assetURL(a), nil)
 		if err != nil {
 			return "", err
 		}

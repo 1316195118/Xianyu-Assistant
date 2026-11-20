@@ -237,3 +237,18 @@ func TestUpdateConfigProxyValidation(t *testing.T) {
 		t.Errorf("空值应清空代理，实际 %q", getSetting("update_proxy"))
 	}
 }
+
+func TestAssetURLUsesAPI(t *testing.T) {
+	newExtrasEnv(t) // getSetting 需要数据库
+	oldBase, oldRepo := updateAPIBase, getSetting("update_repo")
+	updateAPIBase = "https://api.example.com"
+	setSetting("update_repo", "o/r")
+	defer func() { updateAPIBase = oldBase; setSetting("update_repo", oldRepo) }()
+	if got := assetURL(ghAsset{ID: 7}); got != "https://api.example.com/repos/o/r/releases/assets/7" {
+		t.Errorf("资产地址不对：%s", got)
+	}
+	// 没有 id 时退回浏览器地址，兼容旧响应
+	if got := assetURL(ghAsset{URL: "https://x/y"}); got != "https://x/y" {
+		t.Errorf("退化地址不对：%s", got)
+	}
+}
