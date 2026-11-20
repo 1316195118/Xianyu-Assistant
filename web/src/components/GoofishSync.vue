@@ -65,7 +65,7 @@ const step = ref('idle')
 const rebinding = ref(false)
 const progress = ref({ on: false, pct: 0, text: '' })
 let offProgress = null
-const status = ref({ logged_in: false, nick: '', saved_at: '', last_sync: '', masked: '', keepalive: true, expired: false, auto_days: 0, auto_window: 30, backfill: true, syncing: false })
+const status = ref({ logged_in: false, nick: '', saved_at: '', last_sync: '', masked: '', keepalive: true, expired: false, auto_days: 0, auto_window: 30, backfill: true, syncing: false, sso_saved: false })
 const cookieInput = ref('')
 const showHelp = ref(false)
 const pingMsg = ref('')
@@ -253,6 +253,8 @@ async function ping() {
     // 如果同步本身有失效原因，别让一句「连接正常」把它盖住
     if (!status.value.sync_error && !status.value.expired) pingMsg.value = msg
   } catch (e) {
+    // 检测失败后同步刷新失效标记与自动续期开关，避免面板状态落后。
+    await loadStatus()
     const msg = e.message || '连接已失效'
     pingMsg.value = msg
     emit('notify', msg, true)
@@ -438,7 +440,7 @@ onMounted(async () => {
             <div class="gf-keep">
               <div class="gf-keep-text">
                 <b>自动续期</b>
-                <span class="muted">{{ status.keepalive ? '已开启' : '已关闭' }}</span>
+                <span class="muted">{{ status.keepalive ? '已开启' : '已关闭' }} · {{ status.sso_saved ? '续期凭证已保存' : '无续期凭证' }}</span>
                 <HelpTip text="开启后，每次同步前服务器会自动用保存的淘宝 SSO 凭证静默换发一次闲鱼会话（复刻网页版「一键快速登录」），会话过期也能自愈，不再需要定期心跳。&#10;关闭后不做换发，会话过期需重新绑定。" />
               </div>
               <button class="gf-switch" :class="{ on: status.keepalive }" role="switch"

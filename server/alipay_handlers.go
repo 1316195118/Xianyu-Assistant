@@ -40,22 +40,22 @@ type aliPlanRow struct {
 	// 手续费来源：订单号对不上时按「成交时间 + 费率」兜底匹配
 	FeeGuess bool    `json:"fee_guess"`
 	FeeRate  float64 `json:"fee_rate"` // 实扣 / 成交价，用来核对是不是 1% / 1.6% / 2.6%
-	Skip      string `json:"skip"` // 非空=不写入的原因
+	Skip     string  `json:"skip"`     // 非空=不写入的原因
 }
 
 type aliPlan struct {
-	ID      string       `json:"plan_id"`
-	MadeAt  time.Time    `json:"made_at"`
-	Rows    []aliPlanRow `json:"rows"`
-	FeeHits int          `json:"fee_hits"`  // 账单里带订单号的分账记录数
-	FeeMiss int          `json:"fee_miss"`  // 有手续费但库里没有这单
-	Ships   int          `json:"ships"`     // 快递费记录数
-	ShipSum float64      `json:"ship_sum"`  // 快递费合计
-	Exact   int          `json:"exact"`     // 按发货时间精确配上的笔数
-	Guess   int          `json:"guess"`     // 只能靠成交时间推测的笔数
-	FeeByTime int        `json:"fee_by_time"` // 手续费按成交时间 + 费率配上的笔数
-	Warn    string       `json:"warn"`
-	Shop    int64        `json:"-"`
+	ID        string       `json:"plan_id"`
+	MadeAt    time.Time    `json:"made_at"`
+	Rows      []aliPlanRow `json:"rows"`
+	FeeHits   int          `json:"fee_hits"`    // 账单里带订单号的分账记录数
+	FeeMiss   int          `json:"fee_miss"`    // 有手续费但库里没有这单
+	Ships     int          `json:"ships"`       // 快递费记录数
+	ShipSum   float64      `json:"ship_sum"`    // 快递费合计
+	Exact     int          `json:"exact"`       // 按发货时间精确配上的笔数
+	Guess     int          `json:"guess"`       // 只能靠成交时间推测的笔数
+	FeeByTime int          `json:"fee_by_time"` // 手续费按成交时间 + 费率配上的笔数
+	Warn      string       `json:"warn"`
+	Shop      int64        `json:"-"`
 }
 
 type aliSellRec struct {
@@ -448,6 +448,7 @@ func handleAlipayApply(w http.ResponseWriter, r *http.Request) {
 		recID          int64
 		product        string
 		fee, wuyou, sh float64
+		shipExact      bool
 	}
 	ups := map[string]*upd{}
 	for _, row := range plan.Rows {
@@ -463,6 +464,9 @@ func handleAlipayApply(w http.ResponseWriter, r *http.Request) {
 		}
 		u.fee, u.wuyou = row.Fee, row.Wuyou
 		u.sh = row.Shipping
+		if row.ShipExact {
+			u.shipExact = true
+		}
 	}
 
 	snap := []aliUndoRow{}
@@ -475,11 +479,10 @@ func handleAlipayApply(w http.ResponseWriter, r *http.Request) {
 		}
 		var price float64
 		db.QueryRow(`SELECT sell_price FROM items WHERE id=? AND shop_id=?`, u.recID, shop).Scan(&price)
-		// 运费：已经填过（>0）的一律保留，账单只在原值为 0 时补。
-		// 手动记账的运费（议价包邮、自己贴的快递费）跟账单里的快递费口径不一定一样，
-		// 同步顺手覆盖会把用户核过的数字冲掉。
+		// 运费：按成交时间推测的值只补空值，保留用户核过的手工运费；
+		// 按发货时间精确匹配的账单记录可信度更高，允许覆盖旧的错误推测值。
 		ship := u.sh
-		if oldShip > 0 {
+		if oldShip > 0 && !u.shipExact {
 			ship = oldShip
 		}
 		net := round2(price - u.fee - u.wuyou - ship)

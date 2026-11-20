@@ -201,6 +201,7 @@ func handleGoofishStatus(w http.ResponseWriter, r *http.Request) {
 		"auto_window": gfAutoWindow(shop),
 		"backfill":    gfBackfillEnabled(shop),
 		"syncing":     gfIsSyncing(shop),
+		"sso_saved":   strings.TrimSpace(gfGet(gfKeySSOTaobao, shop)) != "",
 	})
 }
 
@@ -735,10 +736,25 @@ func handleGoofishPing(w http.ResponseWriter, r *http.Request) {
 	shop := shopID(r)
 	nick, err := gfPingShop(shop)
 	if err != nil {
-		writeError(w, 400, "连接已失效："+err.Error()+"，请重新绑定")
+		reason := gfExplainErr(err)
+		if gfSessionExpired(err) {
+			writeError(w, 400, "连接已失效："+reason+"，请重新绑定")
+		} else {
+			writeError(w, 502, "连接检测失败："+reason+"，请稍后重试")
+		}
 		return
 	}
 	writeJSON(w, map[string]interface{}{"ok": true, "nick": nick})
+}
+
+func gfSessionExpired(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "SESSION_EXPIRED") ||
+		strings.Contains(msg, "Session过期") ||
+		strings.Contains(msg, "FAIL_SYS_SESSION_EXPIRED")
 }
 
 // gfExplainErr 把 mtop 的 ret 串翻译成人能看懂的原因。
@@ -774,18 +790,37 @@ func gfExplainErr(err error) string {
 func gfPingShop(shop int64) (string, error) {
 	c := gfSavedClient(shop)
 	if c == nil {
-		return "", nil
+		return "", fmt.Errorf("这家店还没有绑定闲鱼账号")
 	}
 	// 主探测：与同步同源的接口
 	if _, err := c.boughtOrders(1); err != nil {
-		_ = gfSet(gfKeyDead, shop, "1")
-		// 登录态一旦失效，Cookie 就是死的：继续按原来的频率打心跳只会
-		// 拿同一个失效凭证反复撞风控，越撞越难恢复。这里直接把保活关掉，
-		// 等用户重新绑定后由绑定流程重新打开。
-		if gfKeepAliveEnabled() {
-			setSetting(gfKeepAliveKey, "0")
+		// 手动检测是用户主动发起的恢复动作：如果绑定过淘宝 SSO，
+		// 先静默换发一次再重试，避免会话刚过期就要求用户重新扫码/粘贴。
+		if strings.TrimSpace(gfGet(gfKeySSOTaobao, shop)) != "" {
+			if ok, renewErr := gfSilentRenew(shop); renewErr != nil {
+				fmt.Printf("[闲鱼检测] 店铺 %d 静默换发失败: %v\n", shop, renewErr)
+			} else if ok {
+				if fresh := gfSavedClient(shop); fresh != nil {
+					c = fresh
+					if _, retryErr := c.boughtOrders(1); retryErr == nil {
+						err = nil
+					} else {
+						err = retryErr
+					}
+				}
+			}
 		}
-		return "", err
+		if err != nil {
+			// 只有确认是会话过期才关闭保活；网络波动、风控拦截等临时错误
+			// 不应把 Cookie 标成永久失效。
+			if gfSessionExpired(err) {
+				_ = gfSet(gfKeyDead, shop, "1")
+				if gfKeepAliveEnabled() {
+					setSetting(gfKeepAliveKey, "0")
+				}
+			}
+			return "", err
+		}
 	}
 	_ = gfSet(gfKeyCookie, shop, c.cookieString())
 	_ = gfSet(gfKeyCheck, shop, time.Now().Format("2006-01-02 15:04:05"))
@@ -796,12 +831,15 @@ func gfPingShop(shop int64) (string, error) {
 	if nick == "" {
 		nick = c.cookieVal("_nk_")
 	}
-	if acc, err := c.account(); err == nil && acc != nil {
-		if nick == "" {
-			nick = acc.Nick
-		}
-		if acc.UID != "" {
-			_ = gfSet(gfKeyUID, shop, acc.UID)
+	// 昵称和 UID 都已保存时不再额外请求账号接口；检测连接保持轻量。
+	if nick == "" || gfGet(gfKeyUID, shop) == "" {
+		if acc, err := c.account(); err == nil && acc != nil {
+			if nick == "" {
+				nick = acc.Nick
+			}
+			if acc.UID != "" {
+				_ = gfSet(gfKeyUID, shop, acc.UID)
+			}
 		}
 	}
 	if nick != "" {

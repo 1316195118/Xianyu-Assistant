@@ -60,3 +60,5 @@ version/NEXT.md
 # ========== 测试产物 ==========
 coverage.out
 *.test
+__pycache__/
+*.pyc
