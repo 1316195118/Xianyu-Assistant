@@ -57,3 +57,18 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/1316195118/Xianyu-Assistant
             org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: 清理非 latest 镜像标签
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sleep 3
+          gh api --paginate \
+            "users/1316195118/packages/container/xianyu-stat/versions?per_page=100" \
+            --jq '.[] | select(.metadata.container.tags | length > 0) | select((.metadata.container.tags | sort) != ["latest"]) | .id' |
+          while read -r version_id; do
+            [[ -n "$version_id" ]] || continue
+            gh api -X DELETE \
+              "users/1316195118/packages/container/xianyu-stat/versions/$version_id"
+          done
