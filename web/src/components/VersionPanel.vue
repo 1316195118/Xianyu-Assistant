@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { api } from '../api'
 import { confirm } from '../confirm'
 import { maskCloser } from '../maskClose'
@@ -101,6 +101,11 @@ const cfgOpen = ref(false)
 const cfgBusy = ref(false)
 const cfgMsg = ref('')
 const cfg = ref({ repo: '', token: '', proxy: '' })
+const updSize = computed(() => {
+  const n = Number(upd.value?.asset?.size || 0)
+  if (!n) return ''
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB'
+})
 
 async function checkUpdate() {
   if (updBusy.value || applying.value) return
@@ -239,6 +244,7 @@ async function applyUpdate() {
                     {{ applying ? '更新中…' : (upd.can_apply ? '立即更新' : '需手动更新') }}
                   </button>
                   <span v-if="!upd.can_apply" class="muted">当前是 {{ upd.platform }}，一键更新只支持 Linux (amd64) 容器</span>
+                  <span v-else-if="updSize" class="muted">安装包 {{ updSize }} · 下载后先校验再替换</span>
                 </div>
               </div>
               <div v-else class="upd-state ok">已是最新版本</div>
