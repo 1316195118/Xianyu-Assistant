@@ -1,0 +1,55 @@
+name: release
+
+# 打 v 开头的标签就发版：产物正是应用内「在线更新」要拉的文件。
+# 二进制里已经嵌入了 server/webroot（前端产物随代码提交），
+# 所以这里不需要再跑 npm，编译即可，产物可复现。
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+
+      - name: 校验标签与代码版本一致
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver="$(python3 -c "import json;print(json.load(open('version/state.json'))['version'])")"
+          echo "tag=$tag version=$ver"
+          if [ "$tag" != "$ver" ]; then
+            echo "::error::标签 v$tag 与 version/state.json 的 $ver 不一致，请先改版本号或换标签"
+            exit 1
+          fi
+
+      - name: 构建 Linux 与 Windows 二进制
+        working-directory: server
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go build -trimpath -ldflags="-s -w" -o ../xianyu-stat-linux-amd64 .
+          GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o ../xianyu-stat.exe .
+
+      - name: 生成 sha256
+        run: |
+          sha256sum xianyu-stat-linux-amd64 > xianyu-stat-linux-amd64.sha256
+          sha256sum xianyu-stat.exe > xianyu-stat.exe.sha256
+          cat *.sha256
+
+      - name: 发布
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            xianyu-stat-linux-amd64
+            xianyu-stat-linux-amd64.sha256
+            xianyu-stat.exe
+            xianyu-stat.exe.sha256

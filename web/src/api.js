@@ -251,6 +251,18 @@ export const api = {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
     })
   },
+  // ---------- 在线更新 ----------
+  updateCheck() { return req('/api/update/check', { timeoutMs: 30000 }) },
+  updateApply() {
+    return req('/api/update/apply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', timeoutMs: 120000
+    })
+  },
+  saveUpdateConfig(payload) {
+    return req('/api/update/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    })
+  },
   // ---------- 备份 ----------
   getBackups() { return req('/api/backups') },
   saveBackupConfig(cfg) {

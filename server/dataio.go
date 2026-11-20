@@ -25,6 +25,9 @@ var privateSettings = map[string]bool{
 	"auth_hash": true, "auth_salt": true, "auth_secret": true,
 	"readonly_password_hash": true, "readonly_salt": true,
 	"ocr_api_key": true,
+	// 更新用的 GitHub Token 属于凭据，代理地址也可能带账号密码，
+	// 都不该跟着备份文件流出去
+	"update_token": true, "update_proxy": true,
 }
 
 // collectExport 导出当前店铺的数据。运费标签等全局配置照常带上，

@@ -3095,6 +3095,40 @@ html[data-motion="reduce"] .chip.on { animation: none !important; }
 }
 .ver-hist-item.open .ver-chev { transform: rotate(180deg); }
 .ver-empty { padding: var(--sp-3) 0; font-size: var(--fs-sm); }
+
+/* ---------- 在线更新卡片 ---------- */
+.upd-card {
+  margin-top: var(--sp-4); padding: 12px 13px; border-radius: var(--radius-md);
+  border: 1px solid var(--border); background: var(--surface-2);
+}
+.upd-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.upd-head b { font-size: 13px; }
+.upd-head .muted { font-size: 11.5px; }
+.upd-head .btn { margin-left: auto; }
+.upd-state {
+  margin-top: 10px; padding: 9px 10px; border-radius: 9px;
+  background: var(--surface); border: 1px solid var(--border);
+  font-size: 12px; line-height: 1.55;
+}
+.upd-state.ok { color: var(--down); border-color: var(--down-soft); background: var(--down-soft); }
+.upd-state.bad { display: flex; align-items: center; gap: 8px; color: #a5391f; background: var(--up-soft); border-color: #f3c7c2; }
+.upd-state.bad span { flex: 1; min-width: 0; }
+html[data-theme="dark"] .upd-state.bad { background: #3a221f; border-color: #5a3230; color: #ffb4a2; }
+.upd-new b { font-size: 13.5px; color: var(--blue); }
+.upd-notes { margin-top: 4px; color: var(--text-2); }
+.upd-ops { display: flex; align-items: center; gap: 10px; margin-top: 9px; flex-wrap: wrap; }
+.upd-ops .muted { font-size: 11px; }
+.upd-progress {
+  margin-top: 9px; padding: 8px 10px; border-radius: 8px;
+  background: var(--blue-soft); color: var(--blue); font-size: 12px; line-height: 1.5;
+}
+.upd-cfg { margin-top: 10px; }
+.upd-cfg summary { cursor: pointer; font-size: 11.5px; color: var(--text-3); font-weight: 600; }
+.upd-cfg-body { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.upd-cfg-body label { font-size: 11px; color: var(--text-3); font-weight: 600; }
+.upd-cfg-body .input { height: 32px; min-height: 32px; font-size: 12.5px; }
+.upd-cfg-ops { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; font-size: 11.5px; }
+.upd-cfg-hint { font-size: 10.5px; line-height: 1.5; margin-top: 2px; }
 @media (max-width: 600px) {
   .ver-num { font-size: 27px; }
   .ver-hist-item { min-height: var(--touch-min); }

@@ -196,7 +196,7 @@ async function saveReadonly() {
     if (ok) { readonlyOpen.value = false; pwdOpen.value = true }
     return
   }
-  if (readonlyPwd.value.length < 4) { emit('notify', '只读密码至少 4 位', true); return }
+  if ([...readonlyPwd.value].length < MIN_READONLY_PWD) { emit('notify', `只读密码至少 ${MIN_READONLY_PWD} 位`, true); return }
   try {
     await api.saveSettings({ readonly_password: readonlyPwd.value })
     readonlyPwd.value = ''
@@ -273,11 +273,18 @@ onMounted(() => { load(); loadLicenses(); loadAuth(); loadBackups() })
 watch(() => props.refreshKey, () => { load(); loadBackups(); loadAuth() })
 
 // ---------- 访问密码 ----------
+// 服务端要求管理密码 ≥8 位、只读密码 ≥4 位。两边必须同一个数，
+// 否则页面说「4 位就行」、提交却被后端打回来，用户只会觉得按钮坏了。
+const MIN_ADMIN_PWD = 8
+const MIN_READONLY_PWD = 4
 async function savePassword() {
   pwdMsg.value = null
   if (!pwdForm.password) { pwdMsg.value = { text: '请输入新密码', ok: false }; return }
   if (pwdForm.password !== pwdForm.password2) { pwdMsg.value = { text: '两次输入的新密码不一致', ok: false }; return }
-  if (pwdForm.password.length < 4) { pwdMsg.value = { text: '密码至少 4 位', ok: false }; return }
+  if ([...pwdForm.password].length < MIN_ADMIN_PWD) {
+    pwdMsg.value = { text: `管理密码至少 ${MIN_ADMIN_PWD} 位（建议字母 + 数字）`, ok: false }
+    return
+  }
   pwdBusy.value = true
   try {
     await api.setPassword({ old: pwdForm.old, password: pwdForm.password })
@@ -874,9 +881,10 @@ async function test() {
           <div class="notice-box">开启后，所有数据接口都需要登录；登录状态保存在 HttpOnly Cookie 中，7 天有效。密码以加盐哈希存储，不保存明文。<b>忘记密码</b>可在服务器执行 <code>xianyu-stat --reset-password</code> 清除。</div>
           <div class="form-grid tight">
             <div class="field" v-if="auth.enabled"><label>当前密码</label><input class="input" type="password" v-model="pwdForm.old" autocomplete="current-password" placeholder="修改或关闭时需要" /></div>
-            <div class="field"><label>新密码</label><input class="input" type="password" v-model="pwdForm.password" autocomplete="new-password" placeholder="至少 4 位" /></div>
+            <div class="field"><label>新密码</label><input class="input" type="password" v-model="pwdForm.password" autocomplete="new-password" placeholder="至少 8 位（建议字母 + 数字）" /></div>
             <div class="field"><label>确认新密码</label><input class="input" type="password" v-model="pwdForm.password2" autocomplete="new-password" placeholder="再输入一次" /></div>
           </div>
+          <div class="muted settings-note">管理密码至少 {{ MIN_ADMIN_PWD }} 位（建议字母 + 数字）；只读密码单独设置，至少 {{ MIN_READONLY_PWD }} 位。两者互不影响。</div>
           <div v-if="pwdMsg" class="tip" :class="{ err: !pwdMsg.ok }">{{ pwdMsg.text }}</div>
         </div>
         <div class="modal-foot">
@@ -1014,7 +1022,7 @@ async function test() {
           <p class="muted set-sheet-desc">设一个独立密码，用它的登录只能查看数据，不能新增、修改或删除。主密码仍拥有完整权限。</p>
           <div class="readonly-row">
             <input class="input" type="password" v-model="readonlyPwd"
-                   :disabled="!auth.enabled" :placeholder="auth.enabled ? '设置只读密码（至少 4 位）' : '请先设置管理密码'"
+                   :disabled="!auth.enabled" :placeholder="auth.enabled ? `设置只读密码（至少 ${MIN_READONLY_PWD} 位）` : '请先设置管理密码'"
                    autocomplete="new-password" />
           </div>
           <p class="muted set-sheet-desc" v-if="meta.has_readonly">当前状态：已开启</p>

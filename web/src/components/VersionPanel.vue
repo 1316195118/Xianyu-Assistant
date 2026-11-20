@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { api } from '../api'
+import { confirm } from '../confirm'
 import { maskCloser } from '../maskClose'
 // 遮罩点击守卫：在输入框里拖选文字划出弹窗松手时，不会误关弹窗
 const mask = maskCloser(() => close)
@@ -89,6 +90,104 @@ const firstLine = (s) => {
   return (l || '常规构建').replace(/^[-#]+\s*/, '').slice(0, 60)
 }
 const toggle = (v) => { expanded.value = expanded.value === v ? '' : v }
+
+// ---------- 在线更新 ----------
+const upd = ref(null)
+const updBusy = ref(false)
+const updErr = ref('')
+const applying = ref(false)
+const applyText = ref('')
+const cfgOpen = ref(false)
+const cfgBusy = ref(false)
+const cfgMsg = ref('')
+const cfg = ref({ repo: '', token: '', proxy: '' })
+
+async function checkUpdate() {
+  if (updBusy.value || applying.value) return
+  updBusy.value = true; updErr.value = ''
+  try {
+    const r = await api.updateCheck()
+    upd.value = r
+    cfg.value.repo = r.repo || ''
+    cfg.value.proxy = r.proxy || ''
+  } catch (e) {
+    updErr.value = e.message || '检查更新失败'
+  } finally { updBusy.value = false }
+}
+
+async function saveCfg() {
+  if (cfgBusy.value) return
+  cfgBusy.value = true; cfgMsg.value = ''
+  try {
+    const r = await api.saveUpdateConfig({ repo: cfg.value.repo.trim(), token: cfg.value.token.trim(), proxy: cfg.value.proxy.trim() })
+    cfg.value.token = ''
+    cfgMsg.value = '已保存'
+    upd.value = { ...(upd.value || {}), repo: r.repo, has_token: r.has_token }
+    await checkUpdate()
+  } catch (e) {
+    cfgMsg.value = e.message || '保存失败'
+  } finally { cfgBusy.value = false }
+}
+
+async function clearToken() {
+  cfgBusy.value = true; cfgMsg.value = ''
+  try {
+    const r = await api.saveUpdateConfig({ repo: cfg.value.repo.trim(), proxy: cfg.value.proxy.trim(), clear_token: true })
+    cfgMsg.value = 'Token 已清除'
+    upd.value = { ...(upd.value || {}), repo: r.repo, has_token: r.has_token }
+  } catch (e) {
+    cfgMsg.value = e.message || '清除失败'
+  } finally { cfgBusy.value = false }
+}
+
+// 重启期间接口会断，轮询到「报的版本号变成新版」才算真的更新成功。
+// 只认版本号，不认「进程还在」——旧进程也可能一直活着。
+async function waitNewVersion(expect) {
+  const end = Date.now() + 90000
+  while (Date.now() < end) {
+    await new Promise((r) => setTimeout(r, 1500))
+    try {
+      const res = await fetch('/api/health', { cache: 'no-store' })
+      if (!res.ok) continue
+      const j = await res.json()
+      if (String(j.version || '') === String(expect)) return true
+    } catch (e) { /* 重启中连不上是正常的 */ }
+  }
+  return false
+}
+
+async function applyUpdate() {
+  if (!upd.value?.latest || applying.value) return
+  const ok = await confirm({
+    title: `更新到 v${upd.value.latest}？`,
+    message: '程序会自行下载新版本、替换当前程序并重启服务。',
+    detail: [
+      '重启期间页面会短暂断开，通常几秒。',
+      '更新前会保留上一份程序（xianyu-stat.bak），出问题可手动换回。',
+      '更新过程中请不要关闭容器。'
+    ],
+    confirmText: '开始更新'
+  })
+  if (!ok) return
+  applying.value = true
+  applyText.value = '正在下载并校验…'
+  try {
+    await api.updateApply()
+    applyText.value = '已下载完成，正在重启服务…'
+    const okNew = await waitNewVersion(upd.value.latest)
+    if (!okNew) {
+      applyText.value = '没等到新版本启动。请刷新页面确认；若仍是旧版本，可到容器里执行 systemctl status xianyu-stat 查看原因。'
+      applying.value = false
+      return
+    }
+    applyText.value = '更新完成，正在刷新页面…'
+    setTimeout(() => { try { location.reload() } catch (e) { /* ignore */ } }, 700)
+  } catch (e) {
+    updErr.value = e.message || '更新失败'
+    applying.value = false
+    applyText.value = ''
+  }
+}
 </script>
 
 <template>
@@ -111,6 +210,61 @@ const toggle = (v) => { expanded.value = expanded.value === v ? '' : v }
             <div class="ver-num num">{{ data.version }}</div>
             <div class="ver-meta">第 {{ data.count }} 次编译 · {{ data.time || '—' }}</div>
             <div class="ver-build mono muted">前端构建 {{ data.build || '—' }}</div>
+          </div>
+
+          <!-- 在线更新：从 GitHub Release 拉新版本，容器内自行替换 -->
+          <div class="upd-card">
+            <div class="upd-head">
+              <b>在线更新</b>
+              <span class="muted">当前 {{ data.version }}</span>
+              <button class="btn btn-sm" :disabled="updBusy || applying" @click="checkUpdate">
+                <span v-if="updBusy" class="spin"></span>{{ updBusy ? '检查中…' : '检查更新' }}
+              </button>
+            </div>
+
+            <div v-if="updErr" class="tip err" role="alert">{{ updErr }}</div>
+            <template v-else-if="upd">
+              <div v-if="upd.error" class="upd-state bad">
+                <span>{{ upd.error }}</span>
+                <button class="btn btn-sm" @click="cfgOpen = true">填写更新源</button>
+              </div>
+              <div v-else-if="upd.has_update" class="upd-state">
+                <div class="upd-new">
+                  有新版本 <b>v{{ upd.latest }}</b>
+                  <span class="muted" v-if="upd.published_at">· {{ upd.published_at }}</span>
+                </div>
+                <div class="upd-notes" v-if="upd.notes">{{ firstLine(upd.notes) }}</div>
+                <div class="upd-ops">
+                  <button class="btn btn-sm btn-primary" :disabled="!upd.can_apply || applying" @click="applyUpdate">
+                    {{ applying ? '更新中…' : (upd.can_apply ? '立即更新' : '需手动更新') }}
+                  </button>
+                  <span v-if="!upd.can_apply" class="muted">当前是 {{ upd.platform }}，一键更新只支持 Linux (amd64) 容器</span>
+                </div>
+              </div>
+              <div v-else class="upd-state ok">已是最新版本</div>
+            </template>
+            <div v-else class="upd-state muted">点「检查更新」看看有没有新版</div>
+
+            <div v-if="applying" class="upd-progress" role="status">{{ applyText }}</div>
+
+            <details class="upd-cfg" :open="cfgOpen" @toggle="cfgOpen = $event.target.open">
+              <summary>更新源设置（私有仓库需要 Token）</summary>
+              <div class="upd-cfg-body">
+                <label>仓库</label>
+                <input class="input" v-model="cfg.repo" placeholder="owner/name" />
+                <label>GitHub Token</label>
+                <input class="input" type="password" v-model="cfg.token" autocomplete="off"
+                       :placeholder="upd?.has_token ? '已保存，留空表示不修改' : '私有仓库必填；只读权限即可'" />
+                <label>代理（容器连不上 GitHub 时填）</label>
+                <input class="input" v-model="cfg.proxy" placeholder="如 http://10.10.10.2:7890，留空则不用代理" />
+                <div class="upd-cfg-ops">
+                  <button class="btn btn-sm" :disabled="cfgBusy" @click="saveCfg">保存</button>
+                  <button v-if="upd?.has_token" class="btn btn-sm btn-ghost" :disabled="cfgBusy" @click="clearToken">清除 Token</button>
+                  <span class="muted">{{ cfgMsg }}</span>
+                </div>
+                <div class="muted upd-cfg-hint">Token 只存在本机数据库，不会出现在导出备份里；建议用只读、仅此仓库权限的细粒度 Token。代理留空即关闭，也支持 socks5://。</div>
+              </div>
+            </details>
           </div>
 
           <div class="ver-section-title">本次更新说明</div>

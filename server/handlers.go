@@ -225,6 +225,10 @@ func registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/records/{id}/discard", authWrap(handleAttachmentDiscard))
 	mux.HandleFunc("/api/health", handleHealth) // 健康检查可不鉴权
 	mux.HandleFunc("/api/version", authWrap(handleVersion))
+	// 在线更新：查 GitHub Release → 下载 → 校验 → 容器内替换并重启
+	mux.HandleFunc("/api/update/check", authWrap(handleUpdateCheck))
+	mux.HandleFunc("/api/update/apply", authWrap(handleUpdateApply))
+	mux.HandleFunc("/api/update/config", authWrap(handleUpdateConfig))
 	mux.HandleFunc("/api/stats/extras", authWrap(handleStatsExtras))
 	mux.HandleFunc("/api/consign/stats", authWrap(handleConsignStats))
 	mux.HandleFunc("/api/consign/owners", authWrap(handleConsignOwners))
