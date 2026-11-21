@@ -848,7 +848,7 @@ async function test() {
             <div v-if="meta.source === 'env' && meta.env_fallback" class="hint-inline" style="margin-top:4px">当前使用环境变量中的配置。</div>
           </div>
         </div>
-        <div class="modal-foot">
+        <div class="modal-foot ocr-api-foot">
           <button class="btn btn-quiet" @click="test" :disabled="testing || saving"><span v-if="testing" class="spin"></span>测试连接</button>
           <button class="btn btn-ghost btn-danger" @click="clearKey" :disabled="!meta.has_key">清除 Key</button>
           <div class="spacer"></div>

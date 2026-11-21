@@ -315,6 +315,97 @@ func TestStatsExtras(t *testing.T) {
 	}
 }
 
+// 经营洞察也必须按卖单实际带走的成本冲减联单采购。
+// 不能因为记录进了联单就把整批采购从在库中漏掉。
+func TestStatsExtrasUsesRemainingLinkedHolding(t *testing.T) {
+	h := newExtrasEnv(t)
+	if err := createGroupTables(); err != nil {
+		t.Fatalf("createGroupTables: %v", err)
+	}
+
+	buyTime := time.Now().AddDate(0, 0, -61).Format("2006-01-02 15:04:05")
+	buyID := insertExtrasItem(t, &Item{
+		Product: "联单周转货", BuyPrice: 900, Quantity: 2, BuyTime: buyTime,
+	})
+	sellID := insertExtrasItem(t, &Item{
+		Product: "联单周转货", ParentID: buyID, Quantity: 1,
+		SellPrice: 300, SellNet: 300, SellTime: nowStr(),
+	})
+	res, err := db.Exec("INSERT INTO link_groups(title,created_at,updated_at) VALUES(?,?,?)",
+		"周转测试联单", nowStr(), nowStr())
+	if err != nil {
+		t.Fatalf("insert group: %v", err)
+	}
+	gid, _ := res.LastInsertId()
+	if err := setGroupItems(gid, []int64{buyID, sellID}, defaultShopID); err != nil {
+		t.Fatalf("setGroupItems: %v", err)
+	}
+
+	w := doExtrasReq(h, "GET", "/api/stats/extras", nil)
+	if w.Code != 200 {
+		t.Fatalf("GET /api/stats/extras = %d %s", w.Code, w.Body.String())
+	}
+	m := decodeMap(t, w)
+	// 采购 900 两件，卖出 1 件分摊 450；剩余 450 仍应占用库存。
+	// 近 90 天销售额 300，日均 300/90，周转 = 450 / (300/90) = 135 天。
+	if got := m["turnover_days"].(float64); got != 135 {
+		t.Errorf("turnover_days=%v want 135", got)
+	}
+	if got := m["stale_count"].(float64); got != 1 {
+		t.Errorf("stale_count=%v want 1", got)
+	}
+	if got := m["unsold_count"].(float64); got != 1 {
+		t.Errorf("unsold_count=%v want 1（联单未售部分仍应计入待售）", got)
+	}
+
+	ws := doExtrasReq(h, "GET", "/api/stats", nil)
+	if ws.Code != 200 {
+		t.Fatalf("GET /api/stats = %d %s", ws.Code, ws.Body.String())
+	}
+	if got := decodeMap(t, ws)["pending_count"].(float64); got != 1 {
+		t.Errorf("pending_count=%v want 1（首页待售批次应与在库成本一致）", got)
+	}
+}
+
+// 寄卖 / 代采不是自己的经营成本，也不能出现在首页商品净利润排行。
+func TestProductProfitExcludesExternalGoods(t *testing.T) {
+	h := newExtrasEnv(t)
+	insertExtrasItem(t, &Item{
+		Product: "自营商品", BuyPrice: 100, SellPrice: 200, SellNet: 195, Quantity: 1,
+	})
+	insertExtrasItem(t, &Item{
+		Product: "寄卖商品", Source: "寄卖", CostFree: true,
+		SellPrice: 3000, SellNet: 2950, Quantity: 1,
+	})
+	insertExtrasItem(t, &Item{
+		Product: "代采商品", Source: "代采", BuyPrice: 500, Quantity: 1,
+	})
+
+	w := doExtrasReq(h, "GET", "/api/product-profit", nil)
+	if w.Code != 200 {
+		t.Fatalf("GET /api/product-profit = %d %s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Items []productProfitRow `json:"items"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	got := map[string]bool{}
+	for _, row := range out.Items {
+		got[row.Product] = true
+	}
+	if !got["自营商品"] {
+		t.Error("自营商品应保留在商品利润中")
+	}
+	if got["寄卖商品"] {
+		t.Error("寄卖商品不应进入自己的商品利润排行")
+	}
+	if got["代采商品"] {
+		t.Error("代采商品不应进入自己的商品利润排行")
+	}
+}
+
 // 利润榜口径：未完结联单里的商品不进榜，只展示已闭环且盈利（>0）的商品。
 func TestStatsExtrasTopProductsFilter(t *testing.T) {
 	h := newExtrasEnv(t)

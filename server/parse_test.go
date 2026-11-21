@@ -562,4 +562,9 @@ func TestDeriveFeeIfMissing(t *testing.T) {
 	if r4.Fee != 0 {
 		t.Errorf("无服务费不应反推: fee=%v", r4.Fee)
 	}
+	// 7) 成交价与到手价只差卖运费 → 运费不能反推成服务费
+	r7 := parseText("成交价 ¥700.00 运费 ¥4.00 预估到手 ¥696.00")
+	if r7.Shipping != 4 || r7.Fee != 0 || r7.NetPrice != 696 {
+		t.Errorf("运费被误判为服务费: shipping=%v fee=%v net=%v", r7.Shipping, r7.Fee, r7.NetPrice)
+	}
 }

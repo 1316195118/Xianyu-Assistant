@@ -34,14 +34,14 @@ const staleThreshold = computed(() => data.value?.stale_threshold || 60)
 
 <template>
   <section v-if="data || failed" class="card panel insights-panel">
-    <div class="panel-head"><h3>经营洞察</h3><span class="muted">近一年入库 · 按商品聚合</span></div>
+    <div class="panel-head"><h3>经营洞察</h3><span class="muted">当前在库 · 按商品聚合</span></div>
     <div v-if="failed" class="insight-retry">
       <span>数据加载失败</span>
       <button class="btn btn-sm btn-quiet" @click="load">重试</button>
     </div>
     <div v-if="data" class="insight-metrics">
       <div><span>在库周转天数</span><b class="num">{{ Number(data.turnover_days || 0).toFixed(1) }} 天</b></div>
-      <div><span>待售件数</span><b class="num">{{ data.unsold_count || 0 }}</b></div>
+      <div><span>待售批次</span><b class="num">{{ data.unsold_count || 0 }}</b></div>
     </div>
 
     <!-- 滞销提醒：在库超阈值未售 -->

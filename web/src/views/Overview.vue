@@ -253,7 +253,8 @@ const donutCenter = computed(() => {
 // Hero 展示的是「数据里最近有成交的那个月」：月初还没开单时，
 // 它仍然停在上个月的真实数字，不会突然变成一条空记录。
 const month = computed(() => {
-  const ms = monthlyTrend.value || []
+  // 未填成交时间的记录只保留在累计口径里，不能冒充“最近成交月”。
+  const ms = (monthlyTrend.value || []).filter(m => m?.month)
   return ms.length ? ms[ms.length - 1] : null
 })
 // 月度目标是按自然月存的，进度必须用「当前这个月」算，
@@ -437,7 +438,7 @@ const chart = computed(() => {
 
     <details class="formula-note">
       <summary>利润口径说明 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></summary>
-      <div>净利润 = 销售额 − 已售成本。<b>已售成本只算已经卖出去的那部分</b>：货品成本按卖单带走的单件成本（买价 + 买运费按件分摊）计，加上卖运费、软件服务费、无忧卖服务费；没卖出去的进货落在「在库成本」里，不参与利润计算。「在库成本」= 所有有效采购 − 已填写成本卖单带走的成本 − 联单分摊给已卖部分的成本；联单里还没卖掉的货仍保留在库存，联单分摊部分不会重复扣。「完结单核算」把两部分合起来算：点了完结的联单（成交额取联单内卖单的到手价，成本取联单内买价 + 买运费），以及自己填好成本的卖单（到手价 − 这单带走的货品成本）——填了成本就自动算已结算，不用再为了看一眼完结利润去包联单。明细卡片上的「到手价」= 成交价 − 卖运费 − 服务费 − 无忧卖，是真正落袋的钱，只作显示、不参与上面的计算，否则服务费会被扣两次。利润率 = 净利润 ÷ 销售额；卖单自己没填成本的，如果所在联单里有买进单，会按各卖单成交价占比把联单买单的买价 + 买运费分摊下来（只用于核算，不改单据）；既没填成本、又不在含买进单的联单里的，才按 0 计，可以去明细筛「未挂成本」补上；如果这单本来就没有货品成本（代卖 / 寄卖 / 赠送），在明细里标「无成本」即可，利润按销售额全额计。</div>
+      <div>净利润 = 销售额 − 已售成本。<b>已售成本只算已经卖出去的那部分</b>：货品成本按卖单带走的单件成本（买价 + 买运费按件分摊）计，加上卖运费、软件服务费、无忧卖服务费；没卖出去的进货落在「在库成本」里，不参与利润计算。「在库成本」= 所有有效采购 − 已填写成本卖单带走的成本 − 联单分摊给已卖部分的成本；联单里还没卖掉的货仍保留在库存，联单分摊部分不会重复扣。「总投入」只算所有买单的买价 + 买运费，所以它等于「已售货品成本 + 在库成本」，不包含卖运费和服务费；「已售成本」则还要再加上这两项。未填成交时间的记录只计入累计金额，不会冒充最近月份。「完结单核算」把两部分合起来算：点了完结的联单（成交额取联单内卖单的到手价，成本取联单内买价 + 买运费），以及自己填好成本的卖单（到手价 − 这单带走的货品成本）——填了成本就自动算已结算，不用再为了看一眼完结利润去包联单。明细卡片上的「到手价」= 成交价 − 卖运费 − 服务费 − 无忧卖，是真正落袋的钱，只作显示、不参与上面的计算，否则服务费会被扣两次。利润率 = 净利润 ÷ 销售额；卖单自己没填成本的，如果所在联单里有买进单，会按各卖单成交价占比把联单买单的买价 + 买运费分摊下来（只用于核算，不改单据）；既没填成本、又不在含买进单的联单里的，才按 0 计，可以去明细筛「未挂成本」补上；如果这单本来就没有货品成本（代卖 / 寄卖 / 赠送），在明细里标「无成本」即可，利润按销售额全额计。</div>
     </details>
 
     <!-- 四项核心指标 -->
@@ -481,12 +482,12 @@ const chart = computed(() => {
         <div class="kpi-label">在库成本 <span class="kpi-tag">占用资金</span></div>
         <div class="kpi-value num" style="color:var(--blue)"><AnimatedNumber :value="stats?.holding_cost || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></div>
         <div class="kpi-foot">
-          {{ fmtNum(stats?.pending_count || 0) }} 件待售
+          {{ fmtNum(stats?.pending_count || 0) }} 批待售
           <HelpTip :text="ageTip" />
         </div>
       </div>
       <div class="card kpi-card">
-        <div class="kpi-label">总投入<HelpTip text="历史上所有进货的总额。总投入 = 已售成本 + 在库成本，用来看「一共投进去多少钱」。" /></div>
+        <div class="kpi-label">总投入<HelpTip text="历史上所有进货的买价 + 买运费。总投入 = 已售货品成本 + 在库成本，不包含卖运费和服务费，用来看「一共压过多少钱」。" /></div>
         <div class="kpi-value num"><AnimatedNumber :value="stats?.total_invest || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></div>
         <div class="kpi-foot kpi-note">所有买单（买价 + 买运费）合计</div>
       </div>

@@ -10,8 +10,11 @@ const creating = ref(false)
 const newName = ref('')
 const newColor = ref('#2f6bff')
 const busy = ref(false)
+const switching = ref(false)
 const rootEl = ref(null)
 const nameEl = ref(null)
+let switchSeq = 0
+let switchTimer = 0
 
 const COLORS = ['#f5b400', '#2f6bff', '#1a9c6b', '#e0492e', '#8b5cf6', '#ec4899']
 
@@ -31,10 +34,21 @@ function pick(s) {
     emit('notify', '当前账号只能访问本店铺，切换请先退出并用全局密码登录')
     return
   }
-  switchShop(s.id)
   markShopPicked()
+  // 先让菜单收起、按钮出现按压反馈，下一帧再重建页面。
+  // 两家店的多个面板同时换数据时会有十几毫秒的主线程工作，不能让它挡住点击反馈。
   open.value = false
-  emit('changed', s)
+  switching.value = true
+  const seq = ++switchSeq
+  clearTimeout(switchTimer)
+  // 固定短延时比连续 rAF 稳：手机省电模式、后台页或内嵌浏览器可能把 rAF
+  // 压到几百毫秒，反而会让切店像卡住。24ms 足够先提交菜单收起状态。
+  switchTimer = setTimeout(() => {
+    if (seq !== switchSeq) return
+    switchShop(s.id)
+    switching.value = false
+    emit('changed', s)
+  }, 24)
 }
 
 async function submitCreate() {
@@ -74,6 +88,7 @@ onMounted(() => {
   if (!shops.value.length) loadShops()
 })
 onUnmounted(() => {
+  clearTimeout(switchTimer)
   document.removeEventListener('click', onDocClick, true)
   document.removeEventListener('keydown', onKey)
 })
@@ -81,11 +96,16 @@ onUnmounted(() => {
 
 <template>
   <div ref="rootEl" class="shop-switch">
-    <button class="shop-btn" :class="{ open }" @click.stop="toggle"
-            :title="`当前店铺：${label}（点击切换）`" :aria-expanded="open" aria-haspopup="listbox">
+    <button class="shop-btn" :class="{ open, switching }" @click.stop="toggle"
+            :title="`当前店铺：${label}（点击切换）`" :aria-expanded="open"
+            :aria-busy="switching" aria-haspopup="listbox">
       <i class="shop-dot" :style="{ background: dotColor }" aria-hidden="true"></i>
       <span class="shop-name">{{ label }}</span>
-      <svg class="shop-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      <svg v-if="switching" class="shop-chev shop-spinner" width="12" height="12" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true">
+        <path d="M21 12a9 9 0 1 1-4-7.5" />
+      </svg>
+      <svg v-else class="shop-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg>
     </button>
 

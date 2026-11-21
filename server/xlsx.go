@@ -78,6 +78,8 @@ func statusLabel(s string) string {
 		return "已成交"
 	case "pending":
 		return "待售"
+	case "external":
+		return "外部结算"
 	case "sell_only":
 		return "待补买进"
 	}

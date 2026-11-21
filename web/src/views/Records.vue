@@ -10,7 +10,7 @@ import { undoAction } from '../feedback'
 import { fmtMoney, fmtNum, shortTime, todayStr } from '../utils'
 
 const props = defineProps({ refreshKey: { type: Number, default: 0 }, highlightId: { type: Number, default: 0 }, focusQuery: { type: String, default: '' }, focusNorm: { type: String, default: '' }, focusType: { type: String, default: '' }, focusNonce: { type: Number, default: 0 } })
-const emit = defineEmits(['add', 'edit', 'refresh', 'notify', 'goto-group', 'batch'])
+const emit = defineEmits(['add', 'edit', 'refresh', 'notify', 'goto-group', 'goto-consign', 'batch'])
 
 const q = ref('')
 const type = ref('')
@@ -627,11 +627,14 @@ const groupMembership = computed(() => {
 // 单条完结（旧数据里的 settled_at）不再出章：现在卖单只要填了单件成本就算核算完成，
 // 不再有「单独完结」这个动作。
 const groupSettled = (r) => (groupsOf(r.id) || []).some(g => g.settled)
+const isExternalRecord = (r) => r?.source === '寄卖' || r?.source === '寄售' || r?.source === '代采' || r?.source === '代买'
+const isConsignment = (r) => r?.source === '寄卖' || r?.source === '寄售'
+const externalSettleText = (r) => isConsignment(r) ? '外部结算 · 去寄卖页结算' : '外部结算 · 去代采页收款'
 // 自动结算：卖单成本已经说得清（手填单件成本 / 标了无成本 / 两侧都填），
 // 不用包联单、也不用手动完结，后端统计时直接计入「已结算」。
 // 判定口径要和后端 autoSettled 一致：改一处就同步改另一处。
 const autoSettled = (r) => !!r && !r.settled_at && !r.discarded_at && !groupSettled(r) &&
-  r.has_sell && r.source !== '寄卖' && r.source !== '代采' &&
+  r.has_sell && !isExternalRecord(r) &&
   ((r.unit_cost || 0) > 0 || r.cost_free || (r.buy_price || 0) > 0)
 // 弃单：记录还在，但不占在库、不计成本与利润
 const isDiscarded = (r) => !!(r && r.discarded_at)
@@ -713,6 +716,7 @@ const typeLabel = (r) => isDiscarded(r) ? '弃单' : groupSettled(r) ? '完结�
 // 详情面板里的结算状态：让「为什么这单算已结算」一目了然
 const settleStateOf = (r) => {
   if (isDiscarded(r)) return '已作废（不进账）'
+  if (isExternalRecord(r)) return externalSettleText(r)
   if (groupSettled(r)) return '已结算 · 联单完结'
   if (autoSettled(r)) return r.cost_free ? '已结算 · 标记为无成本' : '已结算 · 成本已明确'
   if (!r.has_sell) return '不适用（还没卖出）'
@@ -728,6 +732,7 @@ const typeClass = (r) => isDiscarded(r) ? 'badge-discard' : groupSettled(r) ? 'b
 // 时间/昵称都为空的记录（纯买单常见）不渲染副标题行，否则会剩一个孤零零的「—」
 const hasMeta = (r) => !!(r && (r.deal_time || (r.has_sell ? r.sell_counterparty : r.buy_counterparty)))
 const unitCostText = (r) => {
+  if (isExternalRecord(r)) return '不计入自有成本'
   const own = Number(r.unit_cost) || 0
   if (own > 0) return fmtMoney(own)
   const alloc = Number(r.alloc_cost) || 0
@@ -738,8 +743,8 @@ const rowBuyPrice = (r) => (r.has_sell ? (r.sell_price || 0) : (r.buy_price || 0
 const rowNet = (r) => ((r.sell_price || 0) - (r.sell_shipping || 0) - (r.sell_fee || 0) - (r.sell_wuyou_fee || 0))
 // 中间格：卖单才是「到手价」；买单没有到手价，看的是总成本（买价 + 买运费）。
 // 以前买单这里放的是「买价 − 买运费」还标成到手价，既扣错方向也和汇总口径对不上。
-const rowMidLabel = (r) => (r.has_sell ? '到手价' : '总成本')
-const rowMidValue = (r) => (r.has_sell ? rowNet(r) : (r.cost || 0))
+const rowMidLabel = (r) => isExternalRecord(r) ? '不计成本' : (r.has_sell ? '到手价' : '总成本')
+const rowMidValue = (r) => isExternalRecord(r) ? 0 : (r.has_sell ? rowNet(r) : (r.cost || 0))
 // 卖单第三格：卖运费 + 软件服务费 + 无忧卖，正好是「卖出价 → 到手价」的差额
 const sellDeduct = (r) => (r.sell_shipping || 0) + (r.sell_fee || 0) + (r.sell_wuyou_fee || 0)
 // 与录入端一致：超过 0.1 元才算真的付了运费
@@ -1251,9 +1256,9 @@ function onCardClick(r, e) {
                     <span class="meta-sep" aria-hidden="true">·</span>
                     <span class="cell-sub">{{ counterpartyOf(r) || '—' }}</span>
 
-                    <span v-if="r.source === '寄卖'" class="consign-tag" :title="'寄卖单' + (r.owner ? ' · 归属 ' + r.owner : '')">寄卖单</span>
-                    <span v-if="r.source === '代采'" class="consign-tag daicai-tag" :title="'代采单' + (r.owner ? ' · 替 ' + r.owner + ' 买' : '')">代采单</span>
-                    <span v-if="r.owner && r.source !== '寄卖' && r.source !== '代采'" class="owner-chip" :title="'归属：' + r.owner">{{ r.owner }}</span>
+                    <span v-if="isConsignment(r)" class="consign-tag" :title="'寄卖单' + (r.owner ? ' · 归属 ' + r.owner : '')">寄卖单</span>
+                    <span v-if="r.source === '代采' || r.source === '代买'" class="consign-tag daicai-tag" :title="'代采单' + (r.owner ? ' · 替 ' + r.owner + ' 买' : '')">代采单</span>
+                    <span v-if="r.owner && !isExternalRecord(r)" class="owner-chip" :title="'归属：' + r.owner">{{ r.owner }}</span>
 
                   </div>
                 </td>
@@ -1271,11 +1276,12 @@ function onCardClick(r, e) {
                           :title="r.discarded_at ? '已弃单的记录不能加入联单' : '把这条记录加入联单'"
                           @click.stop="openGroupPicker(r.id)">＋</button>
                   <!-- 结算状态跟联单放在一起：都属于「这单归到哪、算没算完」 -->
-                  <div v-if="isDiscarded(r) || groupSettled(r) || autoSettled(r) || (r.cost_free && r.source !== '寄卖' && r.source !== '代采')" class="group-tags">
+                  <div v-if="isDiscarded(r) || isExternalRecord(r) || groupSettled(r) || autoSettled(r) || (r.cost_free && !isExternalRecord(r))" class="group-tags">
                     <span v-if="isDiscarded(r)" class="discard-dot" title="已弃单：不占在库、不计成本与利润">已弃单</span>
+                    <span v-else-if="isExternalRecord(r)" class="auto-settled-chip external-settled-chip" :title="externalSettleText(r)">外部结算</span>
                     <span v-else-if="groupSettled(r)" class="settled-dot" title="所在联单已完结">已完结</span>
                     <span v-else-if="autoSettled(r)" class="auto-settled-chip" title="成本已明确，自动计入已结算（不用包联单）">已结算</span>
-                    <span v-if="r.cost_free && r.source !== '寄卖' && r.source !== '代采'" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
+                    <span v-if="r.cost_free && !isExternalRecord(r)" class="costfree-dot" title="已标记：这单没有货品成本（代卖 / 寄卖 / 赠送）">无成本</span>
                   </div>
                 </td>
                 <td v-if="showCols.shot" class="col-shot">
@@ -1297,9 +1303,9 @@ function onCardClick(r, e) {
                   <template v-else>{{ r.has_sell ? fmtMoney((r.sell_fee || 0) + (r.sell_wuyou_fee || 0)) : '—' }}</template>
                 </td>
                 <td class="td-right num col-num col-profit td-profit"
-                    :class="r.has_sell ? ((r.profit || 0) >= 0 ? 'pos' : 'neg') : 'td-muted'"
-                    :title="!r.has_sell ? '买单还没卖出去，没有利润' : (r.discarded_at ? '已弃单，不计入统计' : '成交价 − 货品成本 − 卖运费 − 服务费')">
-                  {{ r.has_sell ? fmtMoney(r.profit || 0) : '—' }}
+                    :class="isExternalRecord(r) ? 'td-muted' : (r.has_sell ? ((r.profit || 0) >= 0 ? 'pos' : 'neg') : 'td-muted')"
+                    :title="isExternalRecord(r) ? externalSettleText(r) : (!r.has_sell ? '买单还没卖出去，没有利润' : (r.discarded_at ? '已弃单，不计入统计' : '成交价 − 货品成本 − 卖运费 − 服务费'))">
+                  {{ isExternalRecord(r) ? '外部结算' : (r.has_sell ? fmtMoney(r.profit || 0) : '—') }}
                 </td>
                 <td v-if="showCols.time" class="muted nowrap cell-time col-time">{{ shortTime(r.deal_time) }}</td>
                 <td class="td-right nowrap cell-actions rc-actions-desktop" @click.stop>
@@ -1333,8 +1339,8 @@ function onCardClick(r, e) {
                     <div class="dg-title">资金与费用</div>
                     <div class="dg-items">
                       <div class="dg-item"><span>单件成本</span><b>{{ unitCostText(r) }}</b></div>
-                      <div class="dg-item"><span>本条成本</span><b>{{ fmtMoney(r.cost || 0) }}</b></div>
-                      <div v-if="r.has_sell" class="dg-item">
+                      <div class="dg-item"><span>{{ isExternalRecord(r) ? '成本口径' : '本条成本' }}</span><b>{{ isExternalRecord(r) ? '不计入自有成本' : fmtMoney(r.cost || 0) }}</b></div>
+                      <div v-if="r.has_sell && !isExternalRecord(r)" class="dg-item">
                         <span>本单利润</span>
                         <b :class="(r.profit || 0) >= 0 ? 'pos' : 'neg'"
                            title="成交价 − 货品成本 − 卖运费 − 服务费">{{ fmtMoney(r.profit || 0) }}<em v-if="r.discarded_at" class="dg-note">已弃单，不计入</em></b>
@@ -1370,6 +1376,10 @@ function onCardClick(r, e) {
                       <div v-if="r.settled_at" class="dg-item"><span>完结于</span><b>{{ r.settled_at }}</b></div>
                       <div class="dg-item"><span>弃单</span><b>{{ r.discarded_at || '—' }}</b></div>
                     </div>
+                    <button v-if="isExternalRecord(r)" type="button" class="btn btn-sm btn-primary dg-external-settle"
+                            @click.stop="emit('goto-consign', r.source)">
+                      {{ isConsignment(r) ? '去寄卖页结算' : '去代采页收款' }}
+                    </button>
                     <div v-if="isDiscarded(r)" class="dg-hint">弃单不占在库、不计成本与利润率，只保留记录。</div>
                   </div>
                 </div>
@@ -1477,7 +1487,7 @@ function onCardClick(r, e) {
             </div>
           </div>
           <!-- 手机上没有单独的利润列，就在金额区下补一行，和桌面表一致 -->
-          <div v-if="r.has_sell" class="rc-profit">
+          <div v-if="r.has_sell && !isExternalRecord(r)" class="rc-profit">
             <span>本单利润</span>
             <b class="num" :class="(r.profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(r.profit || 0) }}</b>
             <em v-if="r.discarded_at" class="dg-note">已弃单</em>
@@ -1524,8 +1534,8 @@ function onCardClick(r, e) {
             <!-- 成本优先显示：这是用户最关心的核算项，不该藏在编辑弹窗里。
                  手填的单件成本、联单分摊的成本、本条合计成本分三行写清楚。 -->
             <div><span>单件成本</span><b>{{ unitCostText(r) }}</b></div>
-            <div><span>本条成本</span><b>{{ fmtMoney(r.cost || 0) }}</b></div>
-            <div v-if="r.has_sell"><span>本单利润</span><b :class="(r.profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(r.profit || 0) }}<em v-if="r.discarded_at" class="dg-note">已弃单</em></b></div>
+            <div><span>{{ isExternalRecord(r) ? '成本口径' : '本条成本' }}</span><b>{{ isExternalRecord(r) ? '不计入自有成本' : fmtMoney(r.cost || 0) }}</b></div>
+            <div v-if="r.has_sell && !isExternalRecord(r)"><span>本单利润</span><b :class="(r.profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(r.profit || 0) }}<em v-if="r.discarded_at" class="dg-note">已弃单</em></b></div>
             <!-- 只显示这条记录真有的那一侧：买单不列卖订单号/买家昵称，
                  卖单不列买订单号/卖家昵称，避免一屏「—」还容易看错边 -->
             <div v-if="r.has_buy"><span>买订单号</span><b class="mono">{{ r.buy_order_no || '—' }}</b></div>
@@ -1542,6 +1552,10 @@ function onCardClick(r, e) {
             <div><span>结算</span><b>{{ settleStateOf(r) }}</b></div>
             <div v-if="r.settled_at"><span>完结于</span><b>{{ r.settled_at }}</b></div>
             <div v-if="r.discarded_at"><span>弃单于</span><b>{{ r.discarded_at }}</b></div>
+            <button v-if="isExternalRecord(r)" type="button" class="btn btn-sm btn-primary rc-external-settle"
+                    @touchstart.stop @click.stop="emit('goto-consign', r.source)">
+              {{ isConsignment(r) ? '去寄卖页结算' : '去代采页收款' }}
+            </button>
 
             <!-- 默认不展示截图，只给一个入口：想看的再点，列表也不会因此加载图片 -->
             <button v-if="r.attachment" type="button" class="rc-shot-btn"

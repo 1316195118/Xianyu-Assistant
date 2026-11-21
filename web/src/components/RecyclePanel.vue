@@ -133,15 +133,23 @@ const fmt = (s) => String(s || '').replace('T', ' ').slice(0, 16)
           <div v-for="o in ops" :key="o.token" class="undo-item">
             <span class="undo-badge" :class="{ used: o.consumed }">{{ o.consumed ? '已使用' : '可恢复' }}</span>
             <div class="undo-main">
-              <b>{{ o.label }}</b>
+              <b :title="o.label">{{ o.label }}</b>
               <small class="muted">{{ fmt(o.created_at) }} · {{ Math.round((o.size || 0) / 1024) }} KB</small>
             </div>
-            <button v-if="!o.consumed" class="btn btn-sm btn-primary" :disabled="!!acting" @click="restore(o)">
-              <span v-if="acting === 'restore:' + o.token" class="spin"></span>恢复
-            </button>
-            <button class="btn btn-sm btn-ghost btn-danger" :disabled="!!acting" @click="discard(o)">
-              <span v-if="acting === 'discard:' + o.token" class="spin"></span>删除
-            </button>
+            <div class="undo-actions">
+              <button v-if="!o.consumed" class="btn btn-sm btn-primary undo-action" :disabled="!!acting"
+                      :aria-label="'恢复 ' + o.label" :title="'恢复 ' + o.label" @click="restore(o)">
+                <span v-if="acting === 'restore:' + o.token" class="spin"></span>
+                <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6.7 3L3 13"/></svg>
+                <span class="undo-btn-label">恢复</span>
+              </button>
+              <button class="btn btn-sm btn-ghost btn-danger undo-action" :disabled="!!acting"
+                      :aria-label="'彻底删除 ' + o.label" :title="'彻底删除 ' + o.label" @click="discard(o)">
+                <span v-if="acting === 'discard:' + o.token" class="spin"></span>
+                <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg>
+                <span class="undo-btn-label">删除</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -400,11 +400,18 @@ type GroupExternal struct {
 	Source       string  `json:"source"`       // 货物来源：自采 / 回收 / 寄卖 / 闲鱼
 }
 
-// 货物来源固定四选一，空值按「未标注」处理，避免前端传进来的杂字符串进库。
+// 货物来源固定为这几种，空值按「未标注」处理，避免前端传进来的杂字符串进库。
+// 兼容用户常说的「寄售 / 代买」，入库时统一成寄卖 / 代采，统计只认一套口径。
 var validSources = map[string]bool{"自采": true, "回收": true, "寄卖": true, "代采": true, "闲鱼": true}
 
 func normSource(v string) string {
 	v = strings.TrimSpace(v)
+	switch v {
+	case "寄售":
+		return "寄卖"
+	case "代买":
+		return "代采"
+	}
 	if validSources[v] {
 		return v
 	}

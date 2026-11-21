@@ -9,7 +9,11 @@ const RecordModal = defineAsyncComponent(() => import('../components/RecordModal
 
 // 寄卖账本：别人的货放在这卖（寄卖），或垫钱替别人买（代采），都按归属人分账、可结算。
 // 这两类单都不计入首页利润 / 成本（后端按 source 排除），只在这里统计。
-const props = defineProps({ refreshKey: { type: Number, default: 0 } })
+const props = defineProps({
+  refreshKey: { type: Number, default: 0 },
+  initialTab: { type: String, default: 'sell' },
+  focusNonce: { type: Number, default: 0 }
+})
 const emit = defineEmits(['notify'])
 
 const data = ref(null)
@@ -19,6 +23,7 @@ const loadedAt = ref(null)
 const q = ref('')
 const searchOpen = ref(false)
 const searchIndex = ref(0)
+const filterOpen = ref(false)
 const active = ref('')
 const from = ref('')
 const to = ref('')
@@ -116,6 +121,7 @@ async function load() {
 
 onMounted(() => {
   document.addEventListener('keydown', onOverlayKeydown)
+  if (props.initialTab === 'buy' || props.initialTab === 'sell') tab.value = props.initialTab
   applyRange('month')
 })
 onActivated(() => {
@@ -304,6 +310,14 @@ const rangeText = computed(() => {
   if (to.value) return `截至 ${to.value}`
   return '全部时间'
 })
+const activeFilterCount = computed(() => (
+  Number(!!(q.value.trim() || active.value)) + Number(rangeKey.value !== 'month')
+))
+const filterSummary = computed(() => [
+  `${list.value.length} / ${rawList.value.length} 人`,
+  rangeText.value,
+  active.value || q.value.trim()
+].filter(Boolean).join(' · '))
 
 const loadedText = computed(() => {
   if (!loadedAt.value) return ''
@@ -321,6 +335,9 @@ function switchTab(key) {
   q.value = ''
   searchOpen.value = false
 }
+watch(() => props.focusNonce, () => {
+  if (props.initialTab === 'buy' || props.initialTab === 'sell') switchTab(props.initialTab)
+})
 
 function resetFilters() {
   q.value = ''
@@ -692,27 +709,28 @@ async function delSettlement(row) {
       </div>
     </section>
 
-    <section class="card cs-filter-card" aria-label="筛选往来">
+    <section class="card cs-filter-card" :class="{ 'is-filter-open': filterOpen }" aria-label="筛选往来">
       <div class="cs-filter-head">
-        <div>
-          <b>筛选往来</b>
-          <span>{{ list.length }} / {{ rawList.length }} 人</span>
-        </div>
-        <button v-if="q || active || rangeKey !== 'month'" class="cs-reset" @click="resetFilters">恢复本月</button>
+        <button
+          type="button"
+          class="cs-filter-toggle"
+          aria-controls="cs-filter-controls"
+          :aria-expanded="filterOpen"
+          :title="filterOpen ? '收起筛选往来' : '展开筛选往来'"
+          @click="filterOpen = !filterOpen"
+        >
+          <span class="cs-filter-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+            <b>筛选往来</b>
+            <span class="cs-filter-summary">{{ filterSummary }}</span>
+            <i v-if="activeFilterCount" class="cs-filter-badge">{{ activeFilterCount }}</i>
+          </span>
+          <svg class="cs-filter-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <button v-if="activeFilterCount" class="cs-reset" @click="resetFilters">恢复本月</button>
       </div>
-      <div class="cs-filter-controls">
-        <div class="chips cs-range-chips" aria-label="快捷日期">
-          <button class="chip" :class="{ on: rangeKey === 'month' }" @click="applyRange('month')">本月</button>
-          <button class="chip" :class="{ on: rangeKey === 'lastMonth' }" @click="applyRange('lastMonth')">上月</button>
-          <button class="chip" :class="{ on: rangeKey === 'quarter' }" @click="applyRange('quarter')">本季度</button>
-          <button class="chip" :class="{ on: rangeKey === 'year' }" @click="applyRange('year')">今年</button>
-          <button class="chip" :class="{ on: rangeKey === 'all' }" @click="applyRange('all')">全部</button>
-        </div>
-        <div class="cs-date-range">
-          <input class="input date-input" type="date" v-model="from" aria-label="开始日期" />
-          <span class="cs-date-sep" aria-hidden="true">至</span>
-          <input class="input date-input" type="date" v-model="to" aria-label="结束日期" />
-        </div>
+      <!-- 搜索框常驻：筛选条件收起时，仍能直接搜寄卖人 / 委托人。 -->
+      <div class="cs-filter-search-row">
         <div class="search-wrap cs-search cs-owner-search" :class="{ 'is-open': searchOpen }">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input
@@ -766,6 +784,24 @@ async function delSettlement(row) {
             </div>
           </div>
         </div>
+      </div>
+      <div id="cs-filter-controls" class="cs-filter-body">
+        <div class="cs-filter-body-in">
+          <div class="cs-filter-controls">
+        <div class="chips cs-range-chips" aria-label="快捷日期">
+          <button class="chip" :class="{ on: rangeKey === 'month' }" @click="applyRange('month')">本月</button>
+          <button class="chip" :class="{ on: rangeKey === 'lastMonth' }" @click="applyRange('lastMonth')">上月</button>
+          <button class="chip" :class="{ on: rangeKey === 'quarter' }" @click="applyRange('quarter')">本季度</button>
+          <button class="chip" :class="{ on: rangeKey === 'year' }" @click="applyRange('year')">今年</button>
+          <button class="chip" :class="{ on: rangeKey === 'all' }" @click="applyRange('all')">全部</button>
+        </div>
+        <div class="cs-date-range">
+          <input class="input date-input" type="date" v-model="from" aria-label="开始日期" />
+          <span class="cs-date-sep" aria-hidden="true">至</span>
+          <input class="input date-input" type="date" v-model="to" aria-label="结束日期" />
+        </div>
+        </div>
+      </div>
       </div>
       <button v-if="active" class="cs-active-filter" @click="active = ''">
         只看「{{ active }}」 <span>×</span>

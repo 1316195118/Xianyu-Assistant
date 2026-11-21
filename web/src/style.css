@@ -1146,6 +1146,8 @@ html[data-theme="dark"] .chart-tip { background: var(--surface-2); }
     border-top: 1px solid var(--border); box-shadow: 0 -3px 16px rgba(20,26,40,.06);
     align-items: stretch;
   }
+  /* 软键盘会把固定定位的底栏一起顶上来；输入期间收起，失焦后再恢复。 */
+  .tabbar.is-input-focus { display: none; }
   .tabbar > button:not(.tab-fab) {
     flex: 1; border: 0; background: transparent; color: var(--text-3);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -2145,15 +2147,19 @@ html[data-theme="dark"] .toast-stack .toast.info { background: #1e3b66; }
 .undo-item {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px;
   border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);
+  flex-wrap: nowrap;
 }
 .undo-badge {
   flex: 0 0 auto; font-size: 11px; font-weight: 700; padding: 2px 8px;
   border-radius: 999px; background: var(--blue-soft); color: var(--blue);
 }
 .undo-badge.used { background: var(--surface); color: var(--text-3); border: 1px solid var(--border); }
-.undo-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.undo-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.undo-main b, .undo-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .undo-main b { font-size: 13px; font-weight: 650; }
 .undo-main small { font-size: 11px; }
+.undo-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.undo-action { flex: 0 0 auto; }
 .readonly-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .readonly-row .input { max-width: 300px; }
 /* 「先设管理密码」的拦截说明：贴在最上面，和下面的输入框一起读得通 */
@@ -2658,9 +2664,10 @@ html[data-theme="dark"] .topbar.scrolled { box-shadow: 0 8px 24px rgba(0, 0, 0, 
   display: flex; align-items: center; gap: 11px; width: 100%;
   border: 0; background: transparent; text-align: left;
   padding: 9px 10px; border-radius: 9px; cursor: pointer; color: var(--text);
-  transition: background .12s ease;
+  transition: background .12s ease, transform 80ms ease;
 }
 .cmd-item.on { background: var(--surface-2); }
+.cmd-item:active { background: var(--brand-soft); transform: scale(.985); }
 .cmd-ico {
   width: 30px; height: 30px; flex: 0 0 auto; border-radius: 8px;
   display: grid; place-items: center; background: var(--brand-soft); color: var(--brand-deep);
@@ -2685,8 +2692,10 @@ html[data-theme="dark"] .topbar.scrolled { box-shadow: 0 8px 24px rgba(0, 0, 0, 
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 4px; padding: 0 4px; margin-right: 2px;
 }
-.cmd-enter-active, .cmd-leave-active { transition: opacity .18s ease; }
-.cmd-enter-active .cmd-panel, .cmd-leave-active .cmd-panel { transition: transform .2s cubic-bezier(.2, .8, .2, 1), opacity .2s ease; }
+.cmd-enter-active { transition: opacity .18s ease; }
+.cmd-enter-active .cmd-panel { transition: transform .2s cubic-bezier(.2, .8, .2, 1), opacity .2s ease; }
+.cmd-leave-active { transition: opacity 80ms ease; }
+.cmd-leave-active .cmd-panel { transition: transform 80ms ease, opacity 80ms ease; }
 .cmd-enter-from, .cmd-leave-to { opacity: 0; }
 .cmd-enter-from .cmd-panel, .cmd-leave-to .cmd-panel { opacity: 0; transform: translateY(-10px) scale(.985); }
 html[data-theme="dark"] .cmd-mask { background: rgba(0, 0, 0, .55); }
@@ -2734,8 +2743,8 @@ html.theme-anim .select {
    追加：明细列表密度与筛选交互
    ========================================================= */
 
-/* 筛选折叠：桌面始终展开，移动端默认收起 */
-.filter-toggle { display: none; flex: 0 0 auto; }
+/* 桌面与移动端都可切换筛选；展开状态由 .filter-open 控制。 */
+.filter-toggle { display: inline-flex; flex: 0 0 auto; }
 .ft-count {
   min-width: 16px; height: 16px; padding: 0 4px; margin-left: 4px;
   display: inline-grid; place-items: center;
@@ -3035,9 +3044,17 @@ html[data-motion="reduce"] .chip.on { animation: none !important; }
 /* 回收站二级窗口：窄屏下入口更紧凑、撤销条目按钮换行且触控区达标 */
 @media (max-width: 600px) {
   .settings-entry { padding: 14px 16px; gap: 12px; }
-  .undo-item { flex-wrap: wrap; }
-  .undo-main { flex: 1 1 60%; }
-  .undo-item .btn { flex: 1 1 auto; justify-content: center; min-height: var(--touch-min); }
+  .undo-item { gap: 6px; padding: 8px; }
+  .undo-badge { padding: 2px 5px; font-size: 9.5px; }
+  .undo-main { min-width: 0; }
+  .undo-main b { font-size: 12px; }
+  .undo-main small { font-size: 10px; }
+  .undo-actions { gap: 4px; }
+  .undo-item .undo-action {
+    width: 32px; min-width: 32px; height: 32px; min-height: 32px;
+    padding: 0; justify-content: center; border-radius: 9px;
+  }
+  .undo-btn-label { display: none; }
 }
 
 /* ============================================================
@@ -3264,8 +3281,10 @@ html[data-theme="dark"] .upd-progress.bad {
   padding: 9px 10px; border: 0; border-radius: 9px; background: transparent;
   color: var(--text); font-size: var(--fs-md); font-weight: 500;
   text-align: left; cursor: pointer; min-height: 38px;
+  transition: background var(--dur-1) ease, transform 80ms ease;
 }
 .shop-item:hover { background: var(--surface-2); }
+.shop-item:active { background: var(--brand-soft); transform: scale(.985); }
 .shop-item.on { background: var(--brand-soft); color: #8a6500; font-weight: 600; }
 .shop-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shop-tick { color: var(--brand-deep); flex: 0 0 auto; }
@@ -3287,10 +3306,16 @@ html[data-theme="dark"] .upd-progress.bad {
 .shop-create-row { display: flex; gap: 8px; }
 .shop-create-row .btn { flex: 1; justify-content: center; }
 
-.shop-pop-enter-active, .shop-pop-leave-active {
+.shop-pop-enter-active {
   transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
 }
+.shop-pop-leave-active {
+  /* 选店后立即收束，不再用 240ms 的离场动画拖住页面切换反馈。 */
+  transition: opacity 90ms ease, transform 90ms ease;
+}
 .shop-pop-enter-from, .shop-pop-leave-to { opacity: 0; transform: translateY(-6px) scale(.98); }
+.shop-spinner { animation: shop-spin .7s linear infinite; }
+@keyframes shop-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 600px) {
   .shop-btn { height: 30px; padding: 0 9px; max-width: 120px; gap: 6px; }
@@ -3301,7 +3326,8 @@ html[data-theme="dark"] .upd-progress.bad {
 
 @media (prefers-reduced-motion: reduce) {
   .shop-pop-enter-active, .shop-pop-leave-active { transition: opacity .01ms; }
-  .shop-chev, .shop-color { transition: none; }
+  .shop-chev, .shop-color, .shop-item { transition: none; }
+  .shop-spinner { animation: none; }
 }
 
 /* 录入弹窗的归属店铺标签：多店铺下防止「在错的店里录单」 */
@@ -4015,6 +4041,8 @@ html[data-theme="dark"] .upd-progress.bad {
   color: var(--up); border-color: #f5c9be; background: var(--up-soft);
 }
 .dg-hint { font-size: 11.5px; color: var(--text-3); margin-top: 6px; }
+.dg-external-settle { margin-top: 9px; }
+.rc-external-settle { width: 100%; margin-top: 10px; }
 
 .icon-btn-on { color: var(--down); }
 .icon-btn-on:hover { color: var(--down); background: var(--down-soft); }
@@ -4743,7 +4771,14 @@ html[data-theme="dark"] .price-hint { color: #9dbcff; }
   background: var(--surface); border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-3); display: flex; flex-direction: column; gap: 12px;
 }
-.rp-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rp-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.rp-toolbar .rp-seg { width: 100%; min-width: 0; }
+.rp-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .rp-text {
   width: 100%; min-height: 260px; resize: vertical; padding: 12px 14px;
   border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2);
@@ -4751,6 +4786,37 @@ html[data-theme="dark"] .price-hint { color: #9dbcff; }
 }
 .rp-empty { padding: 40px 12px; text-align: center; font-size: 12.5px; line-height: 1.6; }
 .ss-report { margin-left: auto; }
+
+@media (max-width: 600px) {
+  .report-panel {
+    width: 100%;
+    max-height: min(88vh, calc(100dvh - 24px));
+    padding: 16px;
+    border-radius: 18px;
+  }
+  .rp-toolbar { grid-template-columns: 1fr; gap: 10px; }
+  .rp-toolbar .rp-seg { min-width: 0; width: 100%; }
+  .rp-toolbar .rp-seg button { min-width: 0; }
+  .rp-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+  }
+  .rp-actions .btn {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    padding-inline: 8px;
+  }
+  .rp-text {
+    flex: 1 1 auto;
+    min-height: min(320px, 42vh);
+    resize: none;
+    font-size: 13px;
+    line-height: 1.75;
+  }
+}
 
 /* ---------- 手机首页视觉协调（覆盖上面的通用规则） ---------- */
 @media (max-width: 600px) {
@@ -5162,6 +5228,22 @@ html[data-motion="reduce"] .trend-svg.chart-in-b .chart-dot-neg { animation: non
   }
   .modal-mask.set-sheet .modal-body { max-height: none; flex: 1 1 auto; }
   .set-row { padding: 13px 14px; }
+}
+@media (max-width: 600px) {
+  /* 三按钮底栏在 320 / 360 内放不下，改为两项一行、保存独占一行。 */
+  .modal-foot.ocr-api-foot {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    flex-wrap: initial;
+  }
+  .ocr-api-foot .spacer { display: none; }
+  .ocr-api-foot .btn,
+  .ocr-api-foot .btn-primary {
+    width: 100%;
+    min-width: 0;
+    padding-inline: 8px;
+  }
+  .ocr-api-foot .btn-primary { grid-column: 1 / -1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .modal-mask.set-sheet .modal { animation: none !important; }
@@ -6758,13 +6840,60 @@ html[data-motion="reduce"] .upd-progress.bad {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 11px 14px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
 }
-.cs-filter-head > div { display: flex; align-items: baseline; gap: 9px; }
-.cs-filter-head b { font-size: 12.5px; }
-.cs-filter-head span { color: var(--text-3); font-size: 11.5px; }
+.cs-filter-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cs-filter-toggle:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 3px;
+  border-radius: 7px;
+}
+.cs-filter-label { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.cs-filter-label > svg { flex: 0 0 auto; color: var(--text-3); }
+.cs-filter-label b { flex: 0 0 auto; font-size: 12.5px; }
+.cs-filter-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cs-filter-badge {
+  flex: 0 0 auto;
+  min-width: 18px;
+  padding: 1px 5px;
+  border: 1px solid var(--cs-line);
+  border-radius: 999px;
+  background: var(--cs-soft);
+  color: var(--cs-accent-deep);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+}
+.cs-filter-chevron { flex: 0 0 auto; color: var(--text-3); transition: transform var(--dur-2) var(--ease); }
+.cs-filter-card.is-filter-open .cs-filter-chevron { transform: rotate(180deg); }
+.cs-filter-search-row { padding: 10px 14px; }
+.cs-filter-search-row .cs-search { width: 100%; min-width: 0; flex-basis: 100%; }
+.cs-filter-card.is-filter-open .cs-filter-search-row { padding-bottom: 0; }
 .cs-reset {
   border: 0;
   background: transparent;
@@ -6775,6 +6904,15 @@ html[data-motion="reduce"] .upd-progress.bad {
   cursor: pointer;
   padding: 3px 5px;
 }
+.cs-filter-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--dur-sheet) var(--ease), opacity var(--dur-2) ease;
+}
+.cs-filter-card.is-filter-open .cs-filter-body { grid-template-rows: 1fr; opacity: 1; }
+.cs-filter-body-in { min-height: 0; overflow: hidden; }
+.cs-filter-card.is-filter-open .cs-filter-body-in { overflow: visible; }
 .cs-filter-controls {
   display: flex;
   align-items: center;
@@ -6794,6 +6932,7 @@ html[data-motion="reduce"] .upd-progress.bad {
   width: 128px;
   height: 31px;
   min-width: 0;
+  max-width: 100%;
   min-height: 0;
   padding-block: 0;
   font-size: 12px;
@@ -7351,23 +7490,38 @@ html[data-theme="dark"] .cs-balance-card { box-shadow: inset 0 1px 0 rgba(255,25
   .cs-summary-meta { grid-column: 1 / -1; min-height: 38px; padding: 7px 10px; }
   .cs-filter-head { padding: 10px 12px; }
   .cs-filter-controls { padding: 10px 12px; gap: 8px; }
+  .cs-filter-label { gap: 6px; }
+  .cs-filter-label > svg { display: none; }
+  .cs-filter-summary { font-size: 10.5px; }
   .cs-range-chips .chip { height: 34px; }
   .cs-date-range {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr);
-    gap: 5px;
+    grid-template-columns: minmax(0, 1fr) 10px minmax(0, 1fr);
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
   .cs-date-range .input {
     width: 100%;
+    max-width: 100%;
     height: 40px;
+    padding-inline: 3px;
     font-size: 16px;
+    letter-spacing: -.04em;
+    justify-self: stretch;
+    box-sizing: border-box;
   }
+  .cs-date-range .date-input::-webkit-calendar-picker-indicator { display: none; }
+  .cs-date-range .date-input::-webkit-datetime-edit { min-width: 0; padding: 0; }
   .cs-date-sep {
-    width: 16px;
-    min-width: 16px;
+    width: 10px;
+    min-width: 10px;
     height: 40px;
     padding: 0;
     font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
   }
   .cs-search .input { height: 40px; font-size: 16px; }
   .cs-active-filter { margin: 0 12px 10px; }
@@ -7420,6 +7574,8 @@ html[data-theme="dark"] .cs-balance-card { box-shadow: inset 0 1px 0 rgba(255,25
   .cs-progress-track i,
   .cs-chev { animation: none !important; transition: none !important; }
 }
+.cs-filter-body,
+html[data-motion="reduce"] .cs-filter-body { transition: none !important; }
 html[data-motion="reduce"] .cs-owner-card,
 html[data-motion="reduce"] .cs-owner-detail,
 html[data-motion="reduce"] .cs-progress-track i,

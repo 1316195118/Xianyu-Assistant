@@ -149,6 +149,30 @@ const authEnabled = ref(false)
 const slowBoot = ref(false)
 let slowBootTimer = 0
 let dailyUpdateTimer = 0
+let inputBlurTimer = 0
+const inputFocused = ref(false)
+const KEYBOARD_INPUT_SELECTOR = [
+  'input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"])',
+  'textarea',
+  '[contenteditable]:not([contenteditable="false"])'
+].join(', ')
+function isKeyboardInput(target) {
+  return target instanceof HTMLElement && target.matches(KEYBOARD_INPUT_SELECTOR)
+}
+function syncInputFocus() {
+  inputFocused.value = isKeyboardInput(document.activeElement)
+}
+function onInputFocusIn(event) {
+  if (!isKeyboardInput(event.target)) return
+  if (inputBlurTimer) clearTimeout(inputBlurTimer)
+  inputFocused.value = true
+}
+function onInputFocusOut(event) {
+  if (!isKeyboardInput(event.target)) return
+  if (inputBlurTimer) clearTimeout(inputBlurTimer)
+  // 焦点可能从一个输入框直接移到另一个，等浏览器更新 activeElement 后再判断
+  inputBlurTimer = window.setTimeout(syncInputFocus, 0)
+}
 function hardReload() {
   try { location.reload() } catch (e) { location.href = '/' }
 }
@@ -309,7 +333,8 @@ watch(activeShopId, () => {
   focusNorm.value = ''
   focusType.value = ''
   highlightId.value = 0
-  bump()
+  // 当前页 key 已包含 activeShopId，切店会立即重建并自行拉取新店数据。
+  // 这里再 bump 一次只会让旧页面先发一轮、再到新页面发同一轮，增加点击后的主线程工作。
   loadTodoCount()
   loadGfStatus()
   connectRealtime()
@@ -361,11 +386,15 @@ onMounted(() => {
   window.addEventListener('touchmove', onPullMove, { passive: false })
   window.addEventListener('touchend', onPullEnd, { passive: true })
   window.addEventListener('touchcancel', onPullEnd, { passive: true })
+  window.addEventListener('focusin', onInputFocusIn)
+  window.addEventListener('focusout', onInputFocusOut)
   onScroll()
 })
 onUnmounted(() => {
   if (dailyUpdateTimer) clearTimeout(dailyUpdateTimer)
   dailyUpdateTimer = 0
+  if (inputBlurTimer) clearTimeout(inputBlurTimer)
+  inputBlurTimer = 0
   offRealtime?.()
   offRealtime = null
   disconnectRealtime()
@@ -380,6 +409,8 @@ onUnmounted(() => {
   window.removeEventListener('touchmove', onPullMove)
   window.removeEventListener('touchend', onPullEnd)
   window.removeEventListener('touchcancel', onPullEnd)
+  window.removeEventListener('focusin', onInputFocusIn)
+  window.removeEventListener('focusout', onInputFocusOut)
   document.body.classList.remove('overlay-open')
 })
 function onLoginSuccess() { needLogin.value = false; bump() }
@@ -401,6 +432,8 @@ const focusQuery = ref('')           // 从商品利润排行跳明细时要过�
 const focusNorm = ref('')            // 该商品的归一化名（product_norm），用于精确过滤整组单据
 const focusType = ref('')            // 非空 = 跳过去时直接按类型过滤（如 unlinked 未挂成本）
 const focusNonce = ref(0)            // 每次跳转自增：明细页挂载时也能收到，且连点同一商品仍会重新过滤
+const consignTab = ref('sell')       // 从外部订单跳寄卖页时，直接打开对应账本
+const consignFocusNonce = ref(0)
 const editing = ref(null)
 const refreshKey = ref(0)
 const toasts = ref([])
@@ -681,6 +714,11 @@ function switchView(v) {
   setHash(hashFor(v))
   pendingScroll = scrollPos[v] || 0
 }
+function gotoConsign(source) {
+  consignTab.value = source === '代采' || source === '代买' ? 'buy' : 'sell'
+  consignFocusNonce.value++
+  switchView('consign')
+}
 // 旧页面在入场动画结束后才挂载、高度才稳定，此时恢复滚动位置；
 // applyScroll 内部再短轮询，兜住数据异步加载导致的高度变化。
 // 现在没有 Transition 的 after-enter 钩子，改为视图切换后 nextTick 触发。
@@ -811,9 +849,9 @@ function goSettingsFromModal() {
              以前每次切页都重新挂载 → 先出整页骨架再等接口，看起来「一直在加载」。 -->
         <KeepAlive :max="6">
           <Overview v-if="view === 'overview'" :key="'ov-' + activeShopId" :refreshKey="refreshKey" @add="openAdd" @goto-records="gotoRecords" @goto-record="gotoRecord" @goto-product="gotoProduct" @goto-settings="switchView('settings')" @goto-calc="calcOpen = true" @goto-report="reportOpen = true" @notify="notify" />
-          <Records v-else-if="view === 'records'" :key="'rc-' + activeShopId" :refreshKey="refreshKey" :highlightId="highlightId" :focusQuery="focusQuery" :focusNorm="focusNorm" :focusType="focusType" :focusNonce="focusNonce" @add="openAdd" @edit="openEdit" @refresh="bump" @notify="notify" @goto-group="gotoGroup" @batch="openBatch" />
+          <Records v-else-if="view === 'records'" :key="'rc-' + activeShopId" :refreshKey="refreshKey" :highlightId="highlightId" :focusQuery="focusQuery" :focusNorm="focusNorm" :focusType="focusType" :focusNonce="focusNonce" @add="openAdd" @edit="openEdit" @refresh="bump" @notify="notify" @goto-group="gotoGroup" @goto-consign="gotoConsign" @batch="openBatch" />
           <Groups v-else-if="view === 'groups'" :key="'gp-' + activeShopId" :refreshKey="refreshKey" :focusGroupId="focusGroupId" @notify="notify" @edit="openEdit" @view="openViewRecord" @focused="focusGroupId = null" />
-          <Consign v-else-if="view === 'consign'" :key="'cs-' + activeShopId" :refreshKey="refreshKey" @notify="notify" />
+          <Consign v-else-if="view === 'consign'" :key="'cs-' + activeShopId" :refreshKey="refreshKey" :initialTab="consignTab" :focusNonce="consignFocusNonce" @notify="notify" />
           <Settings v-else :key="'st-' + activeShopId" :refreshKey="refreshKey" @notify="notify" @refresh="bump" />
         </KeepAlive>
       </div>
@@ -832,7 +870,7 @@ function goSettingsFromModal() {
     </Transition>
 
     <!-- 手机底部导航 -->
-    <nav class="tabbar">
+    <nav class="tabbar" :class="{ 'is-input-focus': inputFocused }">
       <button v-for="n in navItems" :key="n.key" :class="{ active: view === n.key }" :aria-current="view === n.key ? 'page' : undefined" @click="switchView(n.key)">
         <span class="tab-ico">
           <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="n.icon" /></svg>

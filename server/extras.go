@@ -457,8 +457,11 @@ func handleStatsExtras(w http.ResponseWriter, r *http.Request) {
 		staleThreshold = v
 	}
 
-	rows, err := db.Query("SELECT "+itemCols+" FROM items WHERE shop_id=? AND substr(created_at,1,10)>=?",
-		shopID(r), windowFrom)
+	// 在库与周转统一按实际售出成本冲减，联单内尚未卖完的货也必须保留在库存。
+	alloc := loadGroupAlloc(shopID(r))
+	// 在库与周转必须覆盖全部仍未售出的采购。按记录创建时间截断会把更早入库、
+	// 但后来才补录的库存漏掉，造成首页在库金额、件数和周转三者口径不一致。
+	rows, err := db.Query("SELECT "+itemCols+" FROM items WHERE shop_id=?", shopID(r))
 	if err != nil {
 		writeError(w, 500, "统计失败")
 		return
@@ -472,42 +475,66 @@ func handleStatsExtras(w http.ResponseWriter, r *http.Request) {
 	// costBacked：该商品名下的记录是否有「买入成本依据」（关联了买进单，或自己填了买价）。
 	// 没有依据的利润是虚的，不参与排行。
 	costBacked := map[string]bool{}
-	lastDeal := map[string]string{} // 商品 -> 最近成交日，用于近 90 天销售额
-	var holdingCost, salesTotal float64
+	var lots []holdingLot
+	var saleDeductions []holdingDeduction
+	const windowDays = 90
+	cutoff := time.Now().AddDate(0, 0, -windowDays).Format("2006-01-02")
+	var sales90 float64
 	unsold := 0
-	staleItems := []map[string]interface{}{}
 	for rows.Next() {
 		it, e := scanItem(rows)
 		if e != nil {
-			continue
-		}
-		// 联单里的明细走下面「按联单聚合」的口径，这里跳过，避免同一批货被重复计算
-		if groupItemIDs[it.ID] {
 			continue
 		}
 		// 弃单不进洞察：它不占在库、不计成本，摆进来只会让周转与利润失真
 		if it.Kind == "discarded" {
 			continue
 		}
-		if it.Source == "代采" {
-			// 代采是帮别人买的：既不进利润榜，也不占在库 / 周转
+		// 寄卖 / 代采的货不是自己的，不进首页经营统计。
+		if isExternalGoods(it.Source) {
 			continue
 		}
-		if it.Source == "寄卖" {
-			// 寄卖单只进利润榜（成本为 0，利润即销售额），不参与周转 / 在库 / 滞销 / 销售总额
-			a := byProduct[it.Product]
-			if a == nil {
-				a = &agg{}
-				byProduct[it.Product] = a
+
+		inGroup := groupItemIDs[it.ID]
+		switch it.Kind {
+		case "purchase":
+			gross := round2(it.BuyPrice + it.BuyShipping)
+			if it.SettledAt == "" && gross > 0 {
+				lots = append(lots, holdingLot{
+					ID: it.ID, Product: it.Product, Norm: normProduct(it.Product),
+					Gross: gross, BuyTime: it.BuyTime, AgeBand: holdingAgeBand(it.BuyTime),
+				})
 			}
-			a.profit += it.Profit
-			a.sales += it.SellPrice
-			if it.SettledAt != "" || groupSettledItems[it.ID] {
-				a.settled = true
+		case "sale":
+			qty := it.Quantity
+			if qty < 1 {
+				qty = 1
 			}
-			if d := it.DealTime; len(d) >= 10 && d[:10] > lastDeal[it.Product] {
-				lastDeal[it.Product] = d[:10]
+			if !it.CostFree {
+				deduct := 0.0
+				if it.UnitCost > 0 {
+					deduct = round2(it.UnitCost * float64(qty))
+				} else if v, ok := alloc[it.ID]; ok {
+					deduct = round2(v * float64(qty))
+				}
+				if deduct > 0 {
+					saleDeductions = append(saleDeductions, holdingDeduction{
+						ParentID: it.ParentID, Norm: normProduct(it.Product), Amount: deduct, SellTime: it.SellTime,
+					})
+				}
 			}
+			if d := it.DealTime; len(d) >= 10 && d[:10] >= cutoff {
+				sales90 += it.SellPrice
+			}
+		case "standalone":
+			if d := it.DealTime; len(d) >= 10 && d[:10] >= cutoff {
+				sales90 += it.SellPrice
+			}
+		}
+
+		// 联单内的利润由已完结联单统一聚合；这里不再按单条商品重复计算，
+		// 但在库成本与周转仍要使用联单里的采购/卖单，否则库存会被整批漏掉。
+		if inGroup {
 			continue
 		}
 		a := byProduct[it.Product]
@@ -515,44 +542,49 @@ func handleStatsExtras(w http.ResponseWriter, r *http.Request) {
 			a = &agg{}
 			byProduct[it.Product] = a
 		}
-		a.profit += it.Profit
-		a.sales += it.SellPrice
 		if it.SettledAt != "" || groupSettledItems[it.ID] {
 			a.settled = true
 		}
 		if it.ParentID > 0 || it.BuyPrice > 0 {
 			costBacked[it.Product] = true
 		}
-		if d := it.DealTime; len(d) >= 10 {
-			if d[:10] > lastDeal[it.Product] {
-				lastDeal[it.Product] = d[:10]
+		feeAll := sellFeeTotal(it)
+		switch it.Kind {
+		case "sale":
+			qty := it.Quantity
+			if qty < 1 {
+				qty = 1
 			}
+			goods := round2(effectiveUnitCost(it, alloc) * float64(qty))
+			a.sales += it.SellPrice
+			a.profit += it.SellPrice - goods - it.SellShipping - feeAll
+		case "standalone":
+			a.sales += it.SellPrice
+			a.profit += it.SellPrice - it.BuyPrice - it.BuyShipping - it.SellShipping - feeAll
 		}
-		salesTotal += it.SellPrice
-		if it.Kind == "purchase" && it.SettledAt == "" {
-			holdingCost += it.BuyPrice + it.BuyShipping
+	}
+	rows.Close()
+	lots = applyHoldingDeductions(lots, saleDeductions)
+	holdingCost := 0.0
+	staleItems := []map[string]interface{}{}
+	for _, lot := range lots {
+		if lot.Remaining <= 0.005 {
+			continue
 		}
-		if it.Status == "pending" {
-			unsold++
-		}
-		// 在库超期未售：以买进时间（缺失时用创建时间）计算已挂天数
-		if it.Status == "pending" || it.Status == "sell_only" {
-			base := it.BuyTime
-			if len(base) < 10 {
-				base = it.CreatedAt
-			}
-			if len(base) >= 10 {
-				if t, e := time.ParseInLocation("2006-01-02", base[:10], time.Local); e == nil {
-					if dd := int(time.Since(t).Hours() / 24); dd >= staleThreshold {
-						staleItems = append(staleItems, map[string]interface{}{
-							"id": it.ID, "product": it.Product, "days": dd, "status": it.Status,
-						})
-					}
+		unsold++
+		holdingCost += lot.Remaining
+		base := lot.BuyTime
+		if len(base) >= 10 {
+			if t, e := time.ParseInLocation("2006-01-02", base[:10], time.Local); e == nil {
+				if dd := int(time.Since(t).Hours() / 24); dd >= staleThreshold {
+					staleItems = append(staleItems, map[string]interface{}{
+						"id": lot.ID, "product": lot.Product, "days": dd, "status": "pending",
+					})
 				}
 			}
 		}
 	}
-	rows.Close()
+	holdingCost = round2(holdingCost)
 
 	list := []topProduct{}
 	// 已完结联单：联单内明细在单品口径下不算数（卖单没扣货品成本、买单利润天然为 0），
@@ -617,17 +649,9 @@ func handleStatsExtras(w http.ResponseWriter, r *http.Request) {
 		return staleItems[i]["days"].(int) > staleItems[j]["days"].(int)
 	})
 
-	// 周转天数 = 待售在库占用资金 / 近 90 天日均销售额。
+	// 周转天数 = 实际在库占用资金 / 近 90 天日均销售额。
 	// 用固定 90 天窗口而不是「最早~最晚成交日」的跨度：
 	// 后者在只录了几天数据的店铺里会把日均销售额算得极小，周转天数飙到上万天。
-	const windowDays = 90
-	cutoff := time.Now().AddDate(0, 0, -windowDays).Format("2006-01-02")
-	sales90 := 0.0
-	for p, a := range byProduct {
-		if lastDeal[p] >= cutoff {
-			sales90 += a.sales
-		}
-	}
 	daily := sales90 / float64(windowDays)
 	turnover := 0.0
 	if daily > 0 {

@@ -88,13 +88,14 @@ const form = reactive(blank())
 
 // ---------- 归属人（寄卖人 / 代采委托人）候选：输入单字自动匹配，点输入框看全部 ----------
 // 寄卖 / 代采会按来源调整成本口径；其它来源也允许填写归属，切换来源时不能把用户刚填的人名清掉。
+const isExternalSource = (v) => v === '寄卖' || v === '寄售' || v === '代采' || v === '代买'
 watch(() => form.source, (v) => {
   if (hydrating) return
-  if (v === '寄卖') {
+  if (v === '寄卖' || v === '寄售') {
     // 寄卖是别人的货：默认无成本，用户之后仍可手动改回来
     form.cost_free = true
     form.unit_cost = 0
-  } else if (v === '代采') {
+  } else if (v === '代采' || v === '代买') {
     // 代采是我先垫钱买：成本要如实填（后面按垫付金额向归属人收），只保留归属
     form.cost_free = false
   } else {
@@ -706,6 +707,7 @@ function validate() {
 }
 
 const hasSell = computed(() => Number(form.sell_net) > 0 || Number(form.sell_price) > 0 || !!form.sell_order_no)
+const externalGoods = computed(() => isExternalSource(form.source))
 // 本条利润：与保存后的口径保持一致——
 // 收入取「成交价」，没填成交价才用「到手价 + 服务费」反推；
 // 成本 = 买价 + 买运费 + 卖运费 + 软件服务费 + 无忧卖（关联买进单时买价换成单件成本×件数）。
@@ -748,29 +750,29 @@ async function save() {
     errMsg.value = '这条记录在已完结的联单里，现在不能改。请先到「联单」页把那张联单点「重新开启」，再回来保存。'
     return
   }
-  if (form.source === '寄卖' && !form.owner.trim()) {
+  if ((form.source === '寄卖' || form.source === '寄售') && !form.owner.trim()) {
     errMsg.value = '寄卖单必须填写归属人（这单货是谁的）'
     return
   }
-  if (form.source === '代采' && !form.owner.trim()) {
+  if ((form.source === '代采' || form.source === '代买') && !form.owner.trim()) {
     errMsg.value = '代采单必须填写归属人（这是替谁买的）'
     return
   }
   // 代采的应付金额 = 买进价 + 买入运费，两个都空就没有金额可以找归属人收
-  if (form.source === '代采' && !(Number(form.buy_price) > 0) && !(Number(form.buy_shipping) > 0)) {
+  if ((form.source === '代采' || form.source === '代买') && !(Number(form.buy_price) > 0) && !(Number(form.buy_shipping) > 0)) {
     errMsg.value = '代采单要填买进价（垫了多少钱），不然没金额可以找归属人收'
     return
   }
   if (!validate()) return
   saving.value = true
-  // 服务费兜底：识别漏抓手续费行但成交价>到手价时，用差额反推总服务费，
-  // 与后端/识别层逻辑保持一致，让明细与概览都统计到。
+  // 服务费兜底：识别漏抓手续费行但成交价>到手价时，用差额反推总服务费。
+  // 到手价已经扣过卖运费，所以先减运费，避免把运费重复记成服务费。
   const sp = Number(form.sell_price) || 0
   const sn = Number(form.sell_net) || 0
   let sf = Number(form.sell_fee) || 0
   const sw = Number(form.sell_wuyou_fee) || 0
   if (entrySide.value === 'sell' && sf === 0 && sw === 0 && sn > 0 && sp > sn) {
-    sf = Math.round((sp - sn) * 100) / 100
+    sf = Math.max(0, Math.round((sp - sn - (Number(form.sell_shipping) || 0)) * 100) / 100)
   }
   const payload = {
     product: form.product.trim(),
@@ -1301,7 +1303,12 @@ function onHeadEnd() {
         </div>
 
         <div class="formula">
-          <template v-if="hasSell">
+          <template v-if="externalGoods">
+            <span class="f-label">外部结算 · 不计自有成本</span>
+            <span class="f-eq">{{ form.source === '代采' || form.source === '代买' ? '代采垫付款在「寄卖」页向归属人收款' : '寄卖款在「寄卖」页按归属人结算' }}</span>
+            <span class="f-result">{{ form.source === '代采' || form.source === '代买' ? '去代采收款' : '去寄卖结算' }}</span>
+          </template>
+          <template v-else-if="hasSell">
             <span class="f-label">本条利润</span>
             <span class="f-eq" v-if="form.parent_id && form.unit_cost">
               成交 {{ fmtMoneyPlain(revenue) }} − 单件成本 {{ fmtMoneyPlain(form.unit_cost) }}×{{ form.quantity || 1 }} − 卖运费 {{ fmtMoneyPlain(form.sell_shipping) }} − 服务费 {{ fmtMoneyPlain(feeAll) }}

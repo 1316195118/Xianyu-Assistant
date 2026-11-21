@@ -242,6 +242,37 @@ func TestStandaloneShippingCountedOnce(t *testing.T) {
 	}
 }
 
+// 未填服务费字段时，成交价与到手价的差额可能只是卖运费；
+// 兜底反推必须先扣运费，否则运费会在成本里被算两次。
+func TestShippingNotInferredAsFee(t *testing.T) {
+	os.Setenv("DB_PATH", t.TempDir()+"/fee-fallback.db")
+	defer os.Unsetenv("DB_PATH")
+	if err := initDB(); err != nil {
+		t.Fatalf("initDB: %v", err)
+	}
+	defer db.Close()
+
+	_, err := insertItem(&Item{
+		Product: "仅差运费", SellPrice: 700, SellNet: 696, SellShipping: 4,
+	}, defaultShopID, nowStr())
+	if err != nil {
+		t.Fatalf("insertItem: %v", err)
+	}
+	s := callStats(t)
+	if s.TotalShipping != 4 {
+		t.Errorf("total_shipping=%v want 4", s.TotalShipping)
+	}
+	if s.TotalFee != 0 {
+		t.Errorf("total_fee=%v want 0，卖运费不能反推成服务费", s.TotalFee)
+	}
+	if s.TotalCost != 4 {
+		t.Errorf("total_cost=%v want 4", s.TotalCost)
+	}
+	if s.TotalProfit != 696 {
+		t.Errorf("total_profit=%v want 696", s.TotalProfit)
+	}
+}
+
 func TestMergeGroupsRollbackKeepsAllWrites(t *testing.T) {
 	os.Setenv("DB_PATH", t.TempDir()+"/merge-rollback.db")
 	defer os.Unsetenv("DB_PATH")

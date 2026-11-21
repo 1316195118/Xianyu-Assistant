@@ -15,6 +15,29 @@ import (
 
 func round2(f float64) float64 { return math.Round(f*100) / 100 }
 
+// inferFeeFromNet 在服务费字段缺失时，用成交价与到手价的差额反推服务费。
+// 到手价口径已扣卖运费，因此必须先减掉卖运费，不能把运费误记成服务费。
+func inferFeeFromNet(price, net, shipping float64) float64 {
+	if price <= 0 || net <= 0 || price <= net {
+		return 0
+	}
+	fee := round2(price - net - math.Max(0, shipping))
+	if fee <= 0.005 {
+		return 0
+	}
+	return fee
+}
+
+// sellFeeTotal 返回卖单实际计入成本的软件服务费与无忧卖费用。
+// 明确字段优先；字段都缺失时才按「成交价 − 到手价 − 卖运费」兜底。
+func sellFeeTotal(it Item) float64 {
+	fee := round2(it.SellFee + it.SellWuyouFee)
+	if fee > 0.005 {
+		return fee
+	}
+	return inferFeeFromNet(it.SellPrice, it.SellNet, it.SellShipping)
+}
+
 // 在库成本台账：先把所有有效采购作为库存占用，再让已售单据按实际带走成本冲减。
 // 手工填写的单件成本与联单派生分摊都走同一套冲减，避免一边整批排除、一边重复扣。
 type holdingLot struct {
@@ -157,7 +180,7 @@ type Item struct {
 
 	// 派生字段
 	Kind       string  `json:"kind"`   // purchase | sale | standalone
-	Status     string  `json:"status"` // sold=已成交 pending=待售
+	Status     string  `json:"status"` // sold=已成交 pending=待售 external=外部账本结算
 	HasBuy     bool    `json:"has_buy"`
 	HasSell    bool    `json:"has_sell"`
 	DealTime   string  `json:"deal_time"`   // 卖出时间优先，买进时间兜底
@@ -188,7 +211,7 @@ func (it *Item) derive() {
 	// 完全成本口径：服务费（软件服务费 + 无忧卖服务费）计入成本，
 	// 销售额取成交价（未扣费）；两者相减时服务费只扣一次，与汇总保持一致。
 	// 历史数据可能只填了到手价没填成交价，此时用到手价兜底。
-	feeAll := it.SellFee + it.SellWuyouFee
+	feeAll := sellFeeTotal(*it)
 	revenue := it.SellPrice
 	if revenue == 0 {
 		revenue = it.SellNet + feeAll
@@ -227,7 +250,11 @@ func (it *Item) derive() {
 	case it.HasBuy && !it.HasSell:
 		// 买进单：整批总价 + 买运费计入总成本
 		it.Kind = "purchase"
-		it.Status = "pending"
+		if isExternalGoods(it.Source) {
+			it.Status = "external"
+		} else {
+			it.Status = "pending"
+		}
 		it.Cost = round2(it.BuyPrice + it.BuyShipping)
 		it.Profit = 0
 	default:
@@ -236,6 +263,15 @@ func (it *Item) derive() {
 		it.Status = "sold"
 		it.Cost = round2(it.BuyPrice + it.BuyShipping + it.SellShipping + feeAll)
 		it.Profit = round2(revenue - it.BuyPrice - it.BuyShipping - it.SellShipping - feeAll)
+	}
+
+	// 寄卖 / 代采是外部账本：金额仍保留在原始单据里供寄卖页结算，
+	// 但不进入自己的成本、利润和待售口径。状态单独标成 external，
+	// 避免在订单页出现「待售」；这里只做派生，不写库、不动 settled_at。
+	if isExternalGoods(it.Source) {
+		it.Cost = 0
+		it.Profit = 0
+		it.Status = "external"
 	}
 
 	// 弃单：类型与状态都标成 discarded，但 Cost / Profit 保持上面算出来的值。
@@ -247,7 +283,7 @@ func (it *Item) derive() {
 
 	// 单品完结：单据类型不变（买卖单仍是买卖单），只是状态改为完结，
 	// 由上层据此把它从「在库 / 待售 / 联单候选」里摘出去。
-	if it.SettledAt != "" {
+	if it.SettledAt != "" && !isExternalGoods(it.Source) {
 		it.Status = "settled"
 	}
 }
@@ -567,7 +603,7 @@ func handleTrend(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		sales, cost := 0.0, 0.0
-		feeAll := it.SellFee + it.SellWuyouFee
+		feeAll := sellFeeTotal(it)
 		switch it.Kind {
 		case "purchase":
 			// 进货只是把货变成库存，不产生已售成本；卖出去时才结转。
@@ -666,8 +702,12 @@ type ItemInput struct {
 
 // isExternalGoods：货不是自己的（寄卖代卖 / 代采代买），不计入自己的经营口径。
 func isExternalGoods(source string) bool {
+	source = normSource(source)
 	return source == "寄卖" || source == "代采"
 }
+
+// externalSourceSQL 与 isExternalGoods 保持同一口径，同时兼容历史别名。
+const externalSourceSQL = "COALESCE(source,'') NOT IN ('寄卖','寄售','代采','代买')"
 
 // autoSettled：卖单只要成本说得清，就算「已结算」——不用再包联单，也不用手动点完结。
 // 成本说得清 = 手填了单件成本 / 勾了「无成本」/ 挂了买进单 / 单据本身两侧都填。
@@ -756,7 +796,7 @@ func buildWhere(r *http.Request) (string, []interface{}) {
 	case "sold":
 		conds = append(conds, hasBuy+" AND "+hasSell)
 	case "pending":
-		conds = append(conds, hasBuy+" AND NOT "+hasSell)
+		conds = append(conds, hasBuy+" AND NOT "+hasSell, externalSourceSQL)
 	case "sell_only":
 		conds = append(conds, "NOT "+hasBuy+" AND "+hasSell)
 	}
@@ -829,7 +869,7 @@ func buildWhere(r *http.Request) (string, []interface{}) {
 		groupWithBuy := `id IN (SELECT gi.item_id FROM group_items gi WHERE EXISTS (
             SELECT 1 FROM group_items gi2 JOIN items i2 ON i2.id=gi2.item_id
             WHERE gi2.group_id=gi.group_id AND i2.shop_id=` + strconv.FormatInt(shopID(r), 10) + ` AND ` + purchaseCond + `))`
-		conds = append(conds, "NOT ("+purchaseWhere(shopID(r))+")", "parent_id=0", "unit_cost<=0", "NOT ("+groupWithBuy+")", "COALESCE(cost_free,0)=0", live)
+		conds = append(conds, "NOT ("+purchaseWhere(shopID(r))+")", "parent_id=0", "unit_cost<=0", "NOT ("+groupWithBuy+")", "COALESCE(cost_free,0)=0", externalSourceSQL, live)
 	case "settled":
 		// 只列卖单：已完结联单里的买单虽然也「结算了」，但用户看的是「这单赚了多少」，
 		// 把进货单混进来会让条数和完结单数对不上（之前 7 条 vs 6 单就是这么来的）。
@@ -928,7 +968,7 @@ func listRecords(w http.ResponseWriter, r *http.Request) {
 						qty = 1
 					}
 					goods := round2(v * float64(qty))
-					feeAll := it.SellFee + it.SellWuyouFee
+					feeAll := sellFeeTotal(it)
 					rev := it.SellPrice
 					if rev == 0 {
 						rev = it.SellNet + feeAll
@@ -1526,10 +1566,7 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 		s.TotalCount++
 		// 服务费（软件服务费 + 无忧卖）。若两条费率为 0 但到手价 < 成交价，
 		// 用 成交价 − 到手价 反推总服务费（识别漏抓手续费行时的兜底，避免统计为 0）。
-		feeAll := it.SellFee + it.SellWuyouFee
-		if feeAll == 0 && it.SellNet > 0 && it.SellPrice > it.SellNet {
-			feeAll = round2(it.SellPrice - it.SellNet)
-		}
+		feeAll := sellFeeTotal(it)
 		// 周 / 月 / 今日销售额：按卖出时间归档，统计所有登记的卖单
 		if it.HasSell && it.SellTime != "" {
 			d := it.SellTime
@@ -1555,9 +1592,6 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 			gross := it.BuyPrice + it.BuyShipping
 			s.TotalInvest += gross
 			if it.SettledAt == "" && gross > 0 {
-				if !groupItemIDs[it.ID] {
-					s.PendingCount++
-				}
 				lots = append(lots, holdingLot{
 					ID: it.ID, Product: it.Product, Norm: normProduct(it.Product),
 					Gross: round2(gross), BuyTime: it.BuyTime, AgeBand: holdingAgeBand(it.BuyTime),
@@ -1647,6 +1681,7 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 		if lot.Remaining <= 0.005 {
 			continue
 		}
+		s.PendingCount++
 		s.HoldingCost += lot.Remaining
 		switch lot.AgeBand {
 		case 1:
@@ -2069,8 +2104,8 @@ func computeProductProfit(sid int64) []productProfitRow {
 		if e != nil || it.Kind == "discarded" {
 			continue
 		}
-		// 代采是帮别人买的，既不是在库也不是自己的成本，整条跳过
-		if it.Source == "代采" {
+		// 寄卖 / 代采的货不是自己的，既不进商品利润，也不占自己的在库。
+		if isExternalGoods(it.Source) {
 			continue
 		}
 		switch it.Kind {
@@ -2089,10 +2124,7 @@ func computeProductProfit(sid int64) []productProfitRow {
 			if qty < 1 {
 				qty = 1
 			}
-			feeAll := it.SellFee + it.SellWuyouFee
-			if feeAll == 0 && it.SellNet > 0 && it.SellPrice > it.SellNet {
-				feeAll = round2(it.SellPrice - it.SellNet)
-			}
+			feeAll := sellFeeTotal(it)
 			goods := round2(effectiveUnitCost(it, alloc) * float64(qty))
 			p.Sales += it.SellPrice
 			p.Cost += goods + it.SellShipping + feeAll
@@ -2123,7 +2155,7 @@ func computeProductProfit(sid int64) []productProfitRow {
 			}
 		case "standalone":
 			p := get(it.Product)
-			feeAll := it.SellFee + it.SellWuyouFee
+			feeAll := sellFeeTotal(it)
 			p.Sales += it.SellPrice
 			p.Cost += it.BuyPrice + it.BuyShipping + it.SellShipping + feeAll
 			p.Sold++

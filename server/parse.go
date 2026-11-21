@@ -620,9 +620,10 @@ func finalizeSellFees(r *OCRResult) {
 	if r.Side != "sell" {
 		return
 	}
-	// 1) 手续费漏识别但成交价 > 到手价：反推总服务费
+	// 1) 手续费漏识别但成交价 > 到手价：反推总服务费。
+	//    到手价按当前页面口径已扣卖运费，不能把运费算成服务费。
 	if r.Fee == 0 && r.WuyouFee == 0 && r.NetPrice > 0 && r.Price > r.NetPrice {
-		r.Fee = round2(r.Price - r.NetPrice)
+		r.Fee = inferFeeFromNet(r.Price, r.NetPrice, r.Shipping)
 	}
 	// 2) 手续费已识别，但到手价缺失或 ≥ 成交价（明显错）：重算到手价
 	if r.Fee+r.WuyouFee > 0 && (r.NetPrice == 0 || r.NetPrice >= r.Price) {

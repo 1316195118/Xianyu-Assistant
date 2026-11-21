@@ -132,21 +132,23 @@ async function shareImage() {
           <button class="btn btn-sm btn-quiet" aria-label="关闭" @click="emit('close')">✕</button>
         </div>
         <div class="rp-toolbar">
-          <div class="seg seg-sm">
+          <div class="seg seg-sm rp-seg" aria-label="报告周期">
             <button :class="{ 'on-sell': period === 'week' }" @click="period = 'week'">本周</button>
             <button :class="{ 'on-sell': period === 'month' }" @click="period = 'month'">本月</button>
           </div>
-          <button class="btn btn-sm btn-primary" :disabled="loading" @click="generate">
-            <span v-if="loading" class="spin"></span>{{ loading ? '生成中' : '生成报告' }}
-          </button>
-          <button v-if="report" class="btn btn-sm" @click="copy">{{ copied ? '✓ 已复制' : '复制' }}</button>
-          <button v-if="report" class="btn btn-sm" :disabled="sharing" @click="shareImage">
-            <span v-if="sharing" class="spin"></span>{{ sharing ? '生成中' : '分享长图' }}
-          </button>
-          <button v-if="report" class="btn btn-sm btn-quiet" :disabled="loading" @click="copyAndClose">复制并关闭</button>
+          <div class="rp-actions">
+            <button class="btn btn-sm btn-primary" :disabled="loading" @click="generate">
+              <span v-if="loading" class="spin"></span>{{ loading ? '生成中' : '生成报告' }}
+            </button>
+            <button v-if="report" class="btn btn-sm" @click="copy">{{ copied ? '✓ 已复制' : '复制' }}</button>
+            <button v-if="report" class="btn btn-sm" :disabled="sharing" @click="shareImage">
+              <span v-if="sharing" class="spin"></span>{{ sharing ? '生成中' : '分享长图' }}
+            </button>
+            <button v-if="report" class="btn btn-sm btn-quiet" :disabled="loading" @click="copyAndClose">复制并关闭</button>
+          </div>
         </div>
         <div v-if="err" class="alert-err">{{ err }}</div>
-        <textarea v-if="report" class="rp-text" :value="report" readonly spellcheck="false"></textarea>
+        <textarea v-if="report" class="rp-text" :value="report" readonly spellcheck="false" wrap="soft"></textarea>
         <div v-else class="rp-empty muted">选好周期后点「生成报告」，会按当前店铺的数据整理出一段可直接发出去的文字。</div>
       </div>
     </div>

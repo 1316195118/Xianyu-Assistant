@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -10,6 +10,7 @@ const emit = defineEmits(['close', 'run'])
 const q = ref('')
 const active = ref(0)
 const inputEl = ref(null)
+let runTimer = 0
 
 const filtered = computed(() => {
   const s = q.value.trim().toLowerCase()
@@ -38,8 +39,11 @@ function move(d) {
 function choose(i) {
   const c = filtered.value[i]
   if (!c) return
-  emit('run', c)
   emit('close')
+  clearTimeout(runTimer)
+  // 先提交关闭与按压反馈，再执行跳转/打开工具。避免命令已经切了页面，
+  // 200ms 的遮罩却还盖在新页面上面，看起来像点击后卡了一下。
+  runTimer = setTimeout(() => emit('run', c), 24)
 }
 function onKey(e) {
   if (e.key === 'ArrowDown') { e.preventDefault(); move(1) }
@@ -47,6 +51,8 @@ function onKey(e) {
   else if (e.key === 'Enter') { e.preventDefault(); choose(active.value) }
   else if (e.key === 'Escape') { e.preventDefault(); emit('close') }
 }
+
+onBeforeUnmount(() => clearTimeout(runTimer))
 </script>
 
 <template>
