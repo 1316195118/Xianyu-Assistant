@@ -6722,7 +6722,7 @@ html[data-motion="reduce"] .upd-progress.bad {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(150px, auto);
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(150px, auto);
   gap: 1px;
   margin-top: 20px;
   overflow: hidden;
@@ -7311,13 +7311,14 @@ html[data-theme="dark"] .cs-balance-card { box-shadow: inset 0 1px 0 rgba(255,25
   .cs-hero-body { grid-template-columns: 1fr; gap: 15px; }
   .cs-balance-card { padding: 17px 19px; }
   .cs-balance-card > strong { font-size: 32px; }
-  .cs-summary-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cs-summary-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .cs-summary-meta { grid-column: 1 / -1; justify-content: space-between; }
   .cs-owner-grid,
   .cs-skeleton-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
+  .cs-summary-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cs-filter-controls { align-items: stretch; }
   .cs-range-chips { width: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
   .cs-range-chips::-webkit-scrollbar { display: none; }
@@ -7345,7 +7346,6 @@ html[data-theme="dark"] .cs-balance-card { box-shadow: inset 0 1px 0 rgba(255,25
   .cs-balance-card > strong { font-size: 31px; }
   .cs-summary-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin-top: 13px; }
   .cs-summary-metric { padding: 10px 11px; }
-  .cs-summary-metric:last-of-type { grid-column: 1 / -1; }
   .cs-summary-metric { flex-direction: column; align-items: flex-start; gap: 2px; }
   .cs-summary-metric b { font-size: 13px; }
   .cs-summary-meta { grid-column: 1 / -1; min-height: 38px; padding: 7px 10px; }

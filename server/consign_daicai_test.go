@@ -59,9 +59,11 @@ func TestConsignDaicai(t *testing.T) {
 
 	// ② 代采 / 寄卖 两本账
 	type statResp struct {
-		OwnerNames []string `json:"owner_names"`
-		BuyerNames []string `json:"buyer_names"`
-		Owners     []struct {
+		OwnerNames       []string `json:"owner_names"`
+		BuyerNames       []string `json:"buyer_names"`
+		ServicePeople    int      `json:"service_people"`
+		BuyServicePeople int      `json:"buy_service_people"`
+		Owners           []struct {
 			Owner   string  `json:"owner"`
 			Orders  int     `json:"orders"`
 			Sales   float64 `json:"sales"`
@@ -117,6 +119,9 @@ func TestConsignDaicai(t *testing.T) {
 		len(st.BuyerNames) != 1 || st.BuyerNames[0] != "李四" {
 		t.Errorf("归属候选名单不对: owners=%v buyers=%v", st.OwnerNames, st.BuyerNames)
 	}
+	if st.ServicePeople != 1 || st.BuyServicePeople != 1 {
+		t.Errorf("累计服务人数不对: sell=%d buy=%d want 1/1", st.ServicePeople, st.BuyServicePeople)
+	}
 	if st.Total.HistoryOrders != 1 || st.Total.HistoryLatest != ts ||
 		st.Total.BuyHistoryOrders != 2 || st.Total.BuyHistoryLatest != ts {
 		t.Errorf("全部历史提示数据不对: %+v", st.Total)
@@ -135,6 +140,9 @@ func TestConsignDaicai(t *testing.T) {
 		}
 		if out.Total.HistoryOrders != 1 || out.Total.BuyHistoryOrders != 2 {
 			t.Errorf("区间外仍应返回历史数量: %+v", out.Total)
+		}
+		if out.ServicePeople != 1 || out.BuyServicePeople != 1 {
+			t.Errorf("服务人数不应随日期区间变化: sell=%d buy=%d", out.ServicePeople, out.BuyServicePeople)
 		}
 	}
 

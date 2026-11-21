@@ -276,7 +276,8 @@ const summary = computed(() => {
       metrics: [
         { label: '区间垫付', value: fmtMoney(t.buy_amount || 0) },
         { label: '区间单数', value: `${fmtNum(t.buy_orders || 0)} 单` },
-        { label: '累计已收', value: fmtMoney(t.buy_settled || 0) }
+        { label: '累计已收', value: fmtMoney(t.buy_settled || 0) },
+        { label: '服务人数', value: `${fmtNum(data.value?.buy_service_people || 0)} 人` }
       ]
     }
   }
@@ -289,7 +290,8 @@ const summary = computed(() => {
     metrics: [
       { label: '区间销售额', value: fmtMoney(t.sales || 0) },
       { label: '区间单数', value: `${fmtNum(t.orders || 0)} 单` },
-      { label: '累计已结', value: fmtMoney(t.settled || 0) }
+      { label: '累计已结', value: fmtMoney(t.settled || 0) },
+      { label: '服务人数', value: `${fmtNum(data.value?.service_people || 0)} 人` }
     ]
   }
 })

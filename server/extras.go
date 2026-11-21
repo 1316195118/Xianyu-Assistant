@@ -1501,12 +1501,16 @@ func handleConsignStats(w http.ResponseWriter, r *http.Request) {
 		})
 		return names
 	}
+	ownerNames := sortedNames(allSellNames)
+	buyerNames := sortedNames(allBuyNames)
 
 	writeJSON(w, map[string]interface{}{
-		"owners":      owners,
-		"buyers":      buyers,
-		"owner_names": sortedNames(allSellNames),
-		"buyer_names": sortedNames(allBuyNames),
+		"owners":             owners,
+		"buyers":             buyers,
+		"owner_names":        ownerNames,
+		"buyer_names":        buyerNames,
+		"service_people":     len(ownerNames),
+		"buy_service_people": len(buyerNames),
 		"total": map[string]interface{}{
 			"orders": tOrders, "sales": round2(tSales), "net": round2(tNet),
 			"pending": round2(tPending), "settled": round2(tSettled),
