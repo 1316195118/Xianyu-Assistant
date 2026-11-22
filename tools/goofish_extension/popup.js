@@ -18,7 +18,11 @@ const bridgeHealth = document.getElementById('bridgeHealth')
 const goofishHealth = document.getElementById('goofishHealth')
 const updateBanner = document.getElementById('updateBanner')
 const updateTitle = document.getElementById('updateTitle')
+const updateHint = document.getElementById('updateHint')
+const openOptionsButton = document.getElementById('openOptions')
+const openOptionsLabel = document.getElementById('openOptionsLabel')
 const version = document.getElementById('version')
+let openingOptions = false
 
 function normalizeServer(value) {
   return String(value || '').trim().replace(/\/+$/, '')
@@ -249,16 +253,42 @@ async function syncNow() {
   }
 }
 
+async function openOptionsPage() {
+  if (openingOptions) return
+  openingOptions = true
+  updateBanner.classList.remove('error')
+  updateBanner.classList.add('opening')
+  updateBanner.setAttribute('aria-busy', 'true')
+  updateHint.textContent = '正在打开高级设置…'
+  openOptionsButton.disabled = true
+  openOptionsLabel.textContent = '正在打开…'
+
+  try {
+    await GoofishExtensionNavigation.openOptionsPage(chrome)
+    updateBanner.classList.remove('opening')
+    updateBanner.classList.add('opened')
+    updateHint.textContent = '高级设置已打开，可下载新版并重新加载'
+    openOptionsLabel.textContent = '已打开'
+    setTimeout(() => window.close(), 220)
+  } catch (error) {
+    const text = error && error.message ? error.message : String(error)
+    updateBanner.classList.remove('opening', 'opened')
+    updateBanner.classList.add('error')
+    updateHint.textContent = text + '。请再点一次重试'
+    openOptionsLabel.textContent = '重试高级设置'
+  } finally {
+    updateBanner.removeAttribute('aria-busy')
+    openingOptions = false
+    openOptionsButton.disabled = false
+  }
+}
+
 form.addEventListener('submit', save)
 syncButton.addEventListener('click', syncNow)
-document.getElementById('openOptions').addEventListener('click', () => {
-  chrome.runtime.openOptionsPage()
-  window.close()
-})
+openOptionsButton.addEventListener('click', openOptionsPage)
 updateBanner.addEventListener('click', (event) => {
   event.preventDefault()
-  chrome.runtime.openOptionsPage()
-  window.close()
+  openOptionsPage()
 })
 
 load().catch((error) => {

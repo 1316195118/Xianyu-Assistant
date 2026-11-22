@@ -327,8 +327,22 @@ button.loading .spinner { display: inline-block; }
   background: #fff8df;
   color: #5d4607;
   text-decoration: none;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
 }
 .update-banner[hidden] { display: none; }
+.update-banner:hover {
+  border-color: #d6aa32;
+  background: #fff4c9;
+  box-shadow: 0 7px 18px rgb(166 112 0 / 12%);
+}
+.update-banner:focus-visible {
+  outline: 3px solid rgb(242 181 29 / 28%);
+  outline-offset: 2px;
+}
+.update-banner:active { transform: translateY(1px); }
+.update-banner.opening { pointer-events: none; background: #fff4c9; }
+.update-banner.opened { pointer-events: none; border-color: #6eb685; background: #effaf2; color: #225d35; }
+.update-banner.error { border-color: #df9da1; background: #fff2f2; color: #9d2930; }
 .update-icon {
   width: 28px;
   height: 28px;
@@ -339,10 +353,20 @@ button.loading .spinner { display: inline-block; }
   background: #f4d46e;
   font-weight: 850;
 }
+.update-banner.opening .update-icon { animation: update-pulse .8s ease-in-out infinite alternate; }
+.update-banner.opened .update-icon { background: #bfe8ca; color: #205e34; }
+.update-banner.error .update-icon { background: #f3c5c8; color: #9d2930; }
 .update-banner > span:nth-child(2) { min-width: 0; display: grid; gap: 1px; }
 .update-banner b { font-size: 11.5px; }
 .update-banner small { font-size: 10.5px; opacity: .72; }
 .update-banner .arrow { margin-left: auto; font-size: 19px; }
+.update-banner.opening .arrow { animation: arrow-slide .65s ease-in-out infinite alternate; }
+@keyframes update-pulse {
+  to { transform: translateY(-2px); box-shadow: 0 5px 12px rgb(166 112 0 / 22%); }
+}
+@keyframes arrow-slide {
+  to { transform: translateX(3px); }
+}
 
 footer {
   justify-content: space-between;
@@ -360,6 +384,7 @@ footer {
   font-weight: 650;
 }
 .text-button:hover { color: var(--accent-deep); }
+.text-button:disabled { cursor: wait; opacity: .68; }
 
 @media (prefers-color-scheme: dark) {
   :root {
@@ -391,6 +416,9 @@ footer {
   .token-details[open] summary { border-color: #2e394a; }
   .update-banner { border-color: #82691f; background: #2a2411; color: #ffe39a; }
   .update-icon { background: #6f5817; color: #ffe28a; }
+  .update-banner:hover { background: #332a12; }
+  .update-banner.opened { border-color: #356844; background: #132a1b; color: #93dfa9; }
+  .update-banner.error { border-color: #743a3e; background: #32191c; color: #ffb1b5; }
   .text-button { color: #b5c1d4; }
 }
 

@@ -146,6 +146,12 @@ func spaHandler(sub fs.FS, fileServer http.Handler) http.Handler {
 			w.Header().Set("Cache-Control", "no-cache, must-revalidate, max-age=0")
 			w.Header().Set("Pragma", "no-cache")
 		}
+		if clean == "downloads/goofish-extension.zip" {
+			// 扩展页和普通网页都通过这个地址下载。显式附件响应可避免部分浏览器
+			// 把 ZIP 当成页面打开，或下载后没有任何可见反馈。
+			w.Header().Set("Content-Type", "application/zip")
+			w.Header().Set("Content-Disposition", `attachment; filename="goofish-extension.zip"`)
+		}
 		if _, err := fs.Stat(sub, clean); err != nil {
 			// assets 下的文件不存在必须返回 404：若回退成 index.html，
 			// 浏览器会把 HTML 当 JS/CSS 解析，报 "Unexpected token <"。

@@ -46,10 +46,20 @@
         <div class="update-copy">
           <b id="updateTitle">扩展版本检查</b>
           <small id="updateDetail">正在读取版本信息…</small>
+          <div id="updateProgress" class="update-progress" hidden>
+            <span class="update-progress-track" aria-hidden="true"><i id="updateProgressBar"></i></span>
+            <small id="updateProgressText" role="status" aria-live="polite"></small>
+          </div>
         </div>
         <div class="update-actions">
-          <a id="updateDownload" class="update-download" href="#" hidden>下载新版</a>
-          <button id="checkUpdate" type="button">检查更新</button>
+          <button id="updateDownload" class="update-download" type="button" hidden>
+            <span id="updateDownloadLabel">下载新版</span>
+            <span class="spinner" aria-hidden="true"></span>
+          </button>
+          <button id="checkUpdate" type="button">
+            <span id="checkUpdateLabel">检查更新</span>
+            <span class="spinner" aria-hidden="true"></span>
+          </button>
         </div>
       </div>
     </section>

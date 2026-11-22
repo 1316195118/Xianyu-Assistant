@@ -72,7 +72,7 @@ function makeBackground({ cookies, fetchImpl, config = {} }) {
       onStartup: { addListener: noop },
       onMessage: { addListener: noop },
       async openOptionsPage() {},
-      getManifest() { return { version: '1.2.0' } }
+      getManifest() { return { version: '1.2.1' } }
     }
   }
   const context = vm.createContext({
@@ -337,7 +337,7 @@ test('从鱼助手服务器检查扩展新版并设置更新角标', async () =>
   })
   const result = await context.checkExtensionUpdate(true)
   assert.equal(result.ok, true)
-  assert.equal(result.currentVersion, '1.2.0')
+  assert.equal(result.currentVersion, '1.2.1')
   assert.equal(result.latestVersion, '1.3.0')
   assert.equal(result.updateAvailable, true)
   assert.equal(result.downloadUrl, 'http://10.10.10.251:18083/downloads/goofish-extension.zip')
@@ -386,7 +386,7 @@ test('扩展版本改变后会忽略当天旧缓存，重新检查服务器', as
   const result = await context.checkExtensionUpdate(false)
   assert.equal(checks, 1)
   assert.equal(result.updateAvailable, false)
-    assert.equal(store.extensionCheckedVersion, '1.2.0')
+  assert.equal(store.extensionCheckedVersion, '1.2.1')
 })
 
 test('版本号按数字段比较，不会把 1.1.10 误判低于 1.1.9', () => {

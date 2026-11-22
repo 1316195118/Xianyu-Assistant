@@ -44,6 +44,7 @@ button {
 }
 button:hover { border-color: #aeb8c8; background: #f8fafc; }
 button.primary { background: #171d2b; color: #fff; border-color: #171d2b; }
+button:disabled { cursor: wait; opacity: .72; }
 .message { min-height: 24px; margin: 14px 0 0; color: #647089; line-height: 1.6; }
 .message.ok { color: #25733b; }
 .message.error { color: #bd2d33; }
@@ -63,15 +64,46 @@ button.primary { background: #171d2b; color: #fff; border-color: #171d2b; }
 .update-actions a, .update-actions button { min-height: 34px; padding: 0 11px; font-size: 12px; }
 .update-download {
   display: inline-flex; align-items: center; justify-content: center; border-radius: 9px;
-  background: #171d2b; color: #fff; text-decoration: none; font-weight: 700;
+  background: #171d2b; color: #fff; border-color: #171d2b; text-decoration: none; font-weight: 700;
 }
 .update-download[hidden] { display: none; }
+.update-download:hover { background: #293247; border-color: #293247; color: #fff; }
+.update-progress { display: grid; gap: 5px; margin-top: 5px; }
+.update-progress[hidden] { display: none; }
+.update-progress-track {
+  height: 5px; overflow: hidden; border-radius: 999px; background: #e2e7ee;
+}
+.update-progress-track i {
+  display: block; width: 0; height: 100%; border-radius: inherit;
+  background: linear-gradient(90deg, #e0a400, #f7ca41);
+  transition: width .2s ease;
+}
+.update-progress.indeterminate .update-progress-track i {
+  width: 38% !important; animation: update-progress 1s ease-in-out infinite;
+}
+.update-progress > small { color: #647089; font-size: 10.5px; }
+@keyframes update-progress {
+  0% { transform: translateX(-115%); }
+  100% { transform: translateX(280%); }
+}
 .update-box.available {
   border-color: #e2b44b; background: #fff9e8;
 }
 .update-box.available .update-symbol { background: #f6d777; color: #5f4600; }
 .update-box.error { border-color: #e6b9bc; background: #fff6f6; }
 .update-box.error .update-symbol { background: #f7d8da; color: #9d2228; }
+.update-box.checking .update-symbol { animation: update-spin 1s linear infinite; }
+.update-box.downloading .update-symbol { animation: update-float .8s ease-in-out infinite alternate; }
+.update-box.ready { border-color: #8ac59b; background: #f1faf3; }
+.update-box.ready .update-symbol { background: #c9ecd3; color: #226b3a; }
+.spinner {
+  display: none; width: 12px; height: 12px; margin-left: 6px;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: update-spin .7s linear infinite;
+}
+button.loading .spinner { display: inline-block; }
+@keyframes update-spin { to { transform: rotate(360deg); } }
+@keyframes update-float { to { transform: translateY(-2px); } }
 .guide h2 { margin: 0 0 10px; font-size: 17px; }
 .guide ol { margin: 0 0 12px; padding-left: 22px; line-height: 1.8; }
 .security b { display: block; margin-bottom: 6px; }
@@ -85,9 +117,13 @@ button.primary { background: #171d2b; color: #fff; border-color: #171d2b; }
   .update-box { background: #111722; border-color: #344054; }
   .update-symbol { background: #253044; color: #b8c3d7; }
   .update-copy small { color: #9ba7ba; }
+  .update-progress > small { color: #9ba7ba; }
+  .update-progress-track { background: #334055; }
   .update-box.available { background: #2b2410; border-color: #8a6b19; }
   .update-box.available .update-symbol { background: #6f5612; color: #ffe18a; }
   .update-box.error { background: #2a1719; border-color: #71363b; }
+  .update-box.ready { background: #13291b; border-color: #396e49; }
+  .update-box.ready .update-symbol { background: #28573a; color: #a8ecb9; }
   .update-download { background: #f0b91b; color: #221b00; }
   label small { color: #9ba7ba; }
   button:hover { background: #202938; }
@@ -103,4 +139,12 @@ button.primary { background: #171d2b; color: #fff; border-color: #171d2b; }
   .update-box { grid-template-columns: auto minmax(0, 1fr); }
   .update-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; }
   .update-actions .update-download[hidden] + #checkUpdate { grid-column: 1 / -1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
 }

@@ -7,8 +7,16 @@ const message = document.getElementById('message')
 const updateBox = document.getElementById('updateBox')
 const updateTitle = document.getElementById('updateTitle')
 const updateDetail = document.getElementById('updateDetail')
+const updateProgress = document.getElementById('updateProgress')
+const updateProgressBar = document.getElementById('updateProgressBar')
+const updateProgressText = document.getElementById('updateProgressText')
 const updateDownload = document.getElementById('updateDownload')
+const updateDownloadLabel = document.getElementById('updateDownloadLabel')
 const checkUpdateButton = document.getElementById('checkUpdate')
+const checkUpdateLabel = document.getElementById('checkUpdateLabel')
+let updateBusy = false
+let downloadUrl = ''
+let latestVersion = ''
 
 function setMessage(text, kind = '') {
   message.textContent = text
@@ -29,6 +37,26 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
 }
 
+function setUpdateProgress(text, percent = null) {
+  updateProgress.hidden = false
+  updateProgress.classList.toggle('indeterminate', percent === null)
+  updateProgressText.textContent = text
+  updateProgressBar.style.width = percent === null ? '' : Math.max(0, Math.min(100, percent)) + '%'
+}
+
+function clearUpdateProgress() {
+  updateProgress.hidden = true
+  updateProgress.classList.remove('indeterminate')
+  updateProgressBar.style.width = '0%'
+  updateProgressText.textContent = ''
+}
+
+function setButtonBusy(button, label, busy, text) {
+  button.disabled = busy
+  button.classList.toggle('loading', busy)
+  label.textContent = text
+}
+
 function renderUpdate(state, currentVersion = '') {
   if (!state) return
   const current = state.currentExtensionVersion || currentVersion || ''
@@ -36,11 +64,16 @@ function renderUpdate(state, currentVersion = '') {
   const available = !!state.extensionUpdateAvailable
   const error = state.extensionUpdateError || ''
   const checkedAt = formatTime(state.lastExtensionUpdateCheckAt)
+  latestVersion = latest
+  downloadUrl = available ? String(state.extensionDownloadUrl || '') : ''
+  updateBox.classList.remove('checking', 'downloading', 'ready')
   updateBox.classList.toggle('available', available)
   updateBox.classList.toggle('error', !!error)
-  updateDownload.hidden = !available || !state.extensionDownloadUrl
+  updateDownload.hidden = !available || !downloadUrl
+  updateDownload.classList.remove('loading')
+  updateDownloadLabel.textContent = '下载新版'
+  clearUpdateProgress()
   if (available) {
-    updateDownload.href = state.extensionDownloadUrl
     updateTitle.textContent = '发现扩展新版 v' + latest
     updateDetail.textContent = '当前 v' + current +
       '。下载后替换原解压目录，再到浏览器扩展页点一次“重新加载”；服务器、店铺和配对码会保留。'
@@ -54,8 +87,14 @@ function renderUpdate(state, currentVersion = '') {
 }
 
 async function requestUpdateCheck(force = true) {
-  checkUpdateButton.disabled = true
-  updateDetail.textContent = '正在检查鱼助手服务器…'
+  if (updateBusy) return
+  updateBusy = true
+  updateBox.classList.remove('available', 'error', 'downloading', 'ready')
+  updateBox.classList.add('checking')
+  updateTitle.textContent = '正在检查扩展更新'
+  updateDetail.textContent = '正在连接鱼助手服务器核对最新版本…'
+  setUpdateProgress('检查中，请稍候…')
+  setButtonBusy(checkUpdateButton, checkUpdateLabel, true, '检查中')
   try {
     const result = await chrome.runtime.sendMessage({ type: 'check-extension-update', force })
     const runtime = await chrome.runtime.sendMessage({ type: 'get-runtime-status' })
@@ -72,7 +111,78 @@ async function requestUpdateCheck(force = true) {
   } catch (error) {
     renderUpdate({ extensionUpdateError: error.message || String(error) })
   } finally {
-    checkUpdateButton.disabled = false
+    updateBox.classList.remove('checking')
+    setButtonBusy(checkUpdateButton, checkUpdateLabel, false, '检查更新')
+    updateBusy = false
+  }
+}
+
+async function readDownloadBlob(response) {
+  const total = Number(response.headers.get('content-length')) || 0
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    return response.blob()
+  }
+
+  const reader = response.body.getReader()
+  const chunks = []
+  let received = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    received += value.byteLength
+    const percent = total ? Math.min(99, Math.round(received / total * 100)) : null
+    setUpdateProgress(percent === null ? '正在下载扩展包…' : '正在下载扩展包 ' + percent + '%', percent)
+  }
+  return new Blob(chunks, { type: 'application/zip' })
+}
+
+function saveBlob(blob) {
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = 'goofish-extension-' + (latestVersion || 'latest') + '.zip'
+  link.hidden = true
+  document.body.append(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 10000)
+}
+
+async function downloadUpdate() {
+  if (updateBusy || !downloadUrl) return
+  updateBusy = true
+  updateBox.classList.remove('error', 'ready')
+  updateBox.classList.add('downloading', 'available')
+  updateTitle.textContent = '正在下载扩展包 v' + latestVersion
+  updateDetail.textContent = '下载完成后请解压覆盖原目录，并在浏览器扩展页重新加载。'
+  setUpdateProgress('正在准备下载…', 0)
+  setButtonBusy(updateDownload, updateDownloadLabel, true, '下载中')
+  setButtonBusy(checkUpdateButton, checkUpdateLabel, true, '检查更新')
+
+  try {
+    const response = await fetch(downloadUrl, { cache: 'no-store', credentials: 'omit' })
+    if (!response.ok) throw new Error('服务器返回 ' + response.status)
+    const blob = await readDownloadBlob(response)
+    if (!blob.size) throw new Error('下载文件为空')
+    saveBlob(blob)
+    setUpdateProgress('下载完成，已交给浏览器保存', 100)
+    updateBox.classList.remove('downloading')
+    updateBox.classList.add('ready')
+    updateTitle.textContent = '扩展包下载完成 v' + latestVersion
+    updateDetail.textContent = '解压下载的压缩包并覆盖原扩展目录，然后打开浏览器扩展页点“重新加载”。原有设置会保留。'
+    setButtonBusy(updateDownload, updateDownloadLabel, false, '再次下载')
+  } catch (error) {
+    const text = error && error.message ? error.message : String(error)
+    updateBox.classList.remove('downloading', 'ready')
+    updateBox.classList.add('error')
+    updateTitle.textContent = '扩展包下载失败'
+    updateDetail.textContent = text + '。请确认鱼助手服务器可访问后重试。'
+    setUpdateProgress('下载未完成', 0)
+    setButtonBusy(updateDownload, updateDownloadLabel, false, '重试下载')
+  } finally {
+    setButtonBusy(checkUpdateButton, checkUpdateLabel, false, '检查更新')
+    updateBusy = false
   }
 }
 
@@ -139,4 +249,5 @@ async function syncNow() {
 document.getElementById('save').addEventListener('click', save)
 document.getElementById('sync').addEventListener('click', syncNow)
 checkUpdateButton.addEventListener('click', () => requestUpdateCheck(true))
+updateDownload.addEventListener('click', downloadUpdate)
 load().catch((error) => setMessage(error.message || String(error), 'error'))

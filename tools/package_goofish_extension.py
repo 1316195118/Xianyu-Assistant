@@ -28,6 +28,7 @@ FILES = (
     "options.html",
     "options.css",
     "options.js",
+    "navigation.js",
     "README.md",
     "install_goofish_extension.bat",
 )

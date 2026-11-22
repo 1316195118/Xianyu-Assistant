@@ -82,17 +82,18 @@
       </div>
     </form>
 
-    <a id="updateBanner" class="update-banner" href="#" target="_blank" rel="noreferrer" hidden>
+    <a id="updateBanner" class="update-banner" href="options.html" target="_blank" rel="noreferrer" aria-live="polite" hidden>
       <span class="update-icon" aria-hidden="true">↑</span>
-      <span><b id="updateTitle">发现扩展新版</b><small>打开高级设置查看下载方式</small></span>
+      <span><b id="updateTitle">发现扩展新版</b><small id="updateHint">打开高级设置查看下载方式</small></span>
       <span class="arrow" aria-hidden="true">›</span>
     </a>
 
     <footer>
-      <span id="version">扩展 v1.2.0</span>
-      <button id="openOptions" class="text-button" type="button">高级设置 <span aria-hidden="true">↗</span></button>
+      <span id="version">扩展 v1.2.1</span>
+      <button id="openOptions" class="text-button" type="button"><span id="openOptionsLabel">高级设置</span> <span aria-hidden="true">↗</span></button>
     </footer>
   </main>
+  <script src="navigation.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

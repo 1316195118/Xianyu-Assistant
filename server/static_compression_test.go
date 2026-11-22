@@ -27,6 +27,9 @@ func TestSPAHandlerServesPrecompressedAssets(t *testing.T) {
 		"assets/style.css.gz": {
 			Data: []byte("gzip-css-fixture"),
 		},
+		"downloads/goofish-extension.zip": {
+			Data: []byte("zip-fixture"),
+		},
 	}
 	h := gzipMiddleware(spaHandler(assets, http.FileServer(http.FS(assets))))
 
@@ -75,6 +78,22 @@ func TestSPAHandlerServesPrecompressedAssets(t *testing.T) {
 		}
 		if got := rec.Body.String(); got != "body{}" {
 			t.Fatalf("body = %q", got)
+		}
+	})
+
+	t.Run("extension package is an attachment", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/downloads/goofish-extension.zip", nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d", rec.Code)
+		}
+		if got := rec.Header().Get("Content-Disposition"); got != `attachment; filename="goofish-extension.zip"` {
+			t.Fatalf("Content-Disposition = %q", got)
+		}
+		if got := rec.Header().Get("Content-Type"); got != "application/zip" {
+			t.Fatalf("Content-Type = %q", got)
 		}
 	})
 }
