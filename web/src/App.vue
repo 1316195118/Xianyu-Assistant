@@ -909,22 +909,26 @@ function goSettingsFromModal() {
       <component :is="BatchImportComp" v-if="batchOpen && BatchImportComp"
                  @close="batchOpen = false" @done="onBatchDone" />
     </Transition>
-    <TransitionGroup name="toast" tag="div" class="toast-stack" role="status" aria-live="polite">
-      <div v-for="t in toasts" :key="t.id" class="toast" :class="{ err: t.err, warn: t.tone === 'warn', info: t.tone === 'info' }" :style="{ '--toast-ttl': t.ttl + 'ms' }">
-        <span class="toast-ico" aria-hidden="true">
-          <svg v-if="t.err" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="7" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          <svg v-else-if="t.tone === 'warn'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          <svg v-else-if="t.tone === 'info'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-          <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4.5 4.5L19 7"/></svg>
-        </span>
-        <span class="toast-text">{{ t.text }}</span>
-        <button v-if="t.action" class="toast-action" :disabled="t.busy" @click="runToastAction(t)">
-          <svg v-if="t.action.icon === 'undo'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
-          {{ t.busy ? '处理中…' : t.action.label }}
-        </button>
-        <span class="toast-bar" aria-hidden="true"></span>
-      </div>
-    </TransitionGroup>
+    <!-- toast 也传送到 body：版本窗口等同级弹层会抬高到 body 根层，
+         留在 app-shell 的层叠上下文内会被遮住。 -->
+    <Teleport to="body">
+      <TransitionGroup name="toast" tag="div" class="toast-stack" role="status" aria-live="polite">
+        <div v-for="t in toasts" :key="t.id" class="toast" :class="{ err: t.err, warn: t.tone === 'warn', info: t.tone === 'info' }" :style="{ '--toast-ttl': t.ttl + 'ms' }">
+          <span class="toast-ico" aria-hidden="true">
+            <svg v-if="t.err" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="7" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <svg v-else-if="t.tone === 'warn'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <svg v-else-if="t.tone === 'info'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4.5 4.5L19 7"/></svg>
+          </span>
+          <span class="toast-text">{{ t.text }}</span>
+          <button v-if="t.action" class="toast-action" :disabled="t.busy" @click="runToastAction(t)">
+            <svg v-if="t.action.icon === 'undo'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
+            {{ t.busy ? '处理中…' : t.action.label }}
+          </button>
+          <span class="toast-bar" aria-hidden="true"></span>
+        </div>
+      </TransitionGroup>
+    </Teleport>
     <CommandPalette :open="cmdOpen" :commands="commands" @close="cmdOpen = false" @run="(c) => c.run()" />
     <PriceCalc :open="calcOpen" @close="calcOpen = false" @use="onCalcUse" />
     <ReportPanel :open="reportOpen" @close="reportOpen = false" />

@@ -30,7 +30,11 @@ function notify(text, err = false, opts = {}) {
   emit('notify', text, err, null, opts)
 }
 function onKey(e) {
-  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close() }
+  // 确认框层级高于版本窗口；Esc 应先交给确认框取消，而不是把下层窗口关掉。
+  if (e.key === 'Escape') {
+    if (document.querySelector('.confirm-mask')) return
+    e.preventDefault(); e.stopPropagation(); close()
+  }
 }
 onMounted(async () => {
   lastFocus = document.activeElement
@@ -108,9 +112,11 @@ const toggle = (v) => { expanded.value = expanded.value === v ? '' : v }
 const upd = ref(null)
 const updBusy = ref(false)
 const updErr = ref('')
+const confirming = ref(false)
 const applying = ref(false)
 const applyText = ref('')
 const liveProgress = ref(null)
+const updNotesOpen = ref(false)
 const cfgOpen = ref(false)
 const cfgBusy = ref(false)
 const cfgMsg = ref('')
@@ -127,9 +133,10 @@ const progressPercent = computed(() => {
 })
 const progressMessage = computed(() =>
   liveProgress.value?.message || (applying.value ? applyText.value : (updBusy.value ? '正在检查更新…' : '')))
-const progressVisible = computed(() => !!progressMessage.value && (updBusy.value || applying.value || !!liveProgress.value))
+const progressVisible = computed(() => !!progressMessage.value && (updBusy.value || confirming.value || applying.value || !!liveProgress.value))
 const progressStageLabel = computed(() => {
   const stage = liveProgress.value?.stage
+  if (stage === 'confirming') return '等待确认'
   if (stage === 'checked') return '检查完成'
   if (stage === 'error') return '操作失败'
   if (stage === 'done') return '更新完成'
@@ -141,6 +148,7 @@ const progressStageLabel = computed(() => {
 })
 const progressDetail = computed(() => {
   const p = liveProgress.value || {}
+  if (p.stage === 'confirming') return '确认后会立即下载、校验并安装新版本'
   if (p.stage === 'downloading' && Number(p.total_bytes) > 0) {
     return `已下载 ${fmtBytes(p.downloaded_bytes)} / ${fmtBytes(p.total_bytes)}`
   }
@@ -154,6 +162,9 @@ const progressDetail = computed(() => {
 })
 const progressSteps = computed(() => {
   const stage = liveProgress.value?.stage
+  if (stage === 'confirming') {
+    return [{ key: 'confirming', label: '确认更新' }]
+  }
   if (stage === 'checking' || stage === 'checked' || (stage === 'error' && !applying.value)) {
     return [{ key: 'checking', label: '检查版本' }]
   }
@@ -247,7 +258,7 @@ function startProgressPolling() {
 }
 
 async function checkUpdate() {
-  if (updBusy.value || applying.value) return
+  if (updBusy.value || confirming.value || applying.value) return
   updBusy.value = true; updErr.value = ''
   markDailyUpdateChecked()
   dailyHint.value = dailyUpdateCheckHint()
@@ -256,6 +267,7 @@ async function checkUpdate() {
   try {
     const r = await api.updateCheck()
     upd.value = r
+    updNotesOpen.value = !!(r.has_update && String(r.notes || '').trim())
     cfg.value.proxy = r.proxy || ''
     if (r.has_update) markUpdateReleaseNotified(r)
     if (r.error) {
@@ -316,18 +328,41 @@ async function waitNewVersion(expect) {
 }
 
 async function applyUpdate() {
-  if (!upd.value?.latest || applying.value) return
-  const ok = await confirm({
-    title: `更新到 v${upd.value.latest}？`,
-    message: '程序会自行下载新版本、替换当前程序并重启服务。',
-    detail: [
-      '重启期间页面会短暂断开，通常几秒。',
-      '更新前会保留上一份程序（xianyu-stat.bak），出问题可手动换回。',
-      '更新过程中请不要关闭容器。'
-    ],
-    confirmText: '开始更新'
-  })
-  if (!ok) return
+  if (!upd.value?.latest || confirming.value || applying.value) return
+  confirming.value = true
+  applyText.value = `等待确认更新到 v${upd.value.latest}…`
+  updErr.value = ''
+  liveProgress.value = {
+    active: true, stage: 'confirming', percent: 4,
+    message: `已收到更新请求，请确认是否更新到 v${upd.value.latest}`,
+    from: upd.value.current, to: upd.value.latest
+  }
+  notify(`已准备好更新到 v${upd.value.latest}，请在确认框中点击「开始更新」`, false, { tone: 'info', ttl: 6000 })
+  let ok = false
+  try {
+    ok = await confirm({
+      title: `更新到 v${upd.value.latest}？`,
+      message: '程序会自行下载新版本、替换当前程序并重启服务。',
+      detail: [
+        '重启期间页面会短暂断开，通常几秒。',
+        '更新前会保留上一份程序（xianyu-stat.bak），出问题可手动换回。',
+        '更新过程中请不要关闭容器。'
+      ],
+      confirmText: '开始更新'
+    })
+  } catch (e) {
+    confirming.value = false
+    liveProgress.value = null
+    notify('无法打开更新确认框：' + (e.message || '未知错误'), true, { ttl: 8000 })
+    return
+  }
+  confirming.value = false
+  if (!ok) {
+    applyText.value = ''
+    liveProgress.value = null
+    notify('已取消更新', false, { tone: 'info', ttl: 3000 })
+    return
+  }
   applying.value = true
   applyText.value = '正在下载并校验…'
   updErr.value = ''
@@ -408,7 +443,7 @@ async function applyUpdate() {
               <b>在线更新</b>
               <span class="muted">当前 {{ data.version }}</span>
               <button class="btn btn-sm upd-action" :class="{ 'is-busy': updBusy }"
-                      :disabled="updBusy || applying" :aria-busy="updBusy" @click="checkUpdate">
+                      :disabled="updBusy || confirming || applying" :aria-busy="updBusy" @click="checkUpdate">
                 <span v-if="updBusy" class="spin"></span>
                 <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
                 <span>{{ updBusy ? '正在检查…' : '检查更新' }}</span>
@@ -467,12 +502,30 @@ async function applyUpdate() {
                   有新版本 <b>v{{ upd.latest }}</b>
                   <span class="muted" v-if="upd.published_at">· {{ upd.published_at }}</span>
                 </div>
-                <div class="upd-notes" v-if="upd.notes">{{ firstLine(upd.notes) }}</div>
+                <div class="upd-notes" v-if="String(upd.notes || '').trim()">
+                  <button class="upd-notes-toggle" type="button" :aria-expanded="updNotesOpen" @click="updNotesOpen = !updNotesOpen">
+                    <span class="upd-notes-copy">
+                      <b>本次更新说明</b>
+                      <small>{{ firstLine(upd.notes) }}</small>
+                    </span>
+                    <span class="upd-notes-action">{{ updNotesOpen ? '收起' : '展开查看' }}</span>
+                    <svg class="upd-notes-chev" :class="{ open: updNotesOpen }" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                  </button>
+                  <div v-if="updNotesOpen" class="upd-notes-full">
+                    <template v-for="(l, i) in noteLines(upd.notes)" :key="i">
+                      <div v-if="l.t === 'gap'" class="upd-notes-gap"></div>
+                      <h4 v-else-if="l.t === 'h'">{{ l.x }}</h4>
+                      <div v-else-if="l.t === 'li'" class="upd-notes-li"><i></i><span>{{ l.x }}</span></div>
+                      <p v-else>{{ l.x }}</p>
+                    </template>
+                  </div>
+                </div>
+                <div class="upd-notes missing" v-else>该版本暂未提供发布说明，可继续更新并到版本信息中查看历史记录。</div>
                 <div class="upd-ops">
                   <button class="btn btn-sm btn-primary upd-action" :class="{ 'is-busy': applying }"
-                          :disabled="!upd.can_apply || applying" :aria-busy="applying" @click="applyUpdate">
-                    <span v-if="applying" class="spin"></span>
-                    {{ applying ? '正在更新…' : (upd.can_apply ? '立即更新' : '需手动更新') }}
+                          :disabled="!upd.can_apply || confirming || applying" :aria-busy="confirming || applying" @click="applyUpdate">
+                    <span v-if="confirming || applying" class="spin"></span>
+                    {{ confirming ? '等待确认…' : (applying ? '正在更新…' : (upd.can_apply ? '立即更新' : '需手动更新')) }}
                   </button>
                   <span v-if="!upd.can_apply" class="muted">当前是 {{ upd.platform }}，一键更新只支持 Linux (amd64) 容器</span>
                   <span v-else-if="updSize" class="muted">安装包 {{ updSize }} · 下载后先校验再替换</span>

@@ -20,6 +20,14 @@ jobs:
         with:
           go-version-file: server/go.mod
 
+      - name: 校验浏览器扩展并刷新下载包
+        run: |
+          node --test tools/goofish_extension/background.test.js
+          python3 tools/package_goofish_extension.py
+          mkdir -p server/webroot/downloads
+          cp static/downloads/goofish-extension.zip server/webroot/downloads/goofish-extension.zip
+          cp static/downloads/goofish-extension-version.json server/webroot/downloads/goofish-extension-version.json
+
       - name: 校验标签与代码版本一致
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -44,12 +52,31 @@ jobs:
           sha256sum xianyu-stat.exe > xianyu-stat.exe.sha256
           cat *.sha256
 
+      - name: 生成中文发布说明
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          state = json.loads(Path("version/state.json").read_text(encoding="utf-8"))
+          note = str(state.get("note", "")).strip()
+          headings = [line[3:].strip() for line in note.splitlines() if line.startswith("## ")]
+          allowed = {"优化", "修复", "新增"}
+          if not headings or any(h not in allowed for h in headings):
+              raise SystemExit("发布说明只允许包含「优化 / 修复 / 新增」三段")
+          Path("release-notes.md").write_text(note + "\n", encoding="utf-8")
+          PY
+          cat release-notes.md
+
       - name: 发布
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: release-notes.md
+          generate_release_notes: false
           files: |
             xianyu-stat-linux-amd64
             xianyu-stat-linux-amd64.sha256
             xianyu-stat.exe
             xianyu-stat.exe.sha256
+            static/downloads/goofish-extension.zip
+            static/downloads/goofish-extension-version.json

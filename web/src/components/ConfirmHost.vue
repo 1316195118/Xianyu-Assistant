@@ -94,32 +94,34 @@ function onKey(e) {
 </script>
 
 <template>
-  <Transition name="modal">
-    <div v-if="item" class="confirm-mask" @pointerdown="mask.onPointerDown" @click="mask.onClick" @keydown="onKey">
-      <div ref="panelEl" class="confirm-panel" role="alertdialog" aria-modal="true" aria-labelledby="xy-confirm-title"
-           @touchstart.passive="onHeadDown" @touchmove="onHeadMove" @touchend.passive="onHeadEnd">
-        <div class="confirm-head">
-          <span class="confirm-icon" :class="{ danger: item.danger }" aria-hidden="true">
-            <svg v-if="item.danger" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z" />
-              <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
-            <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.8-2.5 2-2.5 3.5" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
-          </span>
-          <div class="confirm-text">
-            <h3 id="xy-confirm-title" class="confirm-title">{{ item.title }}</h3>
-            <p v-if="item.message" class="confirm-message">{{ item.message }}</p>
-            <p v-for="(d, i) in item.detail" :key="i" class="confirm-detail">{{ d }}</p>
+  <Teleport to="body">
+    <Transition name="modal">
+      <div v-if="item" class="confirm-mask" @pointerdown="mask.onPointerDown" @click="mask.onClick" @keydown="onKey">
+        <div ref="panelEl" class="confirm-panel" role="alertdialog" aria-modal="true" aria-labelledby="xy-confirm-title"
+             @touchstart.passive="onHeadDown" @touchmove="onHeadMove" @touchend.passive="onHeadEnd">
+          <div class="confirm-head">
+            <span class="confirm-icon" :class="{ danger: item.danger }" aria-hidden="true">
+              <svg v-if="item.danger" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.8-2.5 2-2.5 3.5" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+            </span>
+            <div class="confirm-text">
+              <h3 id="xy-confirm-title" class="confirm-title">{{ item.title }}</h3>
+              <p v-if="item.message" class="confirm-message">{{ item.message }}</p>
+              <p v-for="(d, i) in item.detail" :key="i" class="confirm-detail">{{ d }}</p>
+            </div>
+          </div>
+          <div class="confirm-actions">
+            <button ref="cancelBtn" class="btn btn-quiet" @click="cancel">{{ item.cancelText }}</button>
+            <button ref="confirmBtn" class="btn" :class="item.danger ? 'btn-danger-solid' : 'btn-primary'" @click="ok">{{ item.confirmText }}</button>
           </div>
         </div>
-        <div class="confirm-actions">
-          <button ref="cancelBtn" class="btn btn-quiet" @click="cancel">{{ item.cancelText }}</button>
-          <button ref="confirmBtn" class="btn" :class="item.danger ? 'btn-danger-solid' : 'btn-primary'" @click="ok">{{ item.confirmText }}</button>
-        </div>
       </div>
-    </div>
-  </Transition>
+    </Transition>
+  </Teleport>
 </template>

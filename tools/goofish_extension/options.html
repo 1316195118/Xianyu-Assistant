@@ -9,7 +9,7 @@
 <body>
   <main>
     <header>
-      <span class="mark">鱼</span>
+      <img class="mark" src="icons/icon48.png" alt="">
       <div>
         <h1>闲鱼登录同步</h1>
         <p>用当前浏览器已登录的闲鱼账号，自动把最新凭证同步到你的鱼助手。</p>
@@ -29,11 +29,29 @@
         <span>扩展配对码 <small>（鱼助手未开启访问密码时可留空）</small></span>
         <input id="bridgeToken" type="password" autocomplete="off" placeholder="在鱼助手「闲鱼同步」中生成">
       </label>
+      <label class="toggle-row" for="autoRefreshLogin">
+        <span>
+          <b>后台自动续期登录态</b>
+          <small>浏览器运行时约每 4 小时静默打开一次闲鱼页，续期成功后自动上传；不会刷新你正在使用的闲鱼标签。</small>
+        </span>
+        <input id="autoRefreshLogin" type="checkbox" checked>
+      </label>
       <div class="actions">
-        <button id="save" class="primary">保存并授权</button>
-        <button id="sync">立即检查并上报</button>
+        <button id="save" class="primary">保存并连接</button>
+        <button id="sync">立即同步</button>
       </div>
       <p id="message" class="message" role="status"></p>
+      <div id="updateBox" class="update-box">
+        <div class="update-symbol" aria-hidden="true">↻</div>
+        <div class="update-copy">
+          <b id="updateTitle">扩展版本检查</b>
+          <small id="updateDetail">正在读取版本信息…</small>
+        </div>
+        <div class="update-actions">
+          <a id="updateDownload" class="update-download" href="#" hidden>下载新版</a>
+          <button id="checkUpdate" type="button">检查更新</button>
+        </div>
+      </div>
     </section>
 
     <section class="card guide">
@@ -41,10 +59,11 @@
       <ol>
         <li>先在当前浏览器打开 <b>www.goofish.com</b> 并完成登录。</li>
         <li>填写鱼助手地址、店铺 ID；若鱼助手启用了访问密码，再填入扩展配对码。</li>
-        <li>点击「保存并授权」，然后在鱼助手「闲鱼同步」里点一次「立即检查并上报」。</li>
-        <li>之后登录 Cookie 变化时自动上报，每分钟检查一次登录状态。</li>
+        <li>点击「保存并连接」，扩展会立即续期并上报一次。</li>
+        <li>之后浏览器会后台续期、自动上报，不需要每天手动处理。</li>
       </ol>
       <p>不需要专用浏览器窗口，也不需要托盘程序。电脑关机后，鱼助手服务器继续使用最后一次验证通过的凭证拉单；下次打开浏览器时扩展会自动检查并更新登录态。</p>
+      <p><b>安全边界：</b>只有闲鱼仍认可当前浏览器登录时才能自动续期。若闲鱼已要求重新扫码、验证码或账号验证，扩展无法代替你通过验证，会在角标显示 <b>!</b> 和原因。</p>
     </section>
 
     <section class="card security">

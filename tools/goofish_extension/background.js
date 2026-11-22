@@ -1,11 +1,20 @@
 const DEFAULT_CONFIG = {
   server: 'http://10.10.10.251:18083',
   shopId: 1,
-  bridgeToken: ''
+  bridgeToken: '',
+  autoRefreshLogin: true
 }
 
 const ALARM_NAME = 'goofish-cookie-sync'
+const UPDATE_ALARM_NAME = 'goofish-extension-update-check'
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
+const UPDATE_MANIFEST_PATH = '/downloads/goofish-extension-version.json'
 const RETRY_COOLDOWN_MS = 15 * 60 * 1000
+const LOGIN_REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1000
+const LOGIN_REFRESH_RETRY_MS = 30 * 60 * 1000
+const LOGIN_REFRESH_TIMEOUT_MS = 25 * 1000
+const LOGIN_REFRESH_SETTLE_MS = 350
+const LOGIN_REFRESH_URL = 'https://www.goofish.com/?xy_ext_refresh=1'
 const AUTH_COOKIE_NAMES = new Set([
   'cookie2', 'sgcookie', 'unb', 'cna', 't', '_tb_token_', '_m_h5_tk',
   'cookie17', 'lgc', 'tracknick', '_nk_', 'havana_lgc_exp',
@@ -13,6 +22,9 @@ const AUTH_COOKIE_NAMES = new Set([
 ])
 
 let syncing = null
+let refreshing = null
+let updateChecking = null
+let connectionChecking = null
 let pendingTimer = null
 
 async function getConfig() {
@@ -20,7 +32,8 @@ async function getConfig() {
   return {
     server: String(saved.server || DEFAULT_CONFIG.server).replace(/\/+$/, ''),
     shopId: Number(saved.shopId) || DEFAULT_CONFIG.shopId,
-    bridgeToken: String(saved.bridgeToken || '').trim()
+    bridgeToken: String(saved.bridgeToken || '').trim(),
+    autoRefreshLogin: saved.autoRefreshLogin !== false
   }
 }
 
@@ -37,7 +50,7 @@ async function ensureServerPermission(server) {
 async function requestJSON(path, options = {}) {
   const cfg = await getConfig()
   if (!await ensureServerPermission(cfg.server)) {
-    throw new Error('尚未授权访问记账服务器，请打开扩展设置并点击保存')
+    throw new Error('尚未授权访问记账服务器，请打开扩展快捷面板并点击“保存并连接”')
   }
   const headers = {
     'Content-Type': 'application/json',
@@ -52,13 +65,15 @@ async function requestJSON(path, options = {}) {
   })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
+    let message = data.error || ('服务器返回 ' + response.status)
     if (response.status === 401 && !cfg.bridgeToken) {
-      throw new Error('鱼助手需要扩展配对码：请到「闲鱼同步」生成后填入扩展设置')
+      message = '鱼助手需要扩展配对码：请到「闲鱼同步」生成后填入扩展快捷面板'
+    } else if (response.status === 401) {
+      message = '扩展配对码无效或已被撤销，请在快捷面板中重新填入并保存'
     }
-    if (response.status === 401) {
-      throw new Error('扩展配对码无效或已被撤销，请重新生成并保存')
-    }
-    throw new Error(data.error || ('服务器返回 ' + response.status))
+    const error = new Error(message)
+    error.status = response.status
+    throw error
   }
   return data
 }
@@ -98,10 +113,301 @@ function needsBinding(status) {
   return !status || !status.logged_in || !!status.expired || !!status.sync_error
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function compareVersions(left, right) {
+  const a = String(left || '').split('.').map((part) => Number.parseInt(part, 10) || 0)
+  const b = String(right || '').split('.').map((part) => Number.parseInt(part, 10) || 0)
+  const length = Math.max(a.length, b.length)
+  for (let index = 0; index < length; index++) {
+    const diff = (a[index] || 0) - (b[index] || 0)
+    if (diff !== 0) return diff > 0 ? 1 : -1
+  }
+  return 0
+}
+
+async function checkExtensionUpdate(force = false) {
+  if (updateChecking) return updateChecking
+  updateChecking = (async () => {
+    const cfg = await getConfig()
+    const currentVersion = chrome.runtime.getManifest().version
+    const saved = await chrome.storage.local.get({
+      lastExtensionUpdateCheckAt: '',
+      extensionLatestVersion: '',
+      extensionCheckedVersion: '',
+      extensionUpdateAvailable: false,
+      extensionDownloadUrl: '',
+      extensionUpdateError: ''
+    })
+    const lastCheckAt = Date.parse(saved.lastExtensionUpdateCheckAt || '') || 0
+    if (!force && saved.extensionCheckedVersion === currentVersion &&
+        Date.now() - lastCheckAt < UPDATE_CHECK_INTERVAL_MS) {
+      return {
+        ok: !saved.extensionUpdateError,
+        checked: false,
+        currentVersion,
+        latestVersion: saved.extensionLatestVersion,
+        updateAvailable: !!saved.extensionUpdateAvailable,
+        downloadUrl: saved.extensionDownloadUrl,
+        message: saved.extensionUpdateError || (saved.extensionUpdateAvailable
+          ? '发现扩展新版 ' + saved.extensionLatestVersion
+          : '扩展已是最新版本')
+      }
+    }
+    try {
+      if (!await ensureServerPermission(cfg.server)) {
+        throw new Error('尚未授权访问鱼助手服务器，请先保存设置')
+      }
+      const response = await fetch(cfg.server + UPDATE_MANIFEST_PATH, {
+        cache: 'no-store',
+        credentials: 'omit',
+        signal: AbortSignal.timeout(10000)
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data.version) {
+        throw new Error(data.error || ('版本检查返回 ' + response.status))
+      }
+      const latestVersion = String(data.version).trim()
+      const updateAvailable = compareVersions(latestVersion, currentVersion) > 0
+      const downloadPath = String(data.download_path || '/downloads/goofish-extension.zip')
+      const downloadUrl = new URL(downloadPath, cfg.server + '/').toString()
+      const checkedAt = new Date().toISOString()
+      await chrome.storage.local.set({
+        lastExtensionUpdateCheckAt: checkedAt,
+        extensionLatestVersion: latestVersion,
+        extensionCheckedVersion: currentVersion,
+        extensionUpdateAvailable: updateAvailable,
+        extensionDownloadUrl: downloadUrl,
+        extensionLatestSha256: String(data.sha256 || ''),
+        extensionUpdateError: ''
+      })
+      if (updateAvailable) {
+        await chrome.action.setBadgeText({ text: '↑' })
+        await chrome.action.setBadgeBackgroundColor({ color: '#d97706' })
+        await chrome.action.setTitle({
+          title: '鱼助手 · 闲鱼登录同步\n发现扩展新版 ' + latestVersion + '，请打开设置下载并重新加载'
+        })
+      }
+      return {
+        ok: true,
+        checked: true,
+        currentVersion,
+        latestVersion,
+        updateAvailable,
+        downloadUrl,
+        checkedAt,
+        message: updateAvailable ? '发现扩展新版 ' + latestVersion : '扩展已是最新版本 ' + currentVersion
+      }
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error)
+      await chrome.storage.local.set({
+        lastExtensionUpdateCheckAt: new Date().toISOString(),
+        extensionUpdateError: message
+      })
+      return {
+        ok: false,
+        checked: true,
+        currentVersion,
+        latestVersion: saved.extensionLatestVersion,
+        updateAvailable: !!saved.extensionUpdateAvailable,
+        downloadUrl: saved.extensionDownloadUrl,
+        message: '检查扩展更新失败：' + message
+      }
+    } finally {
+      updateChecking = null
+    }
+  })()
+  return updateChecking
+}
+
+async function checkConnection() {
+  if (connectionChecking) return connectionChecking
+  connectionChecking = (async () => {
+    const cfg = await getConfig()
+    const checkedAt = new Date().toISOString()
+    if (!await ensureServerPermission(cfg.server)) {
+      return {
+        ok: false,
+        reachable: false,
+        bridgeOK: false,
+        usable: false,
+        checkedAt,
+        message: '尚未授权访问鱼助手服务器，请在快捷面板点击“保存并连接”'
+      }
+    }
+
+    let status
+    try {
+      status = await requestJSON('/api/goofish/status')
+    } catch (error) {
+      return {
+        ok: false,
+        reachable: Number(error && error.status) > 0,
+        bridgeOK: false,
+        usable: false,
+        checkedAt,
+        message: error.message || '无法连接鱼助手服务器'
+      }
+    }
+
+    let bridgeOK = false
+    let bridgeError = ''
+    try {
+      await requestJSON('/api/goofish/bridge/heartbeat', { method: 'POST', body: '{}' })
+      bridgeOK = true
+    } catch (error) {
+      bridgeError = error.message || '扩展配对校验失败'
+    }
+
+    const sessionValid = !!status.session_valid && !status.expired
+    const orderAPIValid = !!status.order_api_valid && !status.sync_error
+    const usable = bridgeOK && sessionValid && orderAPIValid
+    let message = '服务器、配对码和闲鱼订单接口均正常'
+    if (!bridgeOK) {
+      message = bridgeError
+    } else if (!status.logged_in) {
+      message = '服务器已连接，但还没有绑定闲鱼账号'
+    } else if (status.expired || !status.session_valid) {
+      message = '服务器已连接，但闲鱼登录态已失效，需要重新登录'
+    } else if (status.sync_error) {
+      message = '服务器已连接，但闲鱼订单接口校验失败：' + status.sync_error
+    } else if (!orderAPIValid) {
+      message = '服务器已连接，闲鱼凭证已保存，订单接口尚待验证'
+    }
+
+    return {
+      ok: usable,
+      reachable: true,
+      bridgeOK,
+      usable,
+      checkedAt,
+      message,
+      status: {
+        shop_id: status.shop_id || cfg.shopId,
+        shop_name: status.shop_name || '',
+        logged_in: !!status.logged_in,
+        session_valid: sessionValid,
+        order_api_valid: orderAPIValid,
+        expired: !!status.expired,
+        sync_error: status.sync_error || '',
+        nick: status.nick || '',
+        last_sync: status.last_sync || '',
+        masked: status.masked || ''
+      }
+    }
+  })()
+  try {
+    return await connectionChecking
+  } finally {
+    connectionChecking = null
+  }
+}
+
 async function setBadge(ok, detail) {
+  const saved = await chrome.storage.local.get({
+    extensionUpdateAvailable: false,
+    extensionLatestVersion: ''
+  })
+  if (saved.extensionUpdateAvailable) {
+    await chrome.action.setBadgeText({ text: '↑' })
+    await chrome.action.setBadgeBackgroundColor({ color: '#d97706' })
+    await chrome.action.setTitle({
+      title: '鱼助手 · 闲鱼登录同步\n发现扩展新版 ' + saved.extensionLatestVersion +
+        '；' + detail
+    })
+    return
+  }
   await chrome.action.setBadgeText({ text: ok ? '✓' : '!' })
   await chrome.action.setBadgeBackgroundColor({ color: ok ? '#2e7d32' : '#c62828' })
   await chrome.action.setTitle({ title: '鱼助手 · 闲鱼登录同步\n' + detail })
+}
+
+function waitForTabComplete(tabId, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false
+    let timer = null
+    const finish = (loaded) => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      chrome.tabs.onUpdated.removeListener(onUpdated)
+      resolve(loaded)
+    }
+    const onUpdated = (updatedTabId, changeInfo) => {
+      if (updatedTabId === tabId && changeInfo && changeInfo.status === 'complete') finish(true)
+    }
+    chrome.tabs.onUpdated.addListener(onUpdated)
+    timer = setTimeout(() => finish(false), timeoutMs)
+    chrome.tabs.get(tabId).then((tab) => {
+      if (tab && tab.status === 'complete') finish(true)
+    }).catch(() => {})
+  })
+}
+
+async function cleanupOrphanRefreshTab() {
+  const saved = await chrome.storage.local.get({ loginRefreshTabId: 0 })
+  const tabId = Number(saved.loginRefreshTabId) || 0
+  if (!tabId) return
+  try {
+    const tab = await chrome.tabs.get(tabId)
+    const markedRefreshTab = /^https:\/\/(?:www\.)?goofish\.com\/\?xy_ext_refresh=1(?:[&#]|$)/i.test(tab.url || '')
+    if (tab && markedRefreshTab) {
+      await chrome.tabs.remove(tabId)
+    }
+  } catch (error) {
+    // 标签页已关闭或浏览器重启过，清理记录即可。
+  }
+  await chrome.storage.local.set({ loginRefreshTabId: 0, loginRefreshStartedAt: 0 })
+}
+
+// 在非活动标签页中访问一次闲鱼首页，让浏览器按真实页面规则续期 Cookie。
+// 只关闭扩展自己创建的临时标签，绝不刷新或关闭用户正在使用的闲鱼页面。
+async function refreshLoginSession(reason = 'scheduled') {
+  if (refreshing) return refreshing
+  refreshing = (async () => {
+    const startedAt = Date.now()
+    let tabId = 0
+    try {
+      await chrome.action.setBadgeText({ text: '↻' })
+      await chrome.action.setBadgeBackgroundColor({ color: '#b77900' })
+      await chrome.action.setTitle({ title: '鱼助手 · 闲鱼登录同步\n正在后台续期登录态' })
+      await chrome.storage.local.set({
+        lastLoginRefreshAt: new Date(startedAt).toISOString(),
+        lastLoginRefreshResult: 'running',
+        lastLoginRefreshMessage: reason === 'recovery' ? '登录态异常，正在后台恢复' : '正在后台续期登录态'
+      })
+      const tab = await chrome.tabs.create({ url: LOGIN_REFRESH_URL, active: false })
+      tabId = Number(tab && tab.id) || 0
+      if (!tabId) throw new Error('浏览器没有返回后台标签页')
+      await chrome.storage.local.set({ loginRefreshTabId: tabId, loginRefreshStartedAt: startedAt })
+      const loaded = await waitForTabComplete(tabId, LOGIN_REFRESH_TIMEOUT_MS)
+      await delay(LOGIN_REFRESH_SETTLE_MS)
+      const jar = await readLoginCookies()
+      const fp = await fingerprint(jar.goofish, jar.sso)
+      const message = loaded ? '后台续期完成' : '后台页面加载超时，已读取当前登录态'
+      await chrome.storage.local.set({
+        lastLoginRefreshResult: loaded ? 'ok' : 'timeout',
+        lastLoginRefreshMessage: message
+      })
+      return { ok: loaded, jar, fingerprint: fp, message }
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error)
+      await chrome.storage.local.set({
+        lastLoginRefreshResult: 'error',
+        lastLoginRefreshMessage: message
+      })
+      return { ok: false, jar: null, fingerprint: '', message }
+    } finally {
+      if (tabId) {
+        try { await chrome.tabs.remove(tabId) } catch (error) {}
+      }
+      await chrome.storage.local.set({ loginRefreshTabId: 0, loginRefreshStartedAt: 0 })
+      refreshing = null
+    }
+  })()
+  return refreshing
 }
 
 async function syncNow(force = false) {
@@ -124,45 +430,68 @@ async function syncNow(force = false) {
         lastUploadedFingerprint: '',
         lastAttemptedFingerprint: '',
         lastAttemptAt: 0,
-        lastResult: ''
+        lastResult: '',
+        lastLoginRefreshAt: 0,
+        autoRefreshLogin: true
       })
-      if (!force && fp === stored.lastUploadedFingerprint) {
+      let currentJar = jar
+      let currentFingerprint = fp
+      let refreshNote = ''
+      const unhealthy = needsBinding(status)
+      const refreshInterval = unhealthy ? LOGIN_REFRESH_RETRY_MS : LOGIN_REFRESH_INTERVAL_MS
+      const lastRefreshAt = Date.parse(stored.lastLoginRefreshAt || '') || 0
+      const refreshDue = stored.autoRefreshLogin !== false &&
+        (force || Date.now() - lastRefreshAt >= refreshInterval)
+      if (refreshDue) {
+        const refreshed = await refreshLoginSession(unhealthy ? 'recovery' : 'scheduled')
+        refreshNote = refreshed.message
+        if (refreshed.jar) {
+          currentJar = refreshed.jar
+          currentFingerprint = refreshed.fingerprint || currentFingerprint
+        }
+      }
+
+      // “立即同步”只用于重新检查；浏览器凭证没有变化且服务端仍正常时，
+      // 不应再次把同一份 Cookie 提交给闲鱼校验。重复校验可能被风控临时拒绝，
+      // 从而被误显示成“Cookie 已失效”，但服务端原有凭证其实仍然可用。
+      if (currentFingerprint === stored.lastUploadedFingerprint && !unhealthy) {
         const detail = needsBinding(status)
           ? '浏览器登录凭证已上报，但服务端尚未恢复；请检查服务端提示'
-          : '订单接口可用，登录态未变化'
-        await setBadge(!needsBinding(status), detail)
-        return { ok: !needsBinding(status), heartbeatOK, message: detail }
+          : (refreshNote || '订单接口可用，登录态未变化')
+        await setBadge(true, detail)
+        return { ok: true, heartbeatOK, message: detail, refreshed: !!refreshNote }
       }
-      const coolingDown = fp === stored.lastAttemptedFingerprint &&
+      const coolingDown = currentFingerprint === stored.lastAttemptedFingerprint &&
         Date.now() - Number(stored.lastAttemptAt || 0) < RETRY_COOLDOWN_MS
       if (!force && coolingDown) {
         const minutes = Math.max(1, Math.ceil(
           (RETRY_COOLDOWN_MS - (Date.now() - Number(stored.lastAttemptAt || 0))) / 60000
         ))
-        const message = '本次登录态校验失败，' + minutes + ' 分钟后再试；若已重新登录请立即点“立即检查并上报”'
+        const message = '本次登录态校验失败，' + minutes + ' 分钟后再试；若已重新登录请在快捷面板点“立即同步”'
         await setBadge(false, message)
         return { ok: false, heartbeatOK, message }
       }
       await chrome.storage.local.set({
-        lastAttemptedFingerprint: fp,
+        lastAttemptedFingerprint: currentFingerprint,
         lastAttemptAt: Date.now()
       })
       const result = await requestJSON('/api/goofish/rebind', {
         method: 'POST',
         body: JSON.stringify({
-          goofish: jar.goofishRaw,
-          taobao: jar.ssoRaw,
+          goofish: currentJar.goofishRaw,
+          taobao: currentJar.ssoRaw,
           umid_token: ''
         })
       })
       await chrome.storage.local.set({
-        lastUploadedFingerprint: fp,
+        lastUploadedFingerprint: currentFingerprint,
         lastResult: 'ok',
         lastSyncAt: new Date().toISOString(),
         lastNick: result.nick || ''
       })
-      await setBadge(true, '已自动上报并通过订单接口校验')
-      return { ok: true, heartbeatOK, message: '已自动上报并通过校验', nick: result.nick || '' }
+      const message = refreshNote ? refreshNote + '，已自动上报并通过校验' : '已自动上报并通过校验'
+      await setBadge(true, message)
+      return { ok: true, heartbeatOK, message, nick: result.nick || '', refreshed: !!refreshNote }
     } catch (error) {
       const message = error && error.message ? error.message : String(error)
       await chrome.storage.local.set({ lastResult: 'error', lastError: message, lastSyncAt: new Date().toISOString() })
@@ -184,20 +513,24 @@ function debounceSync(ms = 1800) {
 }
 
 async function setup() {
+  await cleanupOrphanRefreshTab()
   const existing = await chrome.alarms.get(ALARM_NAME)
   if (!existing) await chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 })
+  const updateAlarm = await chrome.alarms.get(UPDATE_ALARM_NAME)
+  if (!updateAlarm) await chrome.alarms.create(UPDATE_ALARM_NAME, { periodInMinutes: 24 * 60 })
+  await checkExtensionUpdate(false)
   await syncNow(false)
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
   await setup()
-  await chrome.runtime.openOptionsPage()
 })
 
 chrome.runtime.onStartup.addListener(setup)
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) syncNow(false)
+  if (alarm.name === UPDATE_ALARM_NAME) checkExtensionUpdate(true)
 })
 
 chrome.cookies.onChanged.addListener((change) => {
@@ -206,10 +539,11 @@ chrome.cookies.onChanged.addListener((change) => {
 })
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes.server || changes.shopId)) debounceSync(300)
+  if (area === 'local' && (changes.server || changes.shopId)) {
+    debounceSync(300)
+    checkExtensionUpdate(true)
+  }
 })
-
-chrome.action.onClicked.addListener(() => chrome.runtime.openOptionsPage())
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.type === 'sync-now') {
@@ -218,9 +552,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message && message.type === 'get-runtime-status') {
     Promise.all([
-      chrome.storage.local.get({ lastSyncAt: '', lastResult: '', lastError: '', lastNick: '' }),
+      chrome.storage.local.get({
+        lastSyncAt: '', lastResult: '', lastError: '', lastNick: '',
+        lastLoginRefreshAt: '', lastLoginRefreshResult: '', lastLoginRefreshMessage: '',
+        lastExtensionUpdateCheckAt: '', extensionLatestVersion: '',
+        extensionCheckedVersion: '',
+        extensionUpdateAvailable: false, extensionDownloadUrl: '',
+        extensionLatestSha256: '', extensionUpdateError: ''
+      }),
       getConfig()
-    ]).then(([saved, cfg]) => sendResponse({ ok: true, saved, config: cfg }))
+    ]).then(([saved, cfg]) => sendResponse({
+      ok: true,
+      saved,
+      config: cfg,
+      currentExtensionVersion: chrome.runtime.getManifest().version
+    }))
+    return true
+  }
+  if (message && message.type === 'check-extension-update') {
+    checkExtensionUpdate(true).then(sendResponse)
+    return true
+  }
+  if (message && message.type === 'check-connection') {
+    checkConnection().then(sendResponse)
     return true
   }
 })

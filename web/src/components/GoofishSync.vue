@@ -158,7 +158,7 @@ const money = (v) => {
 const dayOf = (t) => String(t || '').slice(0, 10) || '—'
 const bridgeLabel = computed(() => status.value.bridge_online ? '在线' : (status.value.bridge_last_seen ? '已离线' : '未连接'))
 const bridgeDetail = computed(() => status.value.bridge_online
-  ? '每 60 秒检查，登录态变化会自动上报'
+  ? '后台自动续期，登录态变化后自动上报'
   : (status.value.bridge_last_seen
     ? '浏览器已关闭或扩展未运行；服务器仍可用已保存凭证拉单'
     : '安装扩展后自动连接，无需托盘或专用窗口'))
@@ -207,7 +207,7 @@ async function issueBridgeToken() {
     const r = await api.goofishBridgeToken()
     bridgeToken.value = r.token || ''
     status.value = { ...status.value, bridge_token_configured: true }
-    emit('notify', '扩展配对码已生成，请复制到扩展设置；旧配对码已失效')
+    emit('notify', '扩展配对码已生成，请复制到扩展快捷面板；旧配对码已失效')
   } catch (e) {
     emit('notify', e.message || '生成扩展配对码失败', true)
   } finally {
@@ -493,10 +493,17 @@ onMounted(async () => {
 
             <div class="gf-bridge-callout">
               <div>
-                <b>推荐：浏览器扩展自动上报</b>
-                <span>在 Edge / Chrome 扩展页加载 <code>tools/goofish_extension</code>，用平时登录闲鱼的浏览器即可。登录态变化自动上报，不需要专用窗口或托盘程序。</span>
+                <b>推荐：浏览器扩展自动续期并上报</b>
+                <span>用平时登录闲鱼的 Edge / Chrome 即可。扩展会后台续期登录态，Cookie 更新后自动上传，不需要专用窗口、托盘程序或每天手动检查。</span>
               </div>
-              <small>扩展失败会直接显示 <b>!</b> 角标；电脑关机后服务器仍能用已保存凭证拉单，下次打开浏览器会自动检查。</small>
+              <div class="gf-extension-install">
+                <a class="btn btn-sm btn-primary" href="/downloads/goofish-extension.zip" download="goofish-extension.zip">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+                  下载扩展包
+                </a>
+                <span>下载后解压，运行 <code>install_goofish_extension.bat</code>，再在扩展页加载解压目录。</span>
+              </div>
+              <small>浏览器运行时自动处理；只有在闲鱼明确要求重新扫码或验证码时才需要人工验证。电脑关机后服务器仍能用已保存凭证拉单。</small>
             </div>
 
             <div v-if="status.bridge_auth_required" class="gf-extension-gate">
@@ -591,12 +598,15 @@ onMounted(async () => {
                 <span class="gf-extension-chevron" aria-hidden="true">›</span>
               </summary>
               <div class="gf-extension-body">
-                <p>安装后不需要保持专用浏览器窗口，也不需要托盘。电脑关机时服务器继续拉单，下次打开浏览器会自动检查登录态。</p>
+                <p>安装后不需要保持专用浏览器窗口，也不需要托盘。浏览器会后台续期登录态并在变化后自动上报；电脑关机时服务器继续拉单，下次打开浏览器会自动恢复检查。</p>
                 <ol>
-                  <li>打开扩展管理页，启用「开发人员模式」，加载目录 <code>tools/goofish_extension</code>。</li>
+                  <li>下载并解压扩展包，运行 <code>install_goofish_extension.bat</code>。</li>
+                  <li>在扩展页启用「开发人员模式」，选择「加载解压缩的扩展」，指向刚解压的目录。</li>
                   <li>在浏览器里正常登录 <code>www.goofish.com</code>。</li>
-                  <li>如需配对码，点下方生成，再填入扩展设置页。</li>
+                  <li>点击浏览器工具栏里的扩展图标，在快捷面板填写服务器和店铺；如需配对码，点下方生成后填入。</li>
+                  <li>面板显示「当前可用」且服务器、配对码、闲鱼三项正常，即表示连接可用。</li>
                 </ol>
+                <a class="btn btn-sm gf-extension-download" href="/downloads/goofish-extension.zip" download="goofish-extension.zip">下载最新扩展包</a>
                 <div v-if="bridgeToken" class="gf-extension-token">
                   <code>{{ bridgeToken }}</code>
                   <button class="btn btn-sm" @click="copyBridgeToken">{{ bridgeTokenCopied ? '已复制' : '复制' }}</button>

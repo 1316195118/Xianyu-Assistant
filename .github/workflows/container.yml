@@ -21,6 +21,14 @@ jobs:
         with:
           go-version-file: server/go.mod
 
+      - name: 校验浏览器扩展并刷新下载包
+        run: |
+          node --test tools/goofish_extension/background.test.js
+          python3 tools/package_goofish_extension.py
+          mkdir -p server/webroot/downloads
+          cp static/downloads/goofish-extension.zip server/webroot/downloads/goofish-extension.zip
+          cp static/downloads/goofish-extension-version.json server/webroot/downloads/goofish-extension-version.json
+
       - name: 校验发布标签
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash

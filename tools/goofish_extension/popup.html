@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>鱼助手</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <div class="brand">
+        <img class="mark" src="icons/icon48.png" alt="">
+        <div>
+          <h1>鱼助手</h1>
+          <p>闲鱼登录同步</p>
+        </div>
+      </div>
+      <span id="statusBadge" class="status-badge neutral">读取中</span>
+    </header>
+
+    <section class="connection-card" aria-live="polite">
+      <div id="statusPanel" class="status-panel">
+        <span id="statusDot" class="status-dot" aria-hidden="true"></span>
+        <div>
+          <b id="statusTitle">正在检查连接状态</b>
+          <p id="statusDetail">正在确认服务器、配对码和闲鱼登录态…</p>
+        </div>
+      </div>
+      <div class="health-grid">
+        <span id="serverHealth" class="health-item checking">
+          <i aria-hidden="true"></i><b>服务器</b><small>检测中</small>
+        </span>
+        <span id="bridgeHealth" class="health-item checking">
+          <i aria-hidden="true"></i><b>配对码</b><small>检测中</small>
+        </span>
+        <span id="goofishHealth" class="health-item checking">
+          <i aria-hidden="true"></i><b>闲鱼</b><small>检测中</small>
+        </span>
+      </div>
+    </section>
+
+    <form id="settingsForm" novalidate>
+      <label>
+        <span>鱼助手服务器</span>
+        <input id="server" name="server" type="url" placeholder="http://192.168.1.10:18083" autocomplete="url" required>
+      </label>
+      <div class="field-row">
+        <label>
+          <span>店铺 ID</span>
+          <input id="shopId" name="shopId" type="number" min="1" step="1" value="1" required>
+        </label>
+        <label class="switch-field">
+          <span>后台自动续期</span>
+          <input id="autoRefreshLogin" name="autoRefreshLogin" type="checkbox" checked>
+          <i aria-hidden="true"></i>
+        </label>
+      </div>
+
+      <details id="tokenDetails" class="token-details">
+        <summary>
+          <span>配对码 <small>（服务器未设访问密码可留空）</small></span>
+          <span class="chevron" aria-hidden="true">⌄</span>
+        </summary>
+        <label>
+          <span class="sr-only">扩展配对码</span>
+          <input id="bridgeToken" name="bridgeToken" type="password" placeholder="在鱼助手「闲鱼同步」中生成" autocomplete="off">
+        </label>
+      </details>
+
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+
+      <div class="actions">
+        <button id="save" class="primary" type="submit">
+          <span>保存并连接</span>
+          <span class="spinner" aria-hidden="true"></span>
+        </button>
+        <button id="sync" class="secondary" type="button">
+          <span>立即同步</span>
+          <span class="spinner" aria-hidden="true"></span>
+        </button>
+      </div>
+    </form>
+
+    <a id="updateBanner" class="update-banner" href="#" target="_blank" rel="noreferrer" hidden>
+      <span class="update-icon" aria-hidden="true">↑</span>
+      <span><b id="updateTitle">发现扩展新版</b><small>打开高级设置查看下载方式</small></span>
+      <span class="arrow" aria-hidden="true">›</span>
+    </a>
+
+    <footer>
+      <span id="version">扩展 v1.2.0</span>
+      <button id="openOptions" class="text-button" type="button">高级设置 <span aria-hidden="true">↗</span></button>
+    </footer>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

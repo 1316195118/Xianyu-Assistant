@@ -105,6 +105,9 @@ func TestUpdateCheckFindsNewerRelease(t *testing.T) {
 	if out["has_update"] != true {
 		t.Errorf("应提示有新版本：%v", out)
 	}
+	if out["notes"] != "测试发布" {
+		t.Errorf("应把 Release 正文作为更新说明返回，实际 %q", out["notes"])
+	}
 	if out["can_apply"] != (updateGOOS == "linux") {
 		t.Errorf("can_apply 与平台不符：%v", out["can_apply"])
 	}
