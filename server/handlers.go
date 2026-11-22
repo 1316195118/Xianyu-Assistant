@@ -383,6 +383,7 @@ func registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/goofish/status", authWrap(handleGoofishStatus))
 	mux.HandleFunc("/api/goofish/login", authWrap(handleGoofishLogin))
 	mux.HandleFunc("/api/goofish/rebind", authWrap(handleGoofishRebind))
+	mux.HandleFunc("/api/goofish/bridge/heartbeat", authWrap(handleGoofishBridgeHeartbeat))
 	mux.HandleFunc("/api/goofish/qr/start", authWrap(handleGoofishQRStart))
 	mux.HandleFunc("/api/goofish/umid", authWrap(handleGoofishUmid))
 	mux.HandleFunc("/api/goofish/qr/poll", authWrap(handleGoofishQRPoll))

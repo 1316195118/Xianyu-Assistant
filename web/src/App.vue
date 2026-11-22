@@ -281,9 +281,12 @@ async function loadGfStatus() {
     const s = await api.goofishStatus()
     gfStatus.value = {
       logged_in: !!s.logged_in,
+      session_valid: !!s.session_valid,
+      order_api_valid: !!s.order_api_valid,
       expired: !!s.expired,
       sync_error: s.sync_error || '',
-      nick: s.nick || ''
+      nick: s.nick || '',
+      bridge_online: !!s.bridge_online
     }
   } catch (e) { /* 未选店 / 未登录时顶栏不显示状态，不影响主流程 */ }
 }
@@ -294,8 +297,9 @@ function openGfPanel(rebind = false) {
 }
 const gfBad = computed(() => !!gfStatus.value.expired || !!gfStatus.value.sync_error)
 const gfTip = computed(() => {
-  if (gfBad.value) return '闲鱼同步失效：' + (gfStatus.value.sync_error || '请重新绑定') + '，点击去绑定'
-  if (gfStatus.value.logged_in) return `闲鱼已绑定「${gfStatus.value.nick}」，点击查看同步状态`
+  if (gfBad.value) return '闲鱼登录已失效：' + (gfStatus.value.sync_error || '请在浏览器保活桥中重新登录') + '，点击查看恢复方式'
+  if (gfStatus.value.order_api_valid) return `闲鱼订单接口可用「${gfStatus.value.nick}」，点击查看同步状态`
+  if (gfStatus.value.logged_in) return '闲鱼凭证存在，但订单接口尚未验证，点击查看'
   return '闲鱼未绑定，点击去绑定'
 })
 
@@ -304,11 +308,15 @@ function startRealtime() {
   offRealtime = onRealtime((ev) => {
     if (!ev || ev.kind !== 'change') return
     // 闲鱼自动同步失败：Cookie 失效，主动弹醒目提示，不用等用户手动同步才发现
-    if (ev.path === '/api/goofish/status' && /失败|失效/.test(ev.summary || '')) {
-      notify(ev.summary || '闲鱼同步失效，请重新绑定', true,
+    if (ev.path === '/api/goofish/status') {
+      loadGfStatus()
+      if (!/失败|失效/.test(ev.summary || '')) {
+        bump()
+        return
+      }
+      notify(ev.summary || '闲鱼同步失效，请打开浏览器保活桥', true,
         { label: '去绑定', ttl: 15000, run: () => openGfPanel(true) },
         { tone: 'error' })
-      loadGfStatus()
       bump()
       return
     }
@@ -813,10 +821,10 @@ function goSettingsFromModal() {
             <i class="presence-dot" aria-hidden="true"></i>
             <span class="presence-text">{{ connected ? (online > 1 ? `${online} 人在线` : '实时同步') : '离线' }}</span>
           </span>
-          <button class="gf-presence" :class="{ bad: gfBad, on: gfStatus.logged_in }"
+          <button class="gf-presence" :class="{ bad: gfBad, on: gfStatus.order_api_valid }"
                   :title="gfTip" @click="openGfPanel(gfBad)" aria-label="查看闲鱼绑定状态">
             <i class="gf-presence-dot" aria-hidden="true"></i>
-            <span class="gf-presence-text">{{ gfBad ? '待绑定' : (gfStatus.logged_in ? '闲鱼' : '去绑定') }}</span>
+            <span class="gf-presence-text">{{ gfBad ? '需恢复' : (gfStatus.order_api_valid ? '闲鱼' : (gfStatus.logged_in ? '待检测' : '去绑定')) }}</span>
           </button>
           <button class="topbar-cmd" @click="cmdOpen = true" title="命令面板 (Ctrl / ⌘ + K)" aria-label="打开命令面板">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>

@@ -4055,6 +4055,47 @@ html[data-theme="dark"] .upd-progress.bad {
 }
 .gf-keep-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; line-height: 1.5; }
 .gf-keep-text b { font-size: var(--fs-sm); }
+
+.gf-bridge-callout {
+  display: grid; gap: 6px; padding: 12px 13px; margin-bottom: 14px;
+  border-radius: 12px; border: 1px solid color-mix(in srgb, var(--brand) 24%, var(--border));
+  background: linear-gradient(135deg, var(--brand-soft), var(--surface-2) 72%);
+}
+.gf-bridge-callout > div { display: grid; gap: 4px; }
+.gf-bridge-callout b { font-size: var(--fs-sm); color: var(--text); }
+.gf-bridge-callout span, .gf-bridge-callout small { font-size: 12px; line-height: 1.65; color: var(--text-2); }
+.gf-bridge-callout small { color: var(--text-3); }
+.gf-bridge-callout code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px; padding: 1px 5px; border-radius: 5px;
+  background: var(--bg); border: 1px solid var(--border);
+}
+
+.gf-health {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px; margin-bottom: 12px;
+}
+.gf-health > div {
+  min-width: 0; display: grid; gap: 2px; padding: 10px 11px;
+  border: 1px solid var(--border); border-radius: 11px;
+  background: var(--surface-2); position: relative; overflow: hidden;
+}
+.gf-health > div::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
+  background: var(--border-strong);
+}
+.gf-health > div.ok::before { background: var(--down); }
+.gf-health > div.warn::before { background: var(--up); }
+.gf-health span { font-size: 11px; color: var(--text-3); }
+.gf-health b { font-size: 12.5px; color: var(--text); }
+.gf-health > div.ok b { color: var(--down); }
+.gf-health > div.warn b { color: var(--up); }
+.gf-health small { font-size: 10.5px; line-height: 1.45; color: var(--text-3); overflow-wrap: anywhere; }
+.gf-health > div.ok:last-child b::after {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 5px;
+  border-radius: 50%; background: var(--down); vertical-align: 1px;
+  box-shadow: 0 0 0 3px var(--down-soft);
+}
 .gf-switch {
   flex: none; width: 44px; height: 26px; border-radius: 999px; border: 1px solid var(--border-strong);
   background: var(--border); cursor: pointer; padding: 0; position: relative; transition: background .18s;
@@ -5329,6 +5370,8 @@ html[data-motion="reduce"] .filter-card .filter-body { transition: none !importa
 @media (max-width: 600px) {
   .gf-account { flex-wrap: wrap; }
   .gf-acc-text { flex: 1 1 calc(100% - 50px); }
+  .gf-health { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gf-health > div:last-child { grid-column: 1 / -1; }
 }
 
 /* ============================================================

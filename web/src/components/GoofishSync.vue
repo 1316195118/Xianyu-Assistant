@@ -57,7 +57,13 @@ function stopQR() {
   qrOpen.value = false
   qrImg.value = ''
 }
-onUnmounted(() => { stopQR(); if (offProgress) offProgress(); document.removeEventListener('keydown', onKey) })
+let statusTimer = null
+onUnmounted(() => {
+  stopQR()
+  clearInterval(statusTimer)
+  if (offProgress) offProgress()
+  document.removeEventListener('keydown', onKey)
+})
 
 // step: bind（未绑定）/ idle（已绑定）/ loading / review / done
 const step = ref('idle')
@@ -65,7 +71,12 @@ const step = ref('idle')
 const rebinding = ref(false)
 const progress = ref({ on: false, pct: 0, text: '' })
 let offProgress = null
-const status = ref({ logged_in: false, nick: '', saved_at: '', last_sync: '', masked: '', keepalive: true, expired: false, auto_days: 0, auto_window: 30, backfill: true, syncing: false, sso_saved: false })
+const status = ref({
+  logged_in: false, credential_saved: false, session_valid: false, order_api_valid: false,
+  nick: '', saved_at: '', last_sync: '', last_check: '', masked: '', keepalive: true,
+  expired: false, auto_days: 0, auto_window: 30, backfill: true, syncing: false,
+  sso_saved: false, retry_at: '', bridge_online: false, bridge_last_seen: ''
+})
 const cookieInput = ref('')
 const showHelp = ref(false)
 const pingMsg = ref('')
@@ -141,6 +152,16 @@ const money = (v) => {
   return n.toFixed(2).replace(/\.00$/, '')
 }
 const dayOf = (t) => String(t || '').slice(0, 10) || '—'
+const bridgeLabel = computed(() => status.value.bridge_online ? '在线' : (status.value.bridge_last_seen ? '已离线' : '未启动'))
+const bridgeDetail = computed(() => status.value.bridge_online
+  ? '每 60 秒检查一次，登录态变化会自动上报'
+  : (status.value.bridge_last_seen ? '上次在线：' + status.value.bridge_last_seen : '双击 goofish_bridge.bat 启动'))
+const orderApiLabel = computed(() => {
+  if (status.value.order_api_valid) return '可用'
+  if (status.value.sync_error || status.value.expired) return '已失效'
+  if (status.value.last_check) return '待复核'
+  return '待检测'
+})
 
 async function loadStatus() {
   try {
@@ -149,17 +170,23 @@ async function loadStatus() {
     // 同步给顶栏常驻状态点：别的页面也能看到失效，不用先进设置页
     gfStatus.value = {
       logged_in: !!s.logged_in,
+      session_valid: !!s.session_valid,
+      order_api_valid: !!s.order_api_valid,
       expired: !!s.expired,
       sync_error: s.sync_error || '',
-      nick: s.nick || ''
+      nick: s.nick || '',
+      bridge_online: !!s.bridge_online
     }
     // 恢复上次保存的账单回溯开关（后端按店铺持久化）
     useBackfill.value = s.backfill !== false
     step.value = s.logged_in ? 'idle' : 'bind'
     pingMsg.value = ''
     // 自动同步失败会存 sync_error，页面一打开就能看到具体原因（不用等手动同步）
-    if (s.sync_error) pingMsg.value = s.sync_error + '，请重新绑定'
-    else if (s.expired) pingMsg.value = '上次检测时登录态已失效，建议重新绑定' 
+    const bridgeHint = s.bridge_online
+      ? '浏览器桥在线，请在专用窗口中重新登录或扫码，成功后会立即自动上报。'
+      : '请双击 goofish_bridge.bat 启动浏览器保活桥，或临时重新粘贴 Cookie。'
+    if (s.sync_error) pingMsg.value = s.sync_error + '。' + bridgeHint
+    else if (s.expired) pingMsg.value = '登录会话已失效，服务器无法自行换回 cookie2。' + bridgeHint
   } catch (e) {
     step.value = 'bind'
     err.value = e.message || '状态读取失败'
@@ -213,7 +240,7 @@ async function toggleKeepAlive() {
   try {
     await api.goofishKeepAlive(on)
     status.value = { ...status.value, keepalive: on }
-    emit('notify', on ? '已开启自动续期（同步前自动用淘宝凭证静默换发会话）' : '已关闭自动续期')
+    emit('notify', on ? '已开启后台登录检查' : '已关闭后台登录检查')
   } catch (e) {
     emit('notify', e.message || '设置失败', true)
   }
@@ -370,8 +397,13 @@ const onKey = (e) => { if (e.key === 'Escape' && !qrOpen.value) emit('close') }
 onMounted(async () => {
   document.addEventListener('keydown', onKey)
   offProgress = onRealtime((ev) => {
-    if (!ev || ev.kind !== 'progress') return
+    if (!ev) return
     if (ev.shop_id && activeId.value && ev.shop_id !== activeId.value) return
+    if (ev.kind === 'change' && ev.path === '/api/goofish/status') {
+      loadStatus()
+      return
+    }
+    if (ev.kind !== 'progress') return
     progress.value = { on: true, pct: Number(ev.progress) || 0, text: ev.summary || '' }
   })
   if (gfRebindRequest.value) {
@@ -382,6 +414,9 @@ onMounted(async () => {
     try { await loadShops() } catch (e) { /* 忽略：店铺加载失败不影响主流程 */ }
   }
   if (!rebinding.value) await loadStatus()
+  statusTimer = setInterval(() => {
+    if (!rebinding.value && !busy.value) loadStatus()
+  }, 30000)
 })
 </script>
 
@@ -402,6 +437,14 @@ onMounted(async () => {
               <template v-else>正在为「{{ shopName }}」绑定。绑定后每次点「立即同步」，服务端自己拉订单和账单，不用装插件、也不用导出文件。</template>
             </p>
 
+            <div class="gf-bridge-callout">
+              <div>
+                <b>推荐：浏览器保活桥</b>
+                <span>电脑双击 <code>goofish_bridge.bat</code>，在专用窗口中扫码。之后窗口可最小化，登录态变化会自动上报；服务器无法自行换回失效的 cookie2。</span>
+              </div>
+              <small>窗口关闭后仍能拉单，但登录失效时需要重新打开。</small>
+            </div>
+
             <div class="gf-steps">
               <div class="gf-step"><b>1</b><span>电脑浏览器打开 <code>www.goofish.com</code> 并登录</span></div>
               <div class="gf-step"><b>2</b><span>按 <kbd>F12</kbd>，切到「网络」面板（Network）</span></div>
@@ -410,7 +453,7 @@ onMounted(async () => {
             </div>
 
             <div class="gf-field">
-              <label>粘贴 Cookie<HelpTip text="凭证只存在你自己的服务器数据库里，用来代替你访问闲鱼接口，不会上传到任何第三方。&#10;绑定后服务器会在每次同步前自动换发会话，正常情况下不用反复粘贴；闲鱼改密码或主动退出登录后需要重新绑定。" /></label>
+              <label>粘贴 Cookie<HelpTip text="凭证只存在你自己的服务器数据库里，用来代替你访问闲鱼接口，不会上传到任何第三方。&#10;服务器可以用 SSO 检查短期会话，但无法在闲鱼 cookie2 真正失效后自行重新登录；长期使用建议保留 goofish_bridge.bat。" /></label>
               <textarea v-model="cookieInput" class="gf-textarea" rows="5"
                         placeholder="直接粘贴整行，例如：cna=xxx; _m_h5_tk=xxx; cookie2=xxx; unb=xxx; …"></textarea>
             </div>
@@ -421,7 +464,7 @@ onMounted(async () => {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 20h.01"/></svg>
               扫码登录（实验性）
             </button>
-            <div class="gf-qr-tip muted">闲鱼设备指纹校验严格，扫码可能提示「二维码失效」；若失败，请用电脑上双击 <code>goofish_bind.bat</code> 一键绑定（可靠）。绑定后靠自动续期，一般几个月才需重绑一次。</div>
+            <div class="gf-qr-tip muted">闲鱼设备指纹校验严格，服务器生成的二维码可能提示「二维码失效」；请优先使用电脑上的 <code>goofish_bridge.bat</code> 真浏览器登录。</div>
 
             <div v-if="qrOpen" class="gf-qr-panel">
               <div class="gf-qr-head">
@@ -458,11 +501,27 @@ onMounted(async () => {
               <button class="btn btn-quiet btn-sm" :disabled="busy" @click="unbind">解绑</button>
             </div>
 
+            <div class="gf-health">
+              <div :class="{ ok: status.credential_saved, warn: !status.credential_saved }">
+                <span>凭证</span>
+                <b>{{ status.credential_saved ? '已保存' : '未保存' }}</b>
+              </div>
+              <div :class="{ ok: status.order_api_valid, warn: !status.order_api_valid }">
+                <span>订单接口</span>
+                <b>{{ orderApiLabel }}</b>
+              </div>
+              <div :class="{ ok: status.bridge_online, warn: !status.bridge_online }">
+                <span>浏览器桥</span>
+                <b>{{ bridgeLabel }}</b>
+                <small>{{ bridgeDetail }}</small>
+              </div>
+            </div>
+
             <div class="gf-keep">
               <div class="gf-keep-text">
-                <b>自动续期</b>
-                <span class="muted">{{ status.keepalive ? '已开启' : '已关闭' }} · {{ status.sso_saved ? '续期凭证已保存' : '无续期凭证' }}</span>
-                <HelpTip text="开启后，每次同步前服务器会自动用保存的淘宝 SSO 凭证静默换发一次闲鱼会话（复刻网页版「一键快速登录」），会话过期也能自愈，不再需要定期心跳。&#10;关闭后不做换发，会话过期需重新绑定。" />
+                <b>后台登录检查</b>
+                <span class="muted">{{ status.keepalive ? '已开启' : '已关闭' }} · {{ status.sso_saved ? 'SSO 凭证已保存' : '无 SSO 凭证' }}</span>
+                <HelpTip text="服务器能用 SSO 检查短期会话并刷新 _m_h5_tk 等签名令牌，但无法在闲鱼 H5 登录 cookie2 真失效后重新登录。&#10;长期稳定需要让 goofish_bridge.bat 保持运行：真实浏览器登录态变化后会自动上报并校验。&#10;关闭这里只会停止服务器的后台检查，浏览器桥仍可继续上报。" />
               </div>
               <button class="gf-switch" :class="{ on: status.keepalive }" role="switch"
                       :aria-checked="status.keepalive" @click="toggleKeepAlive">

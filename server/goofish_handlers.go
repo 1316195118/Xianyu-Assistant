@@ -68,11 +68,14 @@ const (
 	gfKeyDead   = "goofish_expired"
 	// gfKeySyncErr：自动同步失败的可读原因，供页面一打开就提示 + SSE 主动推送
 	gfKeySyncErr = "goofish_sync_error"
-	// gfKeySSOTaobao：淘宝 / 天猫域的 SSO Cookie（一键快速登录的凭证），
-	// 用来在服务器端做静默换发（silent login），闲鱼会话过期后自动续期。
+	// gfKeySSOTaobao：淘宝 / 天猫域的 SSO Cookie（一键快速登录的凭证）。
+	// 服务器只用它检查短期会话；闲鱼 cookie2 真失效后仍需要真实浏览器重新登录。
 	gfKeySSOTaobao = "goofish_sso_taobao"
 	// gfKeyUmidToken：阿里设备指纹（扫码登录用，浏览器 localStorage 里收集）
 	gfKeyUmidToken = "goofish_umid_token"
+	// gfKeyBridgeSeen：本机浏览器保活桥最后一次在线时间。
+	// 浏览器能用真实登录环境更新 cookie2，是服务器自愈失败后的主要恢复路径。
+	gfKeyBridgeSeen = "goofish_bridge_last_seen"
 	// gfKeyBackfill：立即同步时是否一并做账单回溯。默认开（老行为），存 "0"/"1"。
 	gfKeyBackfill = "goofish_backfill"
 	// gfKeySyncFails / gfKeyRetryAt：登录态类错误先重试，不要第一次就永久判死
@@ -92,7 +95,7 @@ func gfMarkSyncError(shop int64, reason string) {
 	}
 	hint := "（请重新绑定）"
 	if gfCanRecoverSession(shop) {
-		hint = "（自动续期会继续尝试恢复）"
+		hint = "（后台会低频检查；建议启动浏览器保活桥）"
 	}
 	realtimeHub.publish("GET", "/api/goofish/status", "system",
 		"闲鱼自动同步失败："+reason+hint, shop)
@@ -117,7 +120,12 @@ func gfSyncRetryOrFail(shop int64, reason string) {
 	n++
 	_ = gfSet(gfKeySyncFails, shop, strconv.Itoa(n))
 	if n >= 3 {
+		// 第三次仍失败说明服务器端已经无法把 cookie2 换回来。
+		// 保留一个 6 小时低频检查，但不留下“已到点的强制重试”，
+		// 否则 10 分钟自动同步 tick 会把同一份失效凭证反复提交。
+		_ = gfSet(gfKeyRetryAt, shop, time.Now().Add(6*time.Hour).Format("2006-01-02 15:04:05"))
 		gfMarkSyncError(shop, reason)
+		fmt.Printf("[闲鱼自动同步] 店铺 %d %s，连续失败 %d 次，转为 6 小时低频检查\n", shop, reason, n)
 		return
 	}
 	_ = gfSet(gfKeyRetryAt, shop, time.Now().Add(2*time.Hour).Format("2006-01-02 15:04:05"))
@@ -195,31 +203,55 @@ func handleGoofishStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	shop := shopID(r)
 	raw := gfGet(gfKeyCookie, shop)
+	dead := gfGet(gfKeyDead, shop) == "1"
+	lastCheck := gfGet(gfKeyCheck, shop)
+	syncErr := gfGet(gfKeySyncErr, shop)
+	bridgeSeen := gfGet(gfKeyBridgeSeen, shop)
+	sessionValid := strings.TrimSpace(raw) != "" && !dead
+	orderAPIValid := sessionValid && lastCheck != "" && strings.TrimSpace(syncErr) == ""
 	writeJSON(w, map[string]interface{}{
-		"shop_id":     shop,
-		"shop_name":   shopNameOf(shop),
-		"logged_in":   strings.TrimSpace(raw) != "",
-		"nick":        gfGet(gfKeyNick, shop),
-		"uid":         gfGet(gfKeyUID, shop),
-		"masked":      gfMaskCookie(raw),
-		"saved_at":    gfGet(gfKeySaved, shop),
-		"last_sync":   gfGet(gfKeyLast, shop),
-		"last_check":  gfGet(gfKeyCheck, shop),
-		"expired":     gfGet(gfKeyDead, shop) == "1",
-		"sync_error":  gfGet(gfKeySyncErr, shop),
-		"keepalive":   gfKeepAliveEnabled(),
-		"auto_days":   gfAutoDays(shop),
-		"auto_window": gfAutoWindow(shop),
-		"backfill":    gfBackfillEnabled(shop),
-		"syncing":     gfIsSyncing(shop),
-		"sso_saved":   strings.TrimSpace(gfGet(gfKeySSOTaobao, shop)) != "",
+		"shop_id":          shop,
+		"shop_name":        shopNameOf(shop),
+		"logged_in":        strings.TrimSpace(raw) != "",
+		"credential_saved": strings.TrimSpace(raw) != "",
+		"session_valid":    sessionValid,
+		"order_api_valid":  orderAPIValid,
+		"nick":             gfGet(gfKeyNick, shop),
+		"uid":              gfGet(gfKeyUID, shop),
+		"masked":           gfMaskCookie(raw),
+		"saved_at":         gfGet(gfKeySaved, shop),
+		"last_sync":        gfGet(gfKeyLast, shop),
+		"last_check":       lastCheck,
+		"expired":          dead,
+		"sync_error":       syncErr,
+		"retry_at":         gfGet(gfKeyRetryAt, shop),
+		"keepalive":        gfKeepAliveEnabled(),
+		"auto_days":        gfAutoDays(shop),
+		"auto_window":      gfAutoWindow(shop),
+		"backfill":         gfBackfillEnabled(shop),
+		"syncing":          gfIsSyncing(shop),
+		"sso_saved":        strings.TrimSpace(gfGet(gfKeySSOTaobao, shop)) != "",
+		"bridge_last_seen": bridgeSeen,
+		"bridge_online":    gfBridgeOnline(bridgeSeen),
 	})
+}
+
+// gfBridgeOnline 判断本机浏览器保活桥是否仍在运行。
+// 桥每 60 秒发一次心跳，3 分钟窗口足以容忍一次网络抖动，
+// 又不会把已关闭的浏览器一直显示成在线。
+func gfBridgeOnline(last string) bool {
+	t, err := time.ParseInLocation("2006-01-02 15:04:05", strings.TrimSpace(last), time.Local)
+	if err != nil {
+		return false
+	}
+	diff := time.Since(t)
+	return diff >= -time.Minute && diff <= 3*time.Minute
 }
 
 // handleGoofishRebind POST /api/goofish/rebind
 //
 // 一键绑定工具专用：除了闲鱼域的 Cookie，还一起收下淘宝 / 天猫域的 SSO Cookie。
-// 闲鱼域的走原有绑定校验；SSO Cookie 原样存起来，供服务器端静默换发实验与自动续期。
+// 闲鱼域的走原有绑定校验；SSO Cookie 原样存起来，供服务器端检查短期会话。
 // Cookie 只存本地数据库，不回显。
 func handleGoofishRebind(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -267,6 +299,7 @@ func handleGoofishRebind(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = gfSet(gfKeySaved, shop, time.Now().Format("2006-01-02 15:04:05"))
 	_ = gfSet(gfKeyCheck, shop, time.Now().Format("2006-01-02 15:04:05"))
+	_ = gfSet(gfKeyBridgeSeen, shop, time.Now().Format("2006-01-02 15:04:05"))
 	gfClearSyncError(shop)
 	if !gfKeepAliveEnabled() {
 		setSetting(gfKeepAliveKey, "1")
@@ -289,6 +322,24 @@ func handleGoofishRebind(w http.ResponseWriter, r *http.Request) {
 		"ok": true, "nick": acc.Nick, "uid": acc.UID, "shop_id": shop,
 		"sso_saved": ssoSaved,
 	})
+	realtimeHub.publish("GET", "/api/goofish/status", "system",
+		"浏览器登录态已同步，订单接口校验通过", shop)
+}
+
+// handleGoofishBridgeHeartbeat POST /api/goofish/bridge/heartbeat
+// 只更新浏览器桥在线时间，不接收也不回显任何凭证。
+func handleGoofishBridgeHeartbeat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		writeError(w, 405, "方法不允许")
+		return
+	}
+	shop := shopID(r)
+	now := time.Now().Format("2006-01-02 15:04:05")
+	if err := gfSet(gfKeyBridgeSeen, shop, now); err != nil {
+		writeError(w, 500, "保存浏览器桥状态失败")
+		return
+	}
+	writeJSON(w, map[string]interface{}{"ok": true, "bridge_last_seen": now})
 }
 
 func handleGoofishLogin(w http.ResponseWriter, r *http.Request) {
@@ -349,7 +400,11 @@ func handleGoofishLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	shop := shopID(r)
-	for _, k := range []string{gfKeyCookie, gfKeyNick, gfKeyUID, gfKeySaved, gfKeyLast, gfKeyCheck, gfKeyDead} {
+	for _, k := range []string{
+		gfKeyCookie, gfKeyNick, gfKeyUID, gfKeySaved, gfKeyLast, gfKeyCheck,
+		gfKeyDead, gfKeySyncErr, gfKeySyncFails, gfKeyRetryAt,
+		gfKeySSOTaobao, gfKeyUmidToken, gfKeyBridgeSeen,
+	} {
 		_ = gfSet(k, shop, "")
 	}
 	writeJSON(w, map[string]interface{}{"ok": true})
@@ -811,7 +866,7 @@ func gfPingShop(shop int64) (string, error) {
 		// 先静默换发一次再重试，避免会话刚过期就要求用户重新扫码/粘贴。
 		if strings.TrimSpace(gfGet(gfKeySSOTaobao, shop)) != "" {
 			if _, renewErr := gfSilentRenew(shop); renewErr != nil {
-				fmt.Printf("[闲鱼检测] 店铺 %d 静默换发失败: %v\n", shop, renewErr)
+				fmt.Printf("[闲鱼检测] 店铺 %d SSO 检查失败: %v\n", shop, renewErr)
 			}
 			// 无论业务码如何都使用落库后的最新会话重试；换发响应可能已带来新凭证。
 			if fresh := gfSavedClient(shop); fresh != nil {
@@ -964,7 +1019,7 @@ func goofishAutoSyncLoop() {
 const gfSessionMaintainPeriod = 6 * time.Hour
 
 // goofishSessionMaintainLoop 独立于订单同步维护登录态。
-// 即使自动同步设为 7 天一次，也会每 6 小时尝试一次静默换发和同源接口校验。
+// 即使自动同步设为 7 天一次，也会每 6 小时检查一次短期会话和同源订单接口。
 func goofishSessionMaintainLoop() {
 	time.Sleep(2 * time.Minute)
 	for {
@@ -1020,9 +1075,9 @@ func gfMaintainSessionOne(shop int64) {
 	}
 	if _, err := c.boughtOrders(1); err != nil {
 		if gfSessionExpired(err) {
-			gfSyncRetryOrFail(shop, "自动续期后登录态仍失效")
+			gfSyncRetryOrFail(shop, "后台检查后登录态仍失效")
 		} else {
-			fmt.Printf("[闲鱼续期] 店铺 %d 本次校验失败，保留现有会话稍后重试: %v\n", shop, err)
+			fmt.Printf("[闲鱼检查] 店铺 %d 本次校验失败，保留现有会话稍后重试: %v\n", shop, err)
 		}
 		return
 	}

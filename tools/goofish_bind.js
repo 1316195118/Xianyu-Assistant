@@ -8,11 +8,16 @@
  *
  * 用法（双击 goofish_bind.bat 即可，命令行参数为可选）：
  *   node goofish_bind.js [--server http://你的服务器:端口] [--shop 店铺ID]
+ *   node goofish_bind.js --watch [--server ...] [--shop ...]
+ *
+ * --watch 会保留专用浏览器并进入保活桥模式：登录态一变化就自动上报，
+ * 浏览器可最小化，但不要关闭；关闭后服务器仍可正常拉单，只是不能自动换新 Cookie。
  *
  * 依赖：Node.js 18+（内置 fetch / WebSocket）、本机 Microsoft Edge 或 Google Chrome。
  * Cookie 只在你电脑和你的服务器之间传递，不回显、不上传第三方。
  */
 const { spawn } = require('node:child_process')
+const { createHash } = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
 const readline = require('node:readline')
@@ -21,6 +26,17 @@ const LOGIN = 'https://www.goofish.com/login'
 const CONFIG = path.join(__dirname, 'config.json')
 const PROFILES = path.join(__dirname, 'profiles')
 const DEFAULT_SERVER = 'http://10.10.10.251:18083'
+const WATCH_TICK = 15_000
+const STATUS_TICK = 60_000
+const FAILED_UPLOAD_RETRY = 10 * 60_000
+const PAGE_REFRESH = 2 * 60 * 60_000
+
+// 只监听登录/设备身份相关的 Cookie。_m_h5_tk 等签名令牌会频繁轮换，
+// 如果把它算进指纹，会把同一个登录态每十几秒重复上报一次。
+const AUTH_COOKIE_NAMES = new Set([
+  'cookie2', 'sgcookie', 'unb', 'cna', 't', '_tb_token_',
+  'havana_lgc_exp', 'cookie3_bak_exp', 'x5sec'
+])
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const ask = (q) => new Promise((res) => {
@@ -41,6 +57,30 @@ const CANDIDATES = [
 ].filter(Boolean)
 
 function findBrowser() { return CANDIDATES.find((p) => fs.existsSync(p)) || '' }
+
+function cookiePairs(raw) {
+  const out = {}
+  for (const part of String(raw || '').split(';')) {
+    const i = part.indexOf('=')
+    if (i <= 0) continue
+    const name = part.slice(0, i).trim()
+    if (AUTH_COOKIE_NAMES.has(name)) out[name] = part.slice(i + 1).trim()
+  }
+  return out
+}
+
+// 指纹只留在内存中，用于判断登录态是否变化；不记录、不上报 Cookie 原文。
+function authFingerprint(goofish, taobao) {
+  const pairs = [
+    ...Object.entries(cookiePairs(goofish)).map(([k, v]) => `g:${k}=${v}`).sort(),
+    ...Object.entries(cookiePairs(taobao)).map(([k, v]) => `t:${k}=${v}`).sort()
+  ]
+  return createHash('sha256').update(pairs.join('\n')).digest('hex')
+}
+
+function statusNeedsBinding(status) {
+  return !status || !status.logged_in || !!status.expired || !!status.sync_error
+}
 
 // 专用 profile 可能恢复上次的 ChatGPT 等其他标签页。必须明确选闲鱼登录页，
 // 否则会把“切换扫码”和会话轮询发到无关页面，用户看起来就是扫码没反应。
@@ -64,6 +104,7 @@ function parseArgs() {
   for (let i = 2; i < process.argv.length; i++) {
     if (process.argv[i] === '--server' && process.argv[i + 1]) o.server = process.argv[i + 1].replace(/\/+$/, '')
     if (process.argv[i] === '--shop' && process.argv[i + 1]) o.shop = Number(process.argv[i + 1]) || 0
+    if (process.argv[i] === '--watch') o.watch = true
   }
   return o
 }
@@ -219,7 +260,9 @@ async function main() {
   }
   async function tryBind() {
     const { goofish, taobao } = await readAll()
-    if (!goofish.includes('cookie2=') && !goofish.includes('_m_h5_tk=')) return null
+    if (!goofish.includes('cookie2=') && !goofish.includes('_m_h5_tk=')) {
+      return { ok: false, error: '浏览器里还没有登录 Cookie' }
+    }
     try {
       const r = await fetch(server + '/api/goofish/rebind', {
         method: 'POST',
@@ -228,8 +271,33 @@ async function main() {
         signal: AbortSignal.timeout(25000)
       })
       const d = await r.json().catch(() => ({}))
-      return r.ok && d.ok ? d : null
-    } catch (e) { return null }
+      if (r.ok && d.ok) return d
+      return { ok: false, error: d.error || ('服务器返回 ' + r.status) }
+    } catch (e) { return { ok: false, error: e.message || '连接服务器失败' } }
+  }
+
+  async function readStatus() {
+    const r = await fetch(server + '/api/goofish/status', {
+      headers: { 'X-Shop-Id': String(shopId) },
+      signal: AbortSignal.timeout(15000)
+    })
+    if (!r.ok) throw new Error('状态接口返回 ' + r.status)
+    return r.json()
+  }
+
+  async function heartbeat() {
+    const r = await fetch(server + '/api/goofish/bridge/heartbeat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Shop-Id': String(shopId) },
+      body: '{}',
+      signal: AbortSignal.timeout(15000)
+    })
+    if (!r.ok) throw new Error('心跳接口返回 ' + r.status)
+  }
+
+  async function closeBrowser() {
+    try { await send('Browser.close') } catch (e) {}
+    try { proc.kill() } catch (e) {}
   }
 
   console.log('')
@@ -239,28 +307,107 @@ async function main() {
 
   const deadline = Date.now() + 10 * 60 * 1000
   let hinted = false
+  let waitingHeartbeatAt = 0
   while (Date.now() < deadline) {
     await sleep(3000)
+    // 保持浏览器桥在“等待扫码”阶段就显示在线，否则用户刚启动时
+    // 页面仍提示离线，无法判断窗口到底有没有接管。
+    if (args.watch && Date.now() - waitingHeartbeatAt >= STATUS_TICK) {
+      await heartbeat().catch(() => {})
+      waitingHeartbeatAt = Date.now()
+    }
     const d = await tryBind()
-    if (d) {
+    if (d && d.ok) {
       console.log('')
       console.log('  ✓ 绑定成功！' + shop.name + ' ← ' + (d.nick || ''))
-      console.log('    淘宝 SSO：' + (d.sso_saved ? '已保存（可自动续期）' : '未拿到（不影响本次使用）'))
+      console.log('    淘宝 SSO：' + (d.sso_saved ? '已保存（后台检查用）' : '未拿到（不影响本次使用）'))
       console.log('')
-      try { await send('Browser.close') } catch (e) {}
-      try { proc.kill() } catch (e) {}
-      process.exit(0)
+      if (!args.watch) {
+        await closeBrowser()
+        process.exit(0)
+      }
+      break
     }
     if (!hinted) { hinted = true; console.log('   （等待扫码…请用手机扫浏览器里的二维码并点确认）') }
   }
-  console.log('[超时] 10 分钟内未检测到登录，请重新运行再试。')
-  try { await send('Browser.close') } catch (e) {}
-  try { proc.kill() } catch (e) {}
-  process.exit(1)
+  if (!args.watch) {
+    console.log('[超时] 10 分钟内未检测到登录，请重新运行再试。')
+    await closeBrowser()
+    process.exit(1)
+  }
+
+  // ---------- 浏览器保活桥 ----------
+  // 保持专用真实浏览器常驻，域名 Cookie 更新后自动上报并让服务端校验。
+  // 这正是服务器裸 HTTP 做不到的部分：cookie2 需要由真实浏览器登录环境产生。
+  console.log('')
+  console.log('  浏览器保活桥已启动')
+  console.log('  这个窗口可以最小化，但不要关闭；关闭后只停止自动换新 Cookie。')
+  console.log('  登录失效时，在窗口里重新扫码即可，新 Cookie 会自动上报。')
+  console.log('')
+
+  let current = await readAll()
+  let uploadedFingerprint = authFingerprint(current.goofish, current.taobao)
+  let lastStatus = null
+  let lastStatusAt = 0
+  let lastHeartbeatAt = 0
+  let lastAttemptAt = Date.now()
+  let lastNavigateAt = Date.now()
+  let lastNotice = ''
+  await send('Page.navigate', { url: 'https://www.goofish.com/' }).catch(() => {})
+
+  const setNotice = (msg) => {
+    if (!msg || msg === lastNotice) return
+    lastNotice = msg
+    console.log(new Date().toLocaleTimeString() + '  ' + msg)
+  }
+
+  while (true) {
+    try {
+      const now = Date.now()
+      current = await readAll()
+      const fingerprint = authFingerprint(current.goofish, current.taobao)
+      const changed = !!fingerprint && fingerprint !== uploadedFingerprint
+
+      if (now - lastStatusAt >= STATUS_TICK) {
+        lastStatus = await readStatus()
+        lastStatusAt = now
+      }
+      if (now - lastHeartbeatAt >= STATUS_TICK) {
+        await heartbeat()
+        lastHeartbeatAt = now
+      }
+
+      const invalid = statusNeedsBinding(lastStatus)
+      const retryDelay = changed ? 1_000 : FAILED_UPLOAD_RETRY
+      if (fingerprint && (changed || invalid) && now - lastAttemptAt >= retryDelay) {
+        lastAttemptAt = now
+        const d = await tryBind()
+        if (d && d.ok) {
+          uploadedFingerprint = fingerprint
+          console.log(new Date().toLocaleTimeString() + '  ✓ 浏览器登录态已上报并通过订单接口校验')
+          lastStatus = await readStatus().catch(() => null)
+          lastStatusAt = Date.now()
+        } else {
+          setNotice('当前登录态暂不可用，请在专用窗口中重新登录/扫码；' + ((d && d.error) ? d.error : '稍后自动重试'))
+        }
+      }
+
+      if (!invalid && now - lastNavigateAt >= PAGE_REFRESH) {
+        await send('Page.navigate', { url: 'https://www.goofish.com/' }).catch(() => {})
+        lastNavigateAt = now
+        setNotice('已轻量刷新闲鱼页面，继续等待登录态更新')
+      } else if (!invalid) {
+        setNotice('订单接口可用，浏览器桥正在守护登录态')
+      }
+    } catch (e) {
+      setNotice('保活桥暂时连不上服务，稍后自动重试：' + (e.message || e))
+    }
+    await sleep(WATCH_TICK)
+  }
 }
 
 if (require.main === module) {
   main().catch((e) => { console.error('[错误]', e.message); process.exit(1) })
 }
 
-module.exports = { pickLoginPage }
+module.exports = { pickLoginPage, authFingerprint, statusNeedsBinding }

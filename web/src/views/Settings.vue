@@ -663,7 +663,7 @@ async function test() {
         <button class="set-row" aria-label="打开闲鱼同步" @click="gfOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg></span>
           <span class="set-row-main"><b>闲鱼同步</b><small>扫码绑定，一键拉单与自动对账</small></span>
-          <span class="badge" :class="gfStatus.logged_in ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ gfStatus.logged_in ? '已绑定' : '待绑定' }}</span>
+          <span class="badge" :class="gfStatus.order_api_valid ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ gfStatus.order_api_valid ? '可用' : (gfStatus.logged_in ? '需恢复' : '待绑定') }}</span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
         <button class="set-row" aria-label="打开支付宝账单导入" @click="aliOpen = true">

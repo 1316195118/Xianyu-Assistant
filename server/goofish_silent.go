@@ -198,9 +198,9 @@ func gfSilentRenew(shop int64) (bool, error) {
 	// 服务端新发的会话凭证也应该留下，下次请求就能用上。
 	updated := gfMergeRenewCookies(shop, resp)
 	if updated > 0 {
-		fmt.Printf("[闲鱼换发] 店铺 %d 响应带回 %d 项新凭证，已写回本地\n", shop, updated)
+		fmt.Printf("[闲鱼检查] 店铺 %d 响应写入 %d 项会话级 Cookie（不代表 cookie2 已续期）\n", shop, updated)
 	} else {
-		fmt.Printf("[闲鱼换发] 店铺 %d 响应未带回新凭证，继续用已存会话\n", shop)
+		fmt.Printf("[闲鱼检查] 店铺 %d 响应未带回新凭证，继续用已存会话\n", shop)
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
 
@@ -237,11 +237,11 @@ func gfRenewBeforeSync(shop int64) bool {
 	}
 	ok, err := gfSilentRenew(shop)
 	if err != nil {
-		fmt.Printf("[闲鱼换发] 店铺 %d 静默换发失败: %v\n", shop, err)
+		fmt.Printf("[闲鱼检查] 店铺 %d SSO 检查失败: %v\n", shop, err)
 		return false
 	}
 	if ok {
-		fmt.Printf("[闲鱼换发] 店铺 %d 静默换发成功\n", shop)
+		fmt.Printf("[闲鱼检查] 店铺 %d SSO 检查完成；cookie2 是否可用以真实订单接口为准\n", shop)
 		_ = gfSet(gfKeyCheck, shop, time.Now().Format("2006-01-02 15:04:05"))
 	}
 	return ok
