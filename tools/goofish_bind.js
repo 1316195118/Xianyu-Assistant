@@ -82,6 +82,39 @@ function statusNeedsBinding(status) {
   return !status || !status.logged_in || !!status.expired || !!status.sync_error
 }
 
+function processAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+// 每个店铺的专用 profile 只能由一个桥进程控制。重复双击时直接退出，
+// 避免两个进程争抢同一个 Edge profile、反复上报或互相关闭窗口。
+function acquireBridgeLock(profile) {
+  fs.mkdirSync(profile, { recursive: true })
+  const lockPath = path.join(profile, '.bridge.pid')
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      fs.writeFileSync(lockPath, String(process.pid), { encoding: 'utf8', flag: 'wx' })
+      return () => {
+        try {
+          if (fs.readFileSync(lockPath, 'utf8').trim() === String(process.pid)) fs.unlinkSync(lockPath)
+        } catch (e) {}
+      }
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e
+      const pid = Number(fs.readFileSync(lockPath, 'utf8').trim())
+      if (processAlive(pid)) return null
+      try { fs.unlinkSync(lockPath) } catch (unlinkErr) {}
+    }
+  }
+  return null
+}
+
 // 专用 profile 可能恢复上次的 ChatGPT 等其他标签页。必须明确选闲鱼登录页，
 // 否则会把“切换扫码”和会话轮询发到无关页面，用户看起来就是扫码没反应。
 function pickLoginPage(pages) {
@@ -188,6 +221,12 @@ async function main() {
   fs.mkdirSync(PROFILES, { recursive: true })
   const profile = path.join(PROFILES, 'shop-' + shopId)
   fs.mkdirSync(profile, { recursive: true })
+  const releaseLock = acquireBridgeLock(profile)
+  if (!releaseLock) {
+    console.log('[提示] 这个店铺的浏览器保活桥已经在运行，无需重复启动。')
+    process.exit(2)
+  }
+  process.on('exit', releaseLock)
 
   const PORT = 9400 + Math.floor(Math.random() * 500)
   const proc = spawn(browser, [
@@ -227,6 +266,10 @@ async function main() {
       pending.delete(m.id)
       m.error ? q.rej(new Error(JSON.stringify(m.error))) : q.res(m.result)
     }
+  })
+  ws.addEventListener('close', () => {
+    console.log('[提示] 专用浏览器已关闭，保活桥停止。')
+    process.exit(0)
   })
   await new Promise((r) => ws.addEventListener('open', r, { once: true }))
   await send('Network.enable')
@@ -410,4 +453,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('[错误]', e.message); process.exit(1) })
 }
 
-module.exports = { pickLoginPage, authFingerprint, statusNeedsBinding }
+module.exports = { pickLoginPage, authFingerprint, statusNeedsBinding, acquireBridgeLock }

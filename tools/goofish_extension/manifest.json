@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "鱼助手 · 闲鱼登录同步",
+  "version": "1.0.1",
+  "description": "把当前浏览器的闲鱼登录态自动同步到你自己指定的鱼助手，不上传第三方。",
+  "permissions": [
+    "cookies",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "*://*.goofish.com/*",
+    "*://*.taobao.com/*",
+    "*://*.tmall.com/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "鱼助手 · 闲鱼登录同步"
+  },
+  "options_page": "options.html"
+}

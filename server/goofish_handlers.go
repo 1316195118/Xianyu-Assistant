@@ -6,6 +6,10 @@ package main
 // 存储键统一加 @<shopID> 后缀，切换店铺后看到的就是这家店自己的绑定状态。
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -76,6 +80,9 @@ const (
 	// gfKeyBridgeSeen：本机浏览器保活桥最后一次在线时间。
 	// 浏览器能用真实登录环境更新 cookie2，是服务器自愈失败后的主要恢复路径。
 	gfKeyBridgeSeen = "goofish_bridge_last_seen"
+	// gfKeyBridgeTokenHash：浏览器扩展的店铺级配对码哈希。
+	// 扩展只通过该令牌访问状态、心跳和重绑接口，不能读取订单数据。
+	gfKeyBridgeTokenHash = "goofish_bridge_token_hash"
 	// gfKeyBackfill：立即同步时是否一并做账单回溯。默认开（老行为），存 "0"/"1"。
 	gfKeyBackfill = "goofish_backfill"
 	// gfKeySyncFails / gfKeyRetryAt：登录态类错误先重试，不要第一次就永久判死
@@ -210,29 +217,31 @@ func handleGoofishStatus(w http.ResponseWriter, r *http.Request) {
 	sessionValid := strings.TrimSpace(raw) != "" && !dead
 	orderAPIValid := sessionValid && lastCheck != "" && strings.TrimSpace(syncErr) == ""
 	writeJSON(w, map[string]interface{}{
-		"shop_id":          shop,
-		"shop_name":        shopNameOf(shop),
-		"logged_in":        strings.TrimSpace(raw) != "",
-		"credential_saved": strings.TrimSpace(raw) != "",
-		"session_valid":    sessionValid,
-		"order_api_valid":  orderAPIValid,
-		"nick":             gfGet(gfKeyNick, shop),
-		"uid":              gfGet(gfKeyUID, shop),
-		"masked":           gfMaskCookie(raw),
-		"saved_at":         gfGet(gfKeySaved, shop),
-		"last_sync":        gfGet(gfKeyLast, shop),
-		"last_check":       lastCheck,
-		"expired":          dead,
-		"sync_error":       syncErr,
-		"retry_at":         gfGet(gfKeyRetryAt, shop),
-		"keepalive":        gfKeepAliveEnabled(),
-		"auto_days":        gfAutoDays(shop),
-		"auto_window":      gfAutoWindow(shop),
-		"backfill":         gfBackfillEnabled(shop),
-		"syncing":          gfIsSyncing(shop),
-		"sso_saved":        strings.TrimSpace(gfGet(gfKeySSOTaobao, shop)) != "",
-		"bridge_last_seen": bridgeSeen,
-		"bridge_online":    gfBridgeOnline(bridgeSeen),
+		"shop_id":                 shop,
+		"shop_name":               shopNameOf(shop),
+		"logged_in":               strings.TrimSpace(raw) != "",
+		"credential_saved":        strings.TrimSpace(raw) != "",
+		"session_valid":           sessionValid,
+		"order_api_valid":         orderAPIValid,
+		"nick":                    gfGet(gfKeyNick, shop),
+		"uid":                     gfGet(gfKeyUID, shop),
+		"masked":                  gfMaskCookie(raw),
+		"saved_at":                gfGet(gfKeySaved, shop),
+		"last_sync":               gfGet(gfKeyLast, shop),
+		"last_check":              lastCheck,
+		"expired":                 dead,
+		"sync_error":              syncErr,
+		"retry_at":                gfGet(gfKeyRetryAt, shop),
+		"keepalive":               gfKeepAliveEnabled(),
+		"auto_days":               gfAutoDays(shop),
+		"auto_window":             gfAutoWindow(shop),
+		"backfill":                gfBackfillEnabled(shop),
+		"syncing":                 gfIsSyncing(shop),
+		"sso_saved":               strings.TrimSpace(gfGet(gfKeySSOTaobao, shop)) != "",
+		"bridge_last_seen":        bridgeSeen,
+		"bridge_online":           gfBridgeOnline(bridgeSeen),
+		"bridge_token_configured": strings.TrimSpace(gfGet(gfKeyBridgeTokenHash, shop)) != "",
+		"bridge_auth_required":    anyPasswordConfigured() || shopHasPassword(shop),
 	})
 }
 
@@ -246,6 +255,80 @@ func gfBridgeOnline(last string) bool {
 	}
 	diff := time.Since(t)
 	return diff >= -time.Minute && diff <= 3*time.Minute
+}
+
+func gfBridgeHash(token string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(token)))
+	return fmt.Sprintf("%x", sum[:])
+}
+
+func gfBridgeTokenValid(r *http.Request, shop int64) bool {
+	token := strings.TrimSpace(r.Header.Get("X-Bridge-Token"))
+	stored := strings.TrimSpace(gfGet(gfKeyBridgeTokenHash, shop))
+	if token == "" || stored == "" {
+		return false
+	}
+	got := gfBridgeHash(token)
+	return subtle.ConstantTimeCompare([]byte(got), []byte(stored)) == 1
+}
+
+// goofishBridgeAuthWrap 允许两类调用者：
+//  1. 正常登录鱼助手的浏览器；
+//  2. 持有该店铺专用配对码的浏览器扩展，且只能访问下方挂载的三个闲鱼登录态接口。
+//
+// 配对码不是绕过全局鉴权：它按店铺存储哈希、只接受请求头、不会回显已保存值，
+// 也不能读取订单、设置或其他业务数据。
+func goofishBridgeAuthWrap(fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sid, err := resolveShop(r)
+		if err != nil {
+			writeError(w, 400, err.Error())
+			return
+		}
+		if !gfBridgeTokenValid(r, sid) {
+			if !isAuthed(r) {
+				writeError(w, 401, "未登录、登录已过期，或浏览器扩展配对码无效")
+				return
+			}
+			if isWriteMethod(r.Method) && sessionRole(r) == "readonly" {
+				writeError(w, 403, "只读账号不能修改数据")
+				return
+			}
+			if !shopAccessAllowed(r, sid) {
+				writeError(w, 401, "需要输入该店铺的密码")
+				return
+			}
+		}
+		fn(w, withShop(r, sid))
+	}
+}
+
+// handleGoofishBridgeToken 生成或撤销当前店铺的扩展配对码。
+// 新配对码只在生成时返回一次，数据库仅保存 SHA-256 哈希。
+func handleGoofishBridgeToken(w http.ResponseWriter, r *http.Request) {
+	shop := shopID(r)
+	switch r.Method {
+	case "POST":
+		buf := make([]byte, 32)
+		if _, err := rand.Read(buf); err != nil {
+			writeError(w, 500, "生成配对码失败")
+			return
+		}
+		token := base64.RawURLEncoding.EncodeToString(buf)
+		if err := gfSet(gfKeyBridgeTokenHash, shop, gfBridgeHash(token)); err != nil {
+			writeError(w, 500, "保存配对码失败")
+			return
+		}
+		writeJSON(w, map[string]interface{}{"ok": true, "token": token})
+	case "DELETE":
+		if err := gfSet(gfKeyBridgeTokenHash, shop, ""); err != nil {
+			writeError(w, 500, "撤销配对码失败")
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	default:
+		writeError(w, 405, "方法不允许")
+	}
 }
 
 // handleGoofishRebind POST /api/goofish/rebind

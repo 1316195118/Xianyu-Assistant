@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>鱼助手 · 闲鱼登录同步</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main>
+    <header>
+      <span class="mark">鱼</span>
+      <div>
+        <h1>闲鱼登录同步</h1>
+        <p>用当前浏览器已登录的闲鱼账号，自动把最新凭证同步到你的鱼助手。</p>
+      </div>
+    </header>
+
+    <section class="card">
+      <label>
+        <span>鱼助手服务器</span>
+        <input id="server" type="url" placeholder="http://192.168.1.10:18083" autocomplete="url">
+      </label>
+      <label>
+        <span>店铺 ID</span>
+        <input id="shopId" type="number" min="1" step="1" value="1">
+      </label>
+      <label>
+        <span>扩展配对码 <small>（鱼助手未开启访问密码时可留空）</small></span>
+        <input id="bridgeToken" type="password" autocomplete="off" placeholder="在鱼助手「闲鱼同步」中生成">
+      </label>
+      <div class="actions">
+        <button id="save" class="primary">保存并授权</button>
+        <button id="sync">立即检查并上报</button>
+      </div>
+      <p id="message" class="message" role="status"></p>
+    </section>
+
+    <section class="card guide">
+      <h2>使用方式</h2>
+      <ol>
+        <li>先在当前浏览器打开 <b>www.goofish.com</b> 并完成登录。</li>
+        <li>填写鱼助手地址、店铺 ID；若鱼助手启用了访问密码，再填入扩展配对码。</li>
+        <li>点击「保存并授权」，然后在鱼助手「闲鱼同步」里点一次「立即检查并上报」。</li>
+        <li>之后登录 Cookie 变化时自动上报，每分钟检查一次登录状态。</li>
+      </ol>
+      <p>不需要专用浏览器窗口，也不需要托盘程序。电脑关机后，鱼助手服务器继续使用最后一次验证通过的凭证拉单；下次打开浏览器时扩展会自动检查并更新登录态。</p>
+    </section>
+
+    <section class="card security">
+      <b>凭证只发送到你填写的服务器</b>
+      <p>扩展不打印、不展示 Cookie，也不会发送给任何第三方。服务器会先调用闲鱼订单接口验证，验证失败不会覆盖现有登录态。</p>
+      <p>配对码只允许扩展访问当前店铺的登录状态、心跳和凭证更新接口，不能读写订单或其他业务数据。重新生成配对码后，旧配对码立即失效。</p>
+    </section>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

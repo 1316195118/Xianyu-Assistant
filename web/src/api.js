@@ -345,6 +345,12 @@ export const api = {
   },
   // ---------- 闲鱼同步 ----------
   goofishStatus() { return req('/api/goofish/status') },
+  goofishBridgeToken() {
+    return req('/api/goofish/bridge/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  },
+  revokeGoofishBridgeToken() {
+    return req('/api/goofish/bridge/token', { method: 'DELETE' })
+  },
   goofishLogin(cookie) {
     return req('/api/goofish/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

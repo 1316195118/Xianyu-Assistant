@@ -380,10 +380,11 @@ func registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/presence", authWrap(handlePresence))
 
 	// 闲鱼同步：服务端直连 mtop，凭证由用户在设置里粘一次
-	mux.HandleFunc("/api/goofish/status", authWrap(handleGoofishStatus))
+	mux.HandleFunc("/api/goofish/status", goofishBridgeAuthWrap(handleGoofishStatus))
 	mux.HandleFunc("/api/goofish/login", authWrap(handleGoofishLogin))
-	mux.HandleFunc("/api/goofish/rebind", authWrap(handleGoofishRebind))
-	mux.HandleFunc("/api/goofish/bridge/heartbeat", authWrap(handleGoofishBridgeHeartbeat))
+	mux.HandleFunc("/api/goofish/rebind", goofishBridgeAuthWrap(handleGoofishRebind))
+	mux.HandleFunc("/api/goofish/bridge/heartbeat", goofishBridgeAuthWrap(handleGoofishBridgeHeartbeat))
+	mux.HandleFunc("/api/goofish/bridge/token", authWrap(handleGoofishBridgeToken))
 	mux.HandleFunc("/api/goofish/qr/start", authWrap(handleGoofishQRStart))
 	mux.HandleFunc("/api/goofish/umid", authWrap(handleGoofishUmid))
 	mux.HandleFunc("/api/goofish/qr/poll", authWrap(handleGoofishQRPoll))

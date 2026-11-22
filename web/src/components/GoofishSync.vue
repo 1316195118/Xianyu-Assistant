@@ -75,7 +75,8 @@ const status = ref({
   logged_in: false, credential_saved: false, session_valid: false, order_api_valid: false,
   nick: '', saved_at: '', last_sync: '', last_check: '', masked: '', keepalive: true,
   expired: false, auto_days: 0, auto_window: 30, backfill: true, syncing: false,
-  sso_saved: false, retry_at: '', bridge_online: false, bridge_last_seen: ''
+  sso_saved: false, retry_at: '', bridge_online: false, bridge_last_seen: '',
+  bridge_token_configured: false, bridge_auth_required: false
 })
 const cookieInput = ref('')
 const showHelp = ref(false)
@@ -97,6 +98,9 @@ const busy = ref(false)
 // 「检测连接」单独一个 busy：它和「立即同步」并存，共用一个会把另一个按钮也带上假的「检测中」
 const pingBusy = ref(false)
 const result = ref(null)
+const bridgeToken = ref('')
+const bridgeTokenBusy = ref(false)
+const bridgeTokenCopied = ref(false)
 
 const rows = computed(() => (plan.value && plan.value.rows) || [])
 const stat = computed(() => (plan.value && plan.value.stat) || {})
@@ -152,10 +156,12 @@ const money = (v) => {
   return n.toFixed(2).replace(/\.00$/, '')
 }
 const dayOf = (t) => String(t || '').slice(0, 10) || '—'
-const bridgeLabel = computed(() => status.value.bridge_online ? '在线' : (status.value.bridge_last_seen ? '已离线' : '未启动'))
+const bridgeLabel = computed(() => status.value.bridge_online ? '在线' : (status.value.bridge_last_seen ? '已离线' : '未连接'))
 const bridgeDetail = computed(() => status.value.bridge_online
-  ? '每 60 秒检查一次，登录态变化会自动上报'
-  : (status.value.bridge_last_seen ? '上次在线：' + status.value.bridge_last_seen : '双击 goofish_bridge.bat 启动'))
+  ? '每 60 秒检查，登录态变化会自动上报'
+  : (status.value.bridge_last_seen
+    ? '浏览器已关闭或扩展未运行；服务器仍可用已保存凭证拉单'
+    : '安装扩展后自动连接，无需托盘或专用窗口'))
 const orderApiLabel = computed(() => {
   if (status.value.order_api_valid) return '可用'
   if (status.value.sync_error || status.value.expired) return '已失效'
@@ -183,13 +189,61 @@ async function loadStatus() {
     pingMsg.value = ''
     // 自动同步失败会存 sync_error，页面一打开就能看到具体原因（不用等手动同步）
     const bridgeHint = s.bridge_online
-      ? '浏览器桥在线，请在专用窗口中重新登录或扫码，成功后会立即自动上报。'
-      : '请双击 goofish_bridge.bat 启动浏览器保活桥，或临时重新粘贴 Cookie。'
+      ? '浏览器扩展在线，请在当前浏览器重新登录闲鱼，成功后会立即自动上报。'
+      : '请在当前浏览器登录闲鱼并确认扩展已启用，或临时重新粘贴 Cookie。'
     if (s.sync_error) pingMsg.value = s.sync_error + '。' + bridgeHint
     else if (s.expired) pingMsg.value = '登录会话已失效，服务器无法自行换回 cookie2。' + bridgeHint
   } catch (e) {
     step.value = 'bind'
     err.value = e.message || '状态读取失败'
+  }
+}
+
+async function issueBridgeToken() {
+  if (bridgeTokenBusy.value) return
+  bridgeTokenBusy.value = true
+  bridgeTokenCopied.value = false
+  try {
+    const r = await api.goofishBridgeToken()
+    bridgeToken.value = r.token || ''
+    status.value = { ...status.value, bridge_token_configured: true }
+    emit('notify', '扩展配对码已生成，请复制到扩展设置；旧配对码已失效')
+  } catch (e) {
+    emit('notify', e.message || '生成扩展配对码失败', true)
+  } finally {
+    bridgeTokenBusy.value = false
+  }
+}
+
+async function copyBridgeToken() {
+  if (!bridgeToken.value) return
+  try {
+    await navigator.clipboard.writeText(bridgeToken.value)
+    bridgeTokenCopied.value = true
+    setTimeout(() => { bridgeTokenCopied.value = false }, 1800)
+  } catch (e) {
+    emit('notify', '浏览器未允许自动复制，请手动选中配对码复制', true)
+  }
+}
+
+async function revokeBridgeToken() {
+  if (bridgeTokenBusy.value) return
+  const ok = await confirm({
+    title: '撤销扩展配对码',
+    message: '撤销后，已安装的浏览器扩展会停止自动上报，直到重新生成并填入新配对码。',
+    confirmText: '撤销', danger: true
+  })
+  if (!ok) return
+  bridgeTokenBusy.value = true
+  try {
+    await api.revokeGoofishBridgeToken()
+    bridgeToken.value = ''
+    status.value = { ...status.value, bridge_token_configured: false }
+    emit('notify', '扩展配对码已撤销')
+  } catch (e) {
+    emit('notify', e.message || '撤销扩展配对码失败', true)
+  } finally {
+    bridgeTokenBusy.value = false
   }
 }
 
@@ -434,15 +488,29 @@ onMounted(async () => {
           <template v-if="step === 'bind'">
             <p class="muted gf-desc">
               <template v-if="rebinding">正在为「{{ shopName }}」重新绑定：新的凭证会直接覆盖旧的，不用先解绑。若当前账号还能登录，继续往下填即可。</template>
-              <template v-else>正在为「{{ shopName }}」绑定。绑定后每次点「立即同步」，服务端自己拉订单和账单，不用装插件、也不用导出文件。</template>
+              <template v-else>正在为「{{ shopName }}」绑定。绑定后服务端自己拉订单和账单；安装扩展后还会在浏览器登录态变化时自动更新凭证。</template>
             </p>
 
             <div class="gf-bridge-callout">
               <div>
-                <b>推荐：浏览器保活桥</b>
-                <span>电脑双击 <code>goofish_bridge.bat</code>，在专用窗口中扫码。之后窗口可最小化，登录态变化会自动上报；服务器无法自行换回失效的 cookie2。</span>
+                <b>推荐：浏览器扩展自动上报</b>
+                <span>在 Edge / Chrome 扩展页加载 <code>tools/goofish_extension</code>，用平时登录闲鱼的浏览器即可。登录态变化自动上报，不需要专用窗口或托盘程序。</span>
               </div>
-              <small>窗口关闭后仍能拉单，但登录失效时需要重新打开。</small>
+              <small>扩展失败会直接显示 <b>!</b> 角标；电脑关机后服务器仍能用已保存凭证拉单，下次打开浏览器会自动检查。</small>
+            </div>
+
+            <div v-if="status.bridge_auth_required" class="gf-extension-gate">
+              <div>
+                <b>扩展需要配对码</b>
+                <span>当前鱼助手开启了访问密码；生成后填入扩展，旧配对码会立即失效。</span>
+              </div>
+              <button class="btn btn-sm" :disabled="bridgeTokenBusy" @click="issueBridgeToken">
+                <span v-if="bridgeTokenBusy" class="spin"></span>{{ status.bridge_token_configured ? '重新生成' : '生成配对码' }}
+              </button>
+              <div v-if="bridgeToken" class="gf-extension-token">
+                <code>{{ bridgeToken }}</code>
+                <button class="btn btn-sm" @click="copyBridgeToken">{{ bridgeTokenCopied ? '已复制' : '复制' }}</button>
+              </div>
             </div>
 
             <div class="gf-steps">
@@ -453,7 +521,7 @@ onMounted(async () => {
             </div>
 
             <div class="gf-field">
-              <label>粘贴 Cookie<HelpTip text="凭证只存在你自己的服务器数据库里，用来代替你访问闲鱼接口，不会上传到任何第三方。&#10;服务器可以用 SSO 检查短期会话，但无法在闲鱼 cookie2 真正失效后自行重新登录；长期使用建议保留 goofish_bridge.bat。" /></label>
+              <label>粘贴 Cookie<HelpTip text="凭证只存在你自己的服务器数据库里，用来代替你访问闲鱼接口，不会上传到任何第三方。&#10;服务器可以用 SSO 检查短期会话，但无法在闲鱼 cookie2 真正失效后自行重新登录；长期使用建议安装浏览器扩展，由真实浏览器自动更新登录态。" /></label>
               <textarea v-model="cookieInput" class="gf-textarea" rows="5"
                         placeholder="直接粘贴整行，例如：cna=xxx; _m_h5_tk=xxx; cookie2=xxx; unb=xxx; …"></textarea>
             </div>
@@ -464,7 +532,7 @@ onMounted(async () => {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 20h.01"/></svg>
               扫码登录（实验性）
             </button>
-            <div class="gf-qr-tip muted">闲鱼设备指纹校验严格，服务器生成的二维码可能提示「二维码失效」；请优先使用电脑上的 <code>goofish_bridge.bat</code> 真浏览器登录。</div>
+            <div class="gf-qr-tip muted">闲鱼设备指纹校验严格，服务器生成的二维码可能提示「二维码失效」；更稳妥的方法是在平时登录闲鱼的浏览器中安装扩展。</div>
 
             <div v-if="qrOpen" class="gf-qr-panel">
               <div class="gf-qr-head">
@@ -511,17 +579,43 @@ onMounted(async () => {
                 <b>{{ orderApiLabel }}</b>
               </div>
               <div :class="{ ok: status.bridge_online, warn: !status.bridge_online }">
-                <span>浏览器桥</span>
+                <span>浏览器扩展</span>
                 <b>{{ bridgeLabel }}</b>
                 <small>{{ bridgeDetail }}</small>
               </div>
             </div>
 
+            <details class="gf-extension-card" :open="status.bridge_auth_required && !status.bridge_token_configured">
+              <summary>
+                <span><b>浏览器扩展设置</b><small>{{ status.bridge_token_configured ? '配对码已配置' : (status.bridge_auth_required ? '需要配对码' : '可直接连接') }}</small></span>
+                <span class="gf-extension-chevron" aria-hidden="true">›</span>
+              </summary>
+              <div class="gf-extension-body">
+                <p>安装后不需要保持专用浏览器窗口，也不需要托盘。电脑关机时服务器继续拉单，下次打开浏览器会自动检查登录态。</p>
+                <ol>
+                  <li>打开扩展管理页，启用「开发人员模式」，加载目录 <code>tools/goofish_extension</code>。</li>
+                  <li>在浏览器里正常登录 <code>www.goofish.com</code>。</li>
+                  <li>如需配对码，点下方生成，再填入扩展设置页。</li>
+                </ol>
+                <div v-if="bridgeToken" class="gf-extension-token">
+                  <code>{{ bridgeToken }}</code>
+                  <button class="btn btn-sm" @click="copyBridgeToken">{{ bridgeTokenCopied ? '已复制' : '复制' }}</button>
+                </div>
+                <div class="gf-extension-actions">
+                  <button class="btn btn-sm btn-primary" :disabled="bridgeTokenBusy" @click="issueBridgeToken">
+                    <span v-if="bridgeTokenBusy" class="spin"></span>{{ status.bridge_token_configured ? '重新生成配对码' : '生成配对码' }}
+                  </button>
+                  <button v-if="status.bridge_token_configured" class="btn btn-sm btn-ghost btn-danger" :disabled="bridgeTokenBusy" @click="revokeBridgeToken">撤销</button>
+                  <span class="muted">开启访问密码时必须配对；配对码只在生成时显示一次。</span>
+                </div>
+              </div>
+            </details>
+
             <div class="gf-keep">
               <div class="gf-keep-text">
                 <b>后台登录检查</b>
                 <span class="muted">{{ status.keepalive ? '已开启' : '已关闭' }} · {{ status.sso_saved ? 'SSO 凭证已保存' : '无 SSO 凭证' }}</span>
-                <HelpTip text="服务器能用 SSO 检查短期会话并刷新 _m_h5_tk 等签名令牌，但无法在闲鱼 H5 登录 cookie2 真失效后重新登录。&#10;长期稳定需要让 goofish_bridge.bat 保持运行：真实浏览器登录态变化后会自动上报并校验。&#10;关闭这里只会停止服务器的后台检查，浏览器桥仍可继续上报。" />
+                <HelpTip text="服务器能用 SSO 检查短期会话并刷新 _m_h5_tk 等签名令牌，但无法在闲鱼 H5 登录 cookie2 真失效后重新登录。&#10;长期稳定使用浏览器扩展：浏览器登录态变化会自动上报并校验，关机后服务器仍可用已保存凭证拉单。&#10;关闭这里只会停止服务器的后台检查，浏览器扩展仍可继续上报。" />
               </div>
               <button class="gf-switch" :class="{ on: status.keepalive }" role="switch"
                       :aria-checked="status.keepalive" @click="toggleKeepAlive">

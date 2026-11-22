@@ -1,6 +1,9 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { pickLoginPage, authFingerprint, statusNeedsBinding } = require('./goofish_bind')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+const { pickLoginPage, authFingerprint, statusNeedsBinding, acquireBridgeLock } = require('./goofish_bind')
 
 test('优先选择闲鱼登录页，忽略恢复出来的其他标签页', () => {
   const pages = [
@@ -37,4 +40,18 @@ test('服务端有效时不重复提交登录态', () => {
   assert.equal(statusNeedsBinding({ logged_in: true, expired: false, sync_error: '' }), false)
   assert.equal(statusNeedsBinding({ logged_in: true, expired: true, sync_error: '' }), true)
   assert.equal(statusNeedsBinding(null), true)
+})
+
+test('同一店铺只允许一个保活桥实例', (t) => {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'goofish-bridge-lock-'))
+  t.after(() => fs.rmSync(profile, { recursive: true, force: true }))
+
+  const release = acquireBridgeLock(profile)
+  assert.equal(typeof release, 'function')
+  assert.equal(acquireBridgeLock(profile), null)
+
+  release()
+  const releaseAgain = acquireBridgeLock(profile)
+  assert.equal(typeof releaseAgain, 'function')
+  releaseAgain()
 })

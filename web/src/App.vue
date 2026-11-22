@@ -297,7 +297,7 @@ function openGfPanel(rebind = false) {
 }
 const gfBad = computed(() => !!gfStatus.value.expired || !!gfStatus.value.sync_error)
 const gfTip = computed(() => {
-  if (gfBad.value) return '闲鱼登录已失效：' + (gfStatus.value.sync_error || '请在浏览器保活桥中重新登录') + '，点击查看恢复方式'
+  if (gfBad.value) return '闲鱼登录已失效：' + (gfStatus.value.sync_error || '请在浏览器中重新登录闲鱼') + '，点击查看恢复方式'
   if (gfStatus.value.order_api_valid) return `闲鱼订单接口可用「${gfStatus.value.nick}」，点击查看同步状态`
   if (gfStatus.value.logged_in) return '闲鱼凭证存在，但订单接口尚未验证，点击查看'
   return '闲鱼未绑定，点击去绑定'
@@ -314,7 +314,7 @@ function startRealtime() {
         bump()
         return
       }
-      notify(ev.summary || '闲鱼同步失效，请打开浏览器保活桥', true,
+      notify(ev.summary || '闲鱼同步失效，请在浏览器中重新登录闲鱼', true,
         { label: '去绑定', ttl: 15000, run: () => openGfPanel(true) },
         { tone: 'error' })
       bump()
