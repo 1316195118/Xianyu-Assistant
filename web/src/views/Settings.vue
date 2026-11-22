@@ -1080,7 +1080,8 @@ async function test() {
     </div>
 
     <!-- 版本信息：独立组件自带弹窗 -->
-    <VersionPanel v-if="versionOpen" @close="versionOpen = false" />
+    <VersionPanel v-if="versionOpen" @close="versionOpen = false"
+                  @notify="(t, e, a, o) => emit('notify', t, e, a, o)" />
 
     <!-- 其余二级窗口：各自带遮罩 -->
     <ShopManage v-if="shopOpen" @close="shopOpen = false" @notify="(t) => emit('notify', t)" />

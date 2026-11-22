@@ -15,7 +15,7 @@ import {
 const mask = maskCloser(() => close)
 
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'notify'])
 const data = ref(null)
 const loading = ref(true)
 const err = ref('')
@@ -26,6 +26,9 @@ const closeBtn = ref(null)
 let lastFocus = null
 
 function close() { emit('close') }
+function notify(text, err = false, opts = {}) {
+  emit('notify', text, err, null, opts)
+}
 function onKey(e) {
   if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close() }
 }
@@ -125,6 +128,56 @@ const progressPercent = computed(() => {
 const progressMessage = computed(() =>
   liveProgress.value?.message || (applying.value ? applyText.value : (updBusy.value ? '正在检查更新…' : '')))
 const progressVisible = computed(() => !!progressMessage.value && (updBusy.value || applying.value || !!liveProgress.value))
+const progressStageLabel = computed(() => {
+  const stage = liveProgress.value?.stage
+  if (stage === 'checked') return '检查完成'
+  if (stage === 'error') return '操作失败'
+  if (stage === 'done') return '更新完成'
+  if (stage === 'downloading') return '下载安装包'
+  if (stage === 'verifying') return '安全校验'
+  if (stage === 'installing') return '安装新版本'
+  if (stage === 'restarting') return '等待服务恢复'
+  return applying.value ? '准备更新' : '检查最新版本'
+})
+const progressDetail = computed(() => {
+  const p = liveProgress.value || {}
+  if (p.stage === 'downloading' && Number(p.total_bytes) > 0) {
+    return `已下载 ${fmtBytes(p.downloaded_bytes)} / ${fmtBytes(p.total_bytes)}`
+  }
+  if (p.stage === 'verifying') return '文件下载完成，正在核对发布时的 SHA-256'
+  if (p.stage === 'installing') return '校验通过，正在替换程序，请勿关闭容器'
+  if (p.stage === 'restarting') return '服务恢复后会自动确认版本并刷新页面'
+  if (p.stage === 'done') return '新版本已经运行，页面即将自动刷新'
+  if (p.stage === 'error') return '可查看下方原因，修正后重新操作'
+  if (p.stage === 'checked') return '检查结果已保留，可继续查看版本状态'
+  return '正在从项目 Release 读取最新版本信息'
+})
+const progressSteps = computed(() => {
+  const stage = liveProgress.value?.stage
+  if (stage === 'checking' || stage === 'checked' || (stage === 'error' && !applying.value)) {
+    return [{ key: 'checking', label: '检查版本' }]
+  }
+  return [
+    { key: 'checking', label: '检查版本' },
+    { key: 'downloading', label: '下载安装包' },
+    { key: 'verifying', label: '安全校验' },
+    { key: 'restarting', label: '安装并重启' }
+  ]
+})
+const progressStepIndex = computed(() => {
+  const stage = liveProgress.value?.stage
+  if (stage === 'downloading') return 1
+  if (stage === 'verifying') return 2
+  if (stage === 'installing' || stage === 'restarting' || stage === 'done') return 3
+  if (stage === 'error') {
+    if (!applying.value) return 0
+    const p = progressPercent.value
+    return p >= 92 ? 3 : p >= 84 ? 2 : p >= 8 ? 1 : 0
+  }
+  return 0
+})
+const progressDone = computed(() => ['checked', 'done'].includes(liveProgress.value?.stage))
+const progressBad = computed(() => liveProgress.value?.stage === 'error')
 function fmtBytes(n) {
   n = Number(n) || 0
   if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB'
@@ -167,7 +220,7 @@ function finishCheckProgress(ok, message) {
   const seq = checkSeq
   setTimeout(() => {
     if (seq === checkSeq && !applying.value) liveProgress.value = null
-  }, 1400)
+  }, 4200)
 }
 
 function stopProgressPolling() {
@@ -199,17 +252,26 @@ async function checkUpdate() {
   markDailyUpdateChecked()
   dailyHint.value = dailyUpdateCheckHint()
   startCheckProgress()
+  notify('正在检查 GitHub Release 最新版本…', false, { tone: 'info', ttl: 5000 })
   try {
     const r = await api.updateCheck()
     upd.value = r
     cfg.value.proxy = r.proxy || ''
     if (r.has_update) markUpdateReleaseNotified(r)
-    if (r.error) finishCheckProgress(false, '检查完成，但网络或发布信息需要处理')
-    else if (r.has_update) finishCheckProgress(true, `检查完成：发现新版本 v${r.latest}`)
-    else finishCheckProgress(true, '检查完成：当前已经是最新版本')
+    if (r.error) {
+      finishCheckProgress(false, '检查完成，但网络或发布信息需要处理')
+      notify('检查更新失败：' + r.error, true, { ttl: 7000 })
+    } else if (r.has_update) {
+      finishCheckProgress(true, `检查完成：发现新版本 v${r.latest}`)
+      notify(`发现新版本 v${r.latest}，现在可以更新`, false, { tone: 'success', ttl: 6000 })
+    } else {
+      finishCheckProgress(true, '检查完成：当前已经是最新版本')
+      notify('检查完成：当前已经是最新版本', false, { tone: 'info' })
+    }
   } catch (e) {
     updErr.value = e.message || '检查更新失败'
     finishCheckProgress(false, '检查更新失败：' + updErr.value)
+    notify('检查更新失败：' + updErr.value, true, { ttl: 7000 })
   } finally { updBusy.value = false }
 }
 
@@ -269,6 +331,7 @@ async function applyUpdate() {
   applying.value = true
   applyText.value = '正在下载并校验…'
   updErr.value = ''
+  notify(`已开始更新到 v${upd.value.latest}，请保持页面和容器运行`, false, { tone: 'info', ttl: 6000 })
   liveProgress.value = {
     active: true, stage: 'starting', percent: 2,
     message: `已确认，正在准备更新到 v${upd.value.latest}…`,
@@ -292,6 +355,7 @@ async function applyUpdate() {
       }
       stopProgressPolling()
       applying.value = false
+      notify('更新未能在限定时间内完成，请刷新页面并检查服务状态', true, { ttl: 9000 })
       return
     }
     stopProgressPolling()
@@ -300,7 +364,8 @@ async function applyUpdate() {
       message: '更新完成，正在刷新页面…'
     }
     applyText.value = '更新完成，正在刷新页面…'
-    setTimeout(() => { try { location.reload() } catch (e) { /* ignore */ } }, 700)
+    notify(`v${upd.value.latest} 更新完成，页面即将自动刷新`, false, { tone: 'success', ttl: 3000 })
+    setTimeout(() => { try { location.reload() } catch (e) { /* ignore */ } }, 1800)
   } catch (e) {
     stopProgressPolling()
     updErr.value = e.message || '更新失败'
@@ -310,6 +375,7 @@ async function applyUpdate() {
       ...(liveProgress.value || {}), active: false, stage: 'error', percent: 100,
       message: '更新失败：' + updErr.value, error: updErr.value
     }
+    notify('更新失败：' + updErr.value, true, { ttl: 9000 })
   }
 }
 </script>
@@ -341,9 +407,44 @@ async function applyUpdate() {
             <div class="upd-head">
               <b>在线更新</b>
               <span class="muted">当前 {{ data.version }}</span>
-              <button class="btn btn-sm" :disabled="updBusy || applying" @click="checkUpdate">
-                <span v-if="updBusy" class="spin"></span>{{ updBusy ? '检查中…' : '检查更新' }}
+              <button class="btn btn-sm upd-action" :class="{ 'is-busy': updBusy }"
+                      :disabled="updBusy || applying" :aria-busy="updBusy" @click="checkUpdate">
+                <span v-if="updBusy" class="spin"></span>
+                <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
+                <span>{{ updBusy ? '正在检查…' : '检查更新' }}</span>
               </button>
+            </div>
+
+            <div v-if="progressVisible" class="upd-progress"
+                 :class="{ done: progressDone, bad: progressBad, checking: !applying && !progressDone && !progressBad }"
+                 role="region" aria-label="在线更新状态">
+              <div class="upd-progress-top">
+                <span class="upd-progress-mark" aria-hidden="true">
+                  <svg v-if="progressBad" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 8v5"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+                  <svg v-else-if="progressDone" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4.4 4.4L19 7"/></svg>
+                  <span v-else class="upd-progress-orbit"></span>
+                </span>
+                <div class="upd-progress-copy">
+                  <div class="upd-progress-kicker">{{ progressStageLabel }}</div>
+                  <div class="upd-progress-title" role="status" aria-live="polite">{{ progressMessage }}</div>
+                  <div class="upd-progress-detail">{{ progressDetail }}</div>
+                </div>
+                <div class="upd-progress-percent" aria-hidden="true">
+                  <b class="num">{{ progressPercent }}</b><small>%</small>
+                </div>
+              </div>
+              <div class="upd-progress-track" role="progressbar" aria-label="更新进度"
+                   aria-valuemin="0" aria-valuemax="100" :aria-valuenow="progressPercent"
+                   :aria-valuetext="progressMessage + '，' + progressPercent + '%'">
+                <i :style="{ width: progressPercent + '%' }"></i>
+              </div>
+              <div class="upd-stages" :class="{ single: progressSteps.length === 1 }">
+                <div v-for="(step, i) in progressSteps" :key="step.key" class="upd-stage"
+                     :class="{ active: i === progressStepIndex, complete: i < progressStepIndex || progressDone, current: i === progressStepIndex && !progressDone && !progressBad, bad: i === progressStepIndex && progressBad }">
+                  <span class="upd-stage-line" aria-hidden="true"></span>
+                  <span class="upd-stage-label">{{ step.label }}</span>
+                </div>
+              </div>
             </div>
 
             <label class="upd-daily">
@@ -368,8 +469,10 @@ async function applyUpdate() {
                 </div>
                 <div class="upd-notes" v-if="upd.notes">{{ firstLine(upd.notes) }}</div>
                 <div class="upd-ops">
-                  <button class="btn btn-sm btn-primary" :disabled="!upd.can_apply || applying" @click="applyUpdate">
-                    {{ applying ? '更新中…' : (upd.can_apply ? '立即更新' : '需手动更新') }}
+                  <button class="btn btn-sm btn-primary upd-action" :class="{ 'is-busy': applying }"
+                          :disabled="!upd.can_apply || applying" :aria-busy="applying" @click="applyUpdate">
+                    <span v-if="applying" class="spin"></span>
+                    {{ applying ? '正在更新…' : (upd.can_apply ? '立即更新' : '需手动更新') }}
                   </button>
                   <span v-if="!upd.can_apply" class="muted">当前是 {{ upd.platform }}，一键更新只支持 Linux (amd64) 容器</span>
                   <span v-else-if="updSize" class="muted">安装包 {{ updSize }} · 下载后先校验再替换</span>
@@ -378,24 +481,6 @@ async function applyUpdate() {
               <div v-else class="upd-state ok">已是最新版本</div>
             </template>
             <div v-else class="upd-state muted">点「检查更新」看看有没有新版</div>
-
-            <div v-if="progressVisible" class="upd-progress"
-                 :class="{ done: liveProgress?.stage === 'done' || liveProgress?.stage === 'checked', bad: liveProgress?.stage === 'error' }">
-              <div class="upd-progress-head">
-                <span role="status" aria-live="polite">
-                  <i class="upd-stage-dot" aria-hidden="true"></i>{{ progressMessage }}
-                </span>
-                <b class="num">{{ progressPercent }}%</b>
-              </div>
-              <div class="upd-progress-track" role="progressbar" aria-label="更新进度"
-                   aria-valuemin="0" aria-valuemax="100" :aria-valuenow="progressPercent"
-                   :aria-valuetext="progressMessage + '，' + progressPercent + '%'">
-                <i :style="{ width: progressPercent + '%' }"></i>
-              </div>
-              <div v-if="liveProgress?.total_bytes" class="upd-progress-meta">
-                已下载 {{ fmtBytes(liveProgress.downloaded_bytes) }} / {{ fmtBytes(liveProgress.total_bytes) }}
-              </div>
-            </div>
 
             <details class="upd-cfg" :open="cfgOpen" @toggle="cfgOpen = $event.target.open">
               <summary>网络代理（可选）</summary>
