@@ -273,7 +273,7 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
         (shop_id, product, product_norm, buy_price,buy_shipping,buy_ship_tag,buy_order_no,buy_time,buy_counterparty,
          sell_price,sell_fee,sell_wuyou_fee,sell_net,sell_shipping,sell_ship_tag,sell_order_no,sell_time,sell_counterparty,
          note, source, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?,?, ?,?,?,?)`
+        VALUES (?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?,?, ?,?,?)`
 	now := nowStr()
 	for _, it := range in.Data.Items {
 		created := it.CreatedAt

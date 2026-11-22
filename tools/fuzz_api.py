@@ -29,6 +29,14 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+# Windows 控制台默认可能是 GBK；fuzz 用例会故意包含替换字符、RTL、私用区字符，
+# 打印 WARN 明细时不应因为终端编码而把测试工具自身打崩。统一用 UTF-8 输出。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+    except (AttributeError, OSError):
+        pass
+
 # ------------------------------------------------------------------ payload
 P = [
     ('plain',            '正常的中文商品名 25G DAC 直通线 2026'),

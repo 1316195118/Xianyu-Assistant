@@ -1,17 +1,32 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import { api, downloadFile } from '../api'
 import { confirm } from '../confirm'
 import { themeMode, motionMode, setThemeInstant } from '../theme'
-import RecyclePanel from '../components/RecyclePanel.vue'
-import VersionPanel from '../components/VersionPanel.vue'
-import ShopManage from '../components/ShopManage.vue'
-import GoofishSync from '../components/GoofishSync.vue'
-import AlipayImport from '../components/AlipayImport.vue'
 import HelpTip from '../components/HelpTip.vue'
 import { undoAction } from '../feedback'
 import { gfPanelOpen, gfStatus } from '../gfState'
 import { activeId, activeShop } from '../shopStore'
+
+// 设置页只保留入口，弹窗内容全部按需加载。闲鱼同步 / 支付宝导入这类
+// 面板会连带二维码、解析表单和业务组件，放首包会让设置页明显变重。
+const RecyclePanel = defineAsyncComponent(() => import('../components/RecyclePanel.vue'))
+const VersionPanel = defineAsyncComponent(() => import('../components/VersionPanel.vue'))
+const ShopManage = defineAsyncComponent(() => import('../components/ShopManage.vue'))
+const GoofishSync = defineAsyncComponent(() => import('../components/GoofishSync.vue'))
+const AlipayImport = defineAsyncComponent(() => import('../components/AlipayImport.vue'))
+function preloadSettingsPanels() {
+  const loaders = [
+    () => import('../components/RecyclePanel.vue'),
+    () => import('../components/VersionPanel.vue'),
+    () => import('../components/ShopManage.vue'),
+    () => import('../components/GoofishSync.vue'),
+    () => import('../components/AlipayImport.vue')
+  ]
+  const run = () => { for (const load of loaders) load().catch(() => {}) }
+  if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 2500 })
+  else setTimeout(run, 1200)
+}
 
 const props = defineProps({ refreshKey: { type: Number, default: 0 } })
 const emit = defineEmits(['notify', 'refresh'])
@@ -268,7 +283,11 @@ async function load() {
 async function loadLicenses() {
   try { licenses.value = await api.getLicenses() } catch (e) { /* ignore */ }
 }
-onMounted(() => { load(); loadLicenses(); loadAuth(); loadBackups() })
+onMounted(() => {
+  load(); loadLicenses(); loadAuth(); loadBackups()
+  // 先保证设置页首屏轻量，空闲后再预取弹窗，常见入口首次点击也能秒开。
+  preloadSettingsPanels()
+})
 // 撤销覆盖导入等整库级操作后，由 App 提升 refreshKey 触发本页重载
 watch(() => props.refreshKey, () => { load(); loadBackups(); loadAuth() })
 

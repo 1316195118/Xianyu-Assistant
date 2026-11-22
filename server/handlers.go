@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+var productNormRe = regexp.MustCompile(`[\s，,。、:：\-_/()（）]+`)
+
 func round2(f float64) float64 { return math.Round(f*100) / 100 }
 
 // inferFeeFromNet 在服务费字段缺失时，用成交价与到手价的差额反推服务费。
@@ -775,14 +777,19 @@ func buildWhere(r *http.Request) (string, []interface{}) {
 			}
 		}
 	}
-	dealExpr := "substr(COALESCE(NULLIF(sell_time,''), NULLIF(buy_time,''), ''),1,10)"
 	if from != "" {
-		conds = append(conds, dealExpr+" >= ?")
+		// 日期筛选直接用完整交易时间表达式做范围比较：
+		// ISO 样式时间按字典序天然按天排序，能命中 idx_items_shop_deal；
+		// 先 substr 再比较会丢失索引，数据量上来后每次翻页都要全量重排。
 		args = append(args, from)
+		conds = append(conds, dealTimeExpr+" <> '' AND "+dealTimeExpr+" >= ?")
 	}
 	if to != "" {
-		conds = append(conds, dealExpr+" <= ?")
-		args = append(args, to)
+		// “至”是按天闭区间。追加一个字典序很大的终结符，既能包含当天
+		// 2026-11-22 / 2026-11-22T23:59:59，也不会混入次日记录；
+		// 空时间显式排除，保持旧口径一致。
+		conds = append(conds, dealTimeExpr+" <> '' AND "+dealTimeExpr+" <= ?")
+		args = append(args, to+"\uFFFD")
 	}
 	// 定位单条记录：从首页「最近记录」点进来时，按 id 精确取这一条，
 	// 不管它排在第几页、当前筛选是什么，保证一定跳得到。
@@ -1096,8 +1103,17 @@ func autoGroupForSale(saleID, parentID int64, product string, shopID int64) int6
 // normProduct 归一化商品名：去空格/标点/大小写，用于相似度匹配
 func normProduct(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
-	s = regexp.MustCompile(`[\s，,。、:：\-_/()（）]+`).ReplaceAllString(s, "")
+	s = productNormRe.ReplaceAllString(s, "")
 	return s
+}
+
+// itemProductNorm 优先使用数据库已回填的归一化列，避免统计和匹配循环里
+// 对同一个商品反复做小写、去标点处理；只有旧数据列为空时才现场计算。
+func itemProductNorm(it Item) string {
+	if it.ProductNorm != "" {
+		return it.ProductNorm
+	}
+	return normProduct(it.Product)
 }
 
 // purchaseWhere 选出「买进单」：parent_id=0 且有买信息、尚无卖信息。
@@ -1132,7 +1148,7 @@ func matchExactPurchase(product string, shopID int64) (Item, bool) {
 		if err != nil {
 			continue
 		}
-		if normProduct(it.Product) == nq {
+		if itemProductNorm(it) == nq {
 			return it, true
 		}
 	}
@@ -1156,7 +1172,7 @@ func matchSimilarPurchases(product string, shopID int64, limit int) []Item {
 		if err != nil {
 			continue
 		}
-		np := normProduct(it.Product)
+		np := itemProductNorm(it)
 		if np == nq {
 			out = append([]Item{it}, out...) // 精确匹配置顶
 			continue
@@ -1595,7 +1611,7 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 			s.TotalInvest += gross
 			if it.SettledAt == "" && gross > 0 {
 				lots = append(lots, holdingLot{
-					ID: it.ID, Product: it.Product, Norm: normProduct(it.Product),
+					ID: it.ID, Product: it.Product, Norm: itemProductNorm(it),
 					Gross: round2(gross), BuyTime: it.BuyTime, AgeBand: holdingAgeBand(it.BuyTime),
 				})
 			}
@@ -1624,7 +1640,7 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 				}
 				if deduct > 0 {
 					saleDeductions = append(saleDeductions, holdingDeduction{
-						ParentID: it.ParentID, Norm: normProduct(it.Product), Amount: deduct, SellTime: it.SellTime,
+						ParentID: it.ParentID, Norm: itemProductNorm(it), Amount: deduct, SellTime: it.SellTime,
 					})
 				}
 			}
@@ -1972,15 +1988,15 @@ func loadGroupAlloc(sid int64) map[int64]float64 {
 	idx := map[int64]Item{}
 	var iRows *sql.Rows
 	if sid < 0 {
-		iRows, err = db.Query("SELECT " + itemCols + " FROM items")
+		iRows, err = db.Query("SELECT " + allocItemCols + " FROM items")
 	} else {
-		iRows, err = db.Query("SELECT "+itemCols+" FROM items WHERE shop_id=?", sid)
+		iRows, err = db.Query("SELECT "+allocItemCols+" FROM items WHERE shop_id=?", sid)
 	}
 	if err != nil {
 		return out
 	}
 	for iRows.Next() {
-		it, e := scanItem(iRows)
+		it, e := scanAllocItem(iRows)
 		if e == nil {
 			idx[it.ID] = it
 		}
@@ -2000,6 +2016,31 @@ func loadGroupAlloc(sid int64) map[int64]float64 {
 		}
 	}
 	return out
+}
+
+// allocItemCols 只读取联单成本分摊需要的字段。
+// 分摊会被明细分页、首页统计、趋势、价格提示和导出反复调用；
+// 这里绝不读取 note / attachment / 各类标签与时间戳，避免为了几个金额字段
+// 把整张宽表（尤其是附件字段）搬进内存。派生 kind / has_* 的条件必须与
+// itemCols + scanItem 保持同一业务口径。
+const allocItemCols = `id, product, COALESCE(product_norm,'') AS product_norm, parent_id, quantity, unit_cost,
+    buy_price, buy_shipping, buy_order_no, buy_counterparty,
+    sell_price, sell_net, sell_order_no, sell_counterparty,
+    COALESCE(cost_free,0) AS cost_free, COALESCE(discarded_at,'') AS discarded_at`
+
+func scanAllocItem(rows *sql.Rows) (Item, error) {
+	var it Item
+	err := rows.Scan(
+		&it.ID, &it.Product, &it.ProductNorm, &it.ParentID, &it.Quantity, &it.UnitCost,
+		&it.BuyPrice, &it.BuyShipping, &it.BuyOrderNo, &it.BuyCounterparty,
+		&it.SellPrice, &it.SellNet, &it.SellOrderNo, &it.SellCounterparty,
+		&it.CostFree, &it.DiscardedAt,
+	)
+	if err == nil {
+		// 复用统一派生逻辑，但不覆盖 discarded 标记以外的不相关字段。
+		it.derive()
+	}
+	return it, err
 }
 
 // groupAllocForItems 只算一组联单成员之间的成本分摊，供全局统计与联单卡片共用。
@@ -2116,7 +2157,7 @@ func computeProductProfit(sid int64) []productProfitRow {
 			gross := it.BuyPrice + it.BuyShipping
 			if !isExternalGoods(it.Source) && it.SettledAt == "" && gross > 0 {
 				lots = append(lots, holdingLot{
-					ID: it.ID, Product: it.Product, Norm: normProduct(it.Product),
+					ID: it.ID, Product: it.Product, Norm: itemProductNorm(it),
 					Gross: round2(gross), BuyTime: it.BuyTime, AgeBand: holdingAgeBand(it.BuyTime),
 				})
 			}
@@ -2143,7 +2184,7 @@ func computeProductProfit(sid int64) []productProfitRow {
 				}
 				if deduct > 0 {
 					saleDeductions = append(saleDeductions, holdingDeduction{
-						ParentID: it.ParentID, Norm: normProduct(it.Product), Amount: deduct, SellTime: it.SellTime,
+						ParentID: it.ParentID, Norm: itemProductNorm(it), Amount: deduct, SellTime: it.SellTime,
 					})
 				}
 			}

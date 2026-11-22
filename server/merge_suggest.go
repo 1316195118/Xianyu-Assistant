@@ -228,7 +228,7 @@ func handleGroupMergeSuggestions(w http.ResponseWriter, r *http.Request) {
 			if groupedSet[it.ID] || isExternalGoods(it.Source) {
 				continue
 			}
-			norm := normProduct(it.Product)
+			norm := itemProductNorm(it)
 			if norm == "" {
 				continue
 			}

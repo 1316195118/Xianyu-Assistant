@@ -407,13 +407,13 @@ func handleAutoLinkPreview(w http.ResponseWriter, r *http.Request) {
 			SaleID: it.ID, Product: it.Product, SalePrice: it.SellPrice, SaleTime: it.SellTime,
 			Candidates: []autoLinkCand{},
 		}
-		nq := normProduct(it.Product)
+		nq := itemProductNorm(it)
 		var exact, similar []autoLinkCand
 		for _, b := range buys {
 			if b.left <= 0 {
 				continue
 			}
-			np := normProduct(b.it.Product)
+			np := itemProductNorm(b.it)
 			if np == "" || nq == "" {
 				continue
 			}
@@ -463,7 +463,7 @@ func handleAutoLinkPreview(w http.ResponseWriter, r *http.Request) {
 			// 同名买进单存在但件数已经用完的，单独说明，避免用户以为没录过这批货
 			hasSameNoStock := false
 			for _, b := range buys {
-				if normProduct(b.it.Product) == nq && b.left <= 0 {
+				if itemProductNorm(b.it) == nq && b.left <= 0 {
 					hasSameNoStock = true
 					break
 				}

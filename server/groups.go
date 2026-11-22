@@ -926,7 +926,7 @@ func handleGroupCandidates(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		} else if similar != "" {
-			np := normProduct(it.Product)
+			np := itemProductNorm(it)
 			if np == nq && nq != "" {
 				score = 100
 				reason = "同名"

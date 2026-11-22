@@ -18,6 +18,26 @@ var amountRe = regexp.MustCompile(`¥\s*(\d+[.,]\d{1,2})|(\d+[.,]\d{2})`)
 // 长数字串：用于定位支付宝交易号（约 28 位，前 8 位为 yyyyMMdd）
 var longNumRe = regexp.MustCompile(`\d{20,32}`)
 
+// OCR 解析会对同一段文本按行、按片段反复判断；这些正则只编译一次。
+// 避免每次识别、每次片段过滤都重新编译正则，长截图分段时差距尤其明显。
+var (
+	priceMarkRe     = regexp.MustCompile(`[¥xXyY￥]\s*\d`)
+	priceDecimalRe  = regexp.MustCompile(`\d+\.\d{2}`)
+	garbleDigitsRe  = regexp.MustCompile(`\d[*@]\d`)
+	garbleAnyRe     = regexp.MustCompile(`[*@]`)
+	cjkRe           = regexp.MustCompile(`[\x{4e00}-\x{9fff}]`)
+	numericOnlyRe   = regexp.MustCompile(`^[\d\s:：.、,，%]+$`)
+	alnumRe         = regexp.MustCompile(`[A-Za-z0-9]`)
+	nonLetterNumRe  = regexp.MustCompile(`[^\p{L}\p{N}]`)
+	pieceSplitRe    = regexp.MustCompile(`[\s||、，,]+`)
+	oneDigitRe      = regexp.MustCompile(`\d`)
+	multiSpaceRe    = regexp.MustCompile(`\s{2,}`)
+	parentheticalRe = regexp.MustCompile(`\([^)]*\)`)
+	wuyouAmountRe   = regexp.MustCompile(`无忧卖[^，,。\d]{0,12}[-\-]?[¥xX✗]?\s*\d+\.\d{2}`)
+	orderDigitsRe   = regexp.MustCompile(`\d{15,20}`)
+	dateTimeRe      = regexp.MustCompile(`(20\d{2})[-/年](\d{1,2})[-/月](\d{1,2})日?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?`)
+)
+
 // 用于切分「字段窗口」的关键词（订单页固定文案）
 var fieldKeywords = []string{
 	"成交价", "商品总价", "无忧卖类目软件服务费", "无忧卖服务费", "无忧卖", "软件服务费", "服务费",
@@ -53,6 +73,28 @@ var statusBarNoiseRe = regexp.MustCompile(`^\d{1,2}[:：]\d{2}[\p{Han}A-Za-z]{0,
 // 型号片段：纯拉丁+数字+符号但含数字、长度≥5，如「RB5009UG+S+IN」「U7-ProMax」。
 // 这类是商品型号，不能因「中文占比不足」丢掉；纯乱码如「闷ReeU」「WE」不含数字会被排除。
 var modelRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9+\-_./]{3,31}$`)
+
+type parseSignal struct {
+	re *regexp.Regexp
+	w  int
+}
+
+var buySignals = []parseSignal{
+	{regexp.MustCompile(`卖\s*家[\s\S]{0,4}?昵\s*称`), 6},
+	{regexp.MustCompile(`已到达卖家账户|已到达卖家|卖家账户`), 4},
+	// 收货地址在「卖家视角」也会展示（买家收货地址），故权重压低，仅作辅助信号
+	{regexp.MustCompile(`收货地址`), 1},
+	{regexp.MustCompile(`下单时间|付款时间|发货时间|支付宝交易号|交易快照`), 2},
+	{regexp.MustCompile(`商品总价`), 1},
+}
+
+var sellSignals = []parseSignal{
+	{regexp.MustCompile(`买\s*家[\s\S]{0,4}?昵\s*称`), 6},
+	{regexp.MustCompile(`预计到手|预估到手|实际到账`), 3},
+	{regexp.MustCompile(`软件服务费`), 3},
+	{regexp.MustCompile(`已到达您的支付宝`), 4},
+	{regexp.MustCompile(`联系买家|去评价`), 1},
+}
 
 // 片段级噪声词：命中任意一个即整段丢弃（比整句正则抗 OCR 误差）
 var pieceNoiseWords = []string{
@@ -107,15 +149,15 @@ func looksLikePrice(s string) bool {
 		return false
 	}
 	// 货币符号 + 数字（¥238 / x3.20 / ￥187 / 型号前的 ¥ 误读）
-	if regexp.MustCompile(`[¥xXyY￥]\s*\d`).MatchString(t) {
+	if priceMarkRe.MatchString(t) {
 		return true
 	}
 	// 形如 238.00 / 213.32 的带两位小数数字
-	if regexp.MustCompile(`\d+\.\d{2}`).MatchString(t) {
+	if priceDecimalRe.MatchString(t) {
 		return true
 	}
 	// 金额被遮挡/误读：数字之间夹了 * @ 等杂符（187****21 / 213*）
-	if regexp.MustCompile(`\d[*@]\d`).MatchString(t) {
+	if garbleDigitsRe.MatchString(t) {
 		return true
 	}
 	return false
@@ -132,7 +174,7 @@ func amountGarbled(flat string) bool {
 		if len(seg) > 18 {
 			seg = seg[:18]
 		}
-		if regexp.MustCompile(`[*@]`).MatchString(seg) {
+		if garbleAnyRe.MatchString(seg) {
 			return true
 		}
 	}
@@ -150,13 +192,13 @@ func isProductPiece(p string) bool {
 		return false
 	}
 	runes := []rune(p)
-	hasCJK := regexp.MustCompile(`[\x{4e00}-\x{9fff}]`).MatchString(p)
+	hasCJK := cjkRe.MatchString(p)
 	// 短片段必须含中文才保留：保留「设备」，排除「ED」「48」等乱码
 	if len(runes) < 2 || (len(runes) == 2 && !hasCJK) {
 		return false
 	}
 	// 纯数字 / 纯时间 / 纯符号
-	if regexp.MustCompile(`^[\d\s:：.、,，%]+$`).MatchString(p) {
+	if numericOnlyRe.MatchString(p) {
 		return false
 	}
 	for _, w := range pieceNoiseWords {
@@ -169,12 +211,12 @@ func isProductPiece(p string) bool {
 		return false
 	}
 	// 至少要有中文或字母数字
-	hasAlnum := regexp.MustCompile(`[A-Za-z0-9]`).MatchString(p)
+	hasAlnum := alnumRe.MatchString(p)
 	if !hasCJK && !hasAlnum {
 		return false
 	}
 	// 去掉所有标点后仍需有实质内容，避免只剩 "(ED" 之类
-	stripped := regexp.MustCompile(`[^\p{L}\p{N}]`).ReplaceAllString(p, "")
+	stripped := nonLetterNumRe.ReplaceAllString(p, "")
 	return len([]rune(stripped)) >= 2
 }
 
@@ -226,13 +268,12 @@ func extractProduct(flat string) string {
 	//    这种空格/换行分隔的连续词打散成「UBNT，优倍快，unifi…」，用户看到就是"标题不对"。
 	//    现在：原文是逗号/顿号 → 保留「，」；原文是空格/换行/竖线 → 保留空格。
 	type seg struct{ text, sep string }
-	splitRe := regexp.MustCompile(`[\s||、，,]+`)
 	collect := func(region string) []seg {
 		var out []seg
 		var raws []string
 		var seps []string
 		idx := 0
-		for _, loc := range splitRe.FindAllStringIndex(region, -1) {
+		for _, loc := range pieceSplitRe.FindAllStringIndex(region, -1) {
 			raws = append(raws, region[idx:loc[0]])
 			seps = append(seps, region[loc[0]:loc[1]])
 			idx = loc[1]
@@ -264,7 +305,7 @@ func extractProduct(flat string) string {
 	tailSegs := collect(tail)
 	var tailKeep []seg
 	for _, s := range tailSegs {
-		isModel := modelRe.MatchString(s.text) && regexp.MustCompile(`\d`).MatchString(s.text)
+		isModel := modelRe.MatchString(s.text) && oneDigitRe.MatchString(s.text)
 		if cjkRatio(s.text) >= 0.5 || isModel {
 			tailKeep = append(tailKeep, s)
 		}
@@ -287,7 +328,7 @@ func extractProduct(flat string) string {
 		b.WriteString(s.text)
 		b.WriteString(s.sep)
 	}
-	joined := strings.TrimSpace(regexp.MustCompile(`\s{2,}`).ReplaceAllString(b.String(), " "))
+	joined := strings.TrimSpace(multiSpaceRe.ReplaceAllString(b.String(), " "))
 	if len([]rune(joined)) > 70 {
 		joined = string([]rune(joined)[:70])
 	}
@@ -407,27 +448,6 @@ func parseText(raw string) OCRResult {
 	// 买进单：出现卖家昵称、收货地址、下单/付款/发货时间、支付宝交易号等
 	// 卖出单：出现买家昵称、预计到手、软件服务费、已到达您的支付宝等
 	buyScore, sellScore := 0, 0
-	buySignals := []struct {
-		re *regexp.Regexp
-		w  int
-	}{
-		{regexp.MustCompile(`卖\s*家[\s\S]{0,4}?昵\s*称`), 6},
-		{regexp.MustCompile(`已到达卖家账户|已到达卖家|卖家账户`), 4},
-		// 收货地址在「卖家视角」也会展示（买家收货地址），故权重压低，仅作辅助信号
-		{regexp.MustCompile(`收货地址`), 1},
-		{regexp.MustCompile(`下单时间|付款时间|发货时间|支付宝交易号|交易快照`), 2},
-		{regexp.MustCompile(`商品总价`), 1},
-	}
-	sellSignals := []struct {
-		re *regexp.Regexp
-		w  int
-	}{
-		{regexp.MustCompile(`买\s*家[\s\S]{0,4}?昵\s*称`), 6},
-		{regexp.MustCompile(`预计到手|预估到手|实际到账`), 3},
-		{regexp.MustCompile(`软件服务费`), 3},
-		{regexp.MustCompile(`已到达您的支付宝`), 4},
-		{regexp.MustCompile(`联系买家|去评价`), 1},
-	}
 	for _, s := range buySignals {
 		if s.re.MatchString(flat) {
 			buyScore += s.w
@@ -450,7 +470,7 @@ func parseText(raw string) OCRResult {
 	// ---------- 金额字段（关键词窗口，兼容整段/逐行）----------
 	if seg := windowAfter(flat, "成交价"); seg != "" {
 		// 剥掉括号里的账户说明，避免 "支付宝187****21" 干扰
-		seg = regexp.MustCompile(`\([^)]*\)`).ReplaceAllString(seg, "")
+		seg = parentheticalRe.ReplaceAllString(seg, "")
 		r.Price = firstAmount(seg)
 	}
 	if r.Price == 0 {
@@ -480,7 +500,7 @@ func parseText(raw string) OCRResult {
 		plain = strings.Join(keep, "\n")
 	}
 	// 整段无换行（tesseract 常见）时，用「无忧卖…金额」区间剔除
-	plain = regexp.MustCompile(`无忧卖[^，,。\d]{0,12}[-\-]?[¥xX✗]?\s*\d+\.\d{2}`).ReplaceAllString(plain, " ")
+	plain = wuyouAmountRe.ReplaceAllString(plain, " ")
 	for _, kw := range []string{"软件服务费", "服务费"} {
 		if seg := windowAfter(plain, kw); seg != "" {
 			if v := firstAmount(seg); v > 0 {
@@ -527,8 +547,7 @@ func parseText(raw string) OCRResult {
 	}
 
 	// ---------- 订单编号 ----------
-	orderRe := regexp.MustCompile(`\d{15,20}`)
-	findOrder := func(s string) string { return orderRe.FindString(s) }
+	findOrder := func(s string) string { return orderDigitsRe.FindString(s) }
 	for _, kw := range []string{"订单编号", "订单号"} {
 		if seg := windowAfter(flat, kw); seg != "" {
 			if o := findOrder(seg); o != "" {
@@ -539,7 +558,7 @@ func parseText(raw string) OCRResult {
 	}
 	if r.OrderNo == "" {
 		// 兜底：全文中找 15~20 位纯数字订单号，排除紧邻「交易号」的支付宝交易号（位数更长）
-		for _, m := range orderRe.FindAllString(flat, -1) {
+		for _, m := range orderDigitsRe.FindAllString(flat, -1) {
 			idx := strings.Index(flat, m)
 			lo, hi := idx-6, idx+len(m)+6
 			if lo < 0 {
@@ -557,7 +576,6 @@ func parseText(raw string) OCRResult {
 	}
 
 	// ---------- 交易时间 ----------
-	tsRe := regexp.MustCompile(`(20\d{2})[-/年](\d{1,2})[-/月](\d{1,2})日?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?`)
 	norm := func(m []string) string {
 		mm, _ := strconv.Atoi(m[2])
 		dd, _ := strconv.Atoi(m[3])
@@ -578,7 +596,7 @@ func parseText(raw string) OCRResult {
 		if prefer != "" {
 			scope = windowAfter(flat, prefer)
 		}
-		if m := tsRe.FindStringSubmatch(scope); m != nil {
+		if m := dateTimeRe.FindStringSubmatch(scope); m != nil {
 			r.DealTime = norm(m)
 			break
 		}

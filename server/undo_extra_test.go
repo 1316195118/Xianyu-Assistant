@@ -592,6 +592,48 @@ func TestImportRejectsInvalidViaAPI(t *testing.T) {
 	}
 }
 
+// 覆盖导入的 INSERT 列数必须与占位符完全一致。
+// 这里走真实 HTTP 入口，防止备份恢复在只跑校验测试时“看起来正常”。
+func TestImportValidViaAPI(t *testing.T) {
+	h := newExtrasEnv(t)
+	body := map[string]interface{}{
+		"mode": "replace",
+		"data": map[string]interface{}{
+			"items": []map[string]interface{}{{
+				"product":          "导入回归商品",
+				"buy_price":        88,
+				"buy_shipping":     6,
+				"buy_order_no":     "IMPORT-OK-1",
+				"buy_time":         "2026-11-22 10:00:00",
+				"buy_counterparty": "卖家",
+				"source":           "自采",
+				"note":             "导入回归",
+			}},
+		},
+	}
+	w := doExtrasReq(h, "POST", "/api/import", body)
+	if w.Code != 200 {
+		t.Fatalf("合法导入应 200，实际 %d %s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Imported int `json:"imported"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.Imported != 1 {
+		t.Fatalf("imported=%d want 1", out.Imported)
+	}
+	var got string
+	if err := db.QueryRow("SELECT product FROM items WHERE shop_id=? AND buy_order_no=?",
+		defaultShopID, "IMPORT-OK-1").Scan(&got); err != nil {
+		t.Fatalf("导入记录未落库: %v", err)
+	}
+	if got != "导入回归商品" {
+		t.Fatalf("product=%q", got)
+	}
+}
+
 // ---------- 契约 13：备份对账 ----------
 
 func TestBackupVerify(t *testing.T) {

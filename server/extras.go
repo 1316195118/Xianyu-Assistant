@@ -501,7 +501,7 @@ func handleStatsExtras(w http.ResponseWriter, r *http.Request) {
 			gross := round2(it.BuyPrice + it.BuyShipping)
 			if it.SettledAt == "" && gross > 0 {
 				lots = append(lots, holdingLot{
-					ID: it.ID, Product: it.Product, Norm: normProduct(it.Product),
+					ID: it.ID, Product: it.Product, Norm: itemProductNorm(it),
 					Gross: gross, BuyTime: it.BuyTime, AgeBand: holdingAgeBand(it.BuyTime),
 				})
 			}
@@ -519,7 +519,7 @@ func handleStatsExtras(w http.ResponseWriter, r *http.Request) {
 				}
 				if deduct > 0 {
 					saleDeductions = append(saleDeductions, holdingDeduction{
-						ParentID: it.ParentID, Norm: normProduct(it.Product), Amount: deduct, SellTime: it.SellTime,
+						ParentID: it.ParentID, Norm: itemProductNorm(it), Amount: deduct, SellTime: it.SellTime,
 					})
 				}
 			}
