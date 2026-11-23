@@ -8253,7 +8253,9 @@ html[data-motion="reduce"] .cs-chev { animation: none !important; transition: no
     min-height: 22px !important;
   }
   .hero-card .hero-calc::after { inset: -11px -8px; }
+}
 
+@media (max-width: 900px) {
   .kpi-card .kpi-label-row {
     flex-wrap: nowrap;
     gap: 2px;
@@ -8263,13 +8265,26 @@ html[data-motion="reduce"] .cs-chev { animation: none !important; transition: no
     white-space: nowrap;
   }
   .kpi-card .kpi-seg {
-    flex: 1 1 auto;
-    min-width: 0;
+    flex: 0 0 76px;
+    width: 76px;
+    height: 22px;
+    min-height: 0;
+    overflow: visible;
   }
   .kpi-card .kpi-seg button {
+    position: relative;
     flex: 1 1 0;
     width: auto;
     min-width: 0 !important;
-    padding-inline: 4px;
+    height: 22px;
+    min-height: 22px !important;
+    padding: 0 4px !important;
+    line-height: 1 !important;
+  }
+  /* 视觉上保持紧凑，透明热区仍向上下扩到 44px，点击不会变困难。 */
+  .kpi-card .kpi-seg button::after {
+    content: "";
+    position: absolute;
+    inset: -11px -4px;
   }
 }
