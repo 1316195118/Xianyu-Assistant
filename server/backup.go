@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -151,8 +150,7 @@ func handleBackups(w http.ResponseWriter, r *http.Request) {
 			IntervalHours *int  `json:"interval_hours"`
 			Keep          *int  `json:"keep"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeError(w, 400, "请求体解析失败")
+		if !decodeJSONBody(w, r, &in, maxBackupJSONBody) {
 			return
 		}
 		if in.Enabled != nil {

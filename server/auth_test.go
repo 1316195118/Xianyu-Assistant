@@ -27,6 +27,9 @@ func TestHashPasswordScryptAndVerify(t *testing.T) {
 }
 
 func TestSessionCookieSecureFollowsRequestScheme(t *testing.T) {
+	t.Setenv("TRUSTED_PROXY_CIDRS", "192.0.2.1/32")
+	resetTrustedProxyCacheForTest()
+	t.Cleanup(resetTrustedProxyCacheForTest)
 	httpReq := httptest.NewRequest("POST", "http://example.test/api/auth/login", nil)
 	httpRec := httptest.NewRecorder()
 	setSessionCookie(httpRec, httpReq, "token")

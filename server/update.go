@@ -139,6 +139,10 @@ func handleUpdateProgress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
+	if !isGlobalAdmin(r) {
+		writeError(w, 403, "只有全局管理员可以查看在线更新")
+		return
+	}
 	writeJSON(w, updateProgressSnapshot())
 }
 
@@ -280,6 +284,10 @@ func handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
+	if !isGlobalAdmin(r) {
+		writeError(w, 403, "只有全局管理员可以检查更新")
+		return
+	}
 	out := map[string]interface{}{
 		"current":   buildVersion,
 		"repo":      updateRepoName(),
@@ -326,7 +334,7 @@ func handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 403, "只读账号不能更新程序")
 		return
 	}
-	if authEnabled() && !isGlobalAdmin(r) {
+	if !isGlobalAdmin(r) {
 		writeError(w, 403, "只有用管理密码登录的账号可以更新程序")
 		return
 	}
@@ -570,15 +578,14 @@ func handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 405, "method not allowed")
 		return
 	}
-	if authEnabled() && !isGlobalAdmin(r) {
+	if !isGlobalAdmin(r) {
 		writeError(w, 403, "只有用管理密码登录的账号可以修改更新设置")
 		return
 	}
 	var in struct {
 		Proxy string `json:"proxy"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxTinyJSONBody) {
 		return
 	}
 	// 清掉旧版本可能残留的仓库与 Token；新版本不再读取、也不再展示这两项。

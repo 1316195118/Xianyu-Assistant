@@ -19,9 +19,9 @@ function cleanAssets() {
 
 export default defineConfig({
   plugins: [vue(), cleanAssets()],
-  // licenses / OCR WASM 等大批量静态资源放在项目根 static/，
-  // 由 build.sh 的 sync_webroot.py 合并进 webroot，避免 Vite 每次构建反复复制/删除数十个文件。
-  publicDir: false,
+  // public/ 只放必须在首屏阻塞执行的极小脚本；licenses / OCR WASM 等大批量资源
+  // 仍放在项目根 static/，由 build.sh 的 sync_webroot.py 合并，避免重复复制。
+  publicDir: 'public',
   build: {
     outDir: 'dist',
     // index.html 保留；assets 由 cleanAssets 在构建前清空，避免旧哈希堆积

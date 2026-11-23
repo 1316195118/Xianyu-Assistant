@@ -129,19 +129,21 @@ Compose 的 `environment` 只保留运行端口 `PORT=8080` 和时区 `TZ=Asia/S
 - 从旧镜像名迁移：使用仓库里的最新 Compose 文件，执行 `docker compose down --remove-orphans`、`docker compose pull`、`docker compose up -d`。`down` 不要加 `-v`，三个命名卷会保留。
 - 备份：程序备份、数据库和附件分别保存在 `xianyu-backup`、`xianyu-data`、`xianyu-config` 三个 Docker 命名卷中；可以在应用里导出备份，也可以把三个卷纳入 NAS 快照。
 - 排错：先看 `docker compose logs --tail=200`；健康状态可用 `docker compose ps` 查看。
-- 安全：不要把 `18083` 直接映射到公网。需要外网访问时，在 NAS 或路由器上配置 HTTPS 反向代理，并只开放认证后的入口。
+- 安全：不要把 `18083` 直接映射到公网。需要外网访问时，在 NAS 或路由器上配置 HTTPS 反向代理，并只开放认证后的入口。镜像默认以非 root 用户运行；如果改用本机目录绑定 `/data`、`/config`、`/backup`，请先确保目录对该容器用户可写，否则启动或备份会失败。
+
+默认不信任任何 `X-Forwarded-For` / `X-Real-IP` 请求头，避免客户端伪造来源绕过登录限流。若确实部署在同机反向代理后，可额外给容器设置 `TRUSTED_PROXY_CIDRS`（逗号分隔的代理网段，例如 `127.0.0.1/32`）；只有该网段发来的转发头才会被采用。默认 Compose 不需要添加这个变量。
 
 Compose 默认使用命名卷，删容器不会丢数据。不要随意删除 `xianyu-data`、`xianyu-config`、`xianyu-backup` 这三个卷。
 
 ### 方式三：从源码构建
 
-需要 Go 1.27+、Node 18+：
+需要 Go 1.27.4+、Node 18+：
 
 ```bash
 bash build.sh
 ```
 
-会依次装前端依赖、打包 Vue、嵌进 Go、编译出 `xianyu-stat.exe` 和 `xianyu-stat-linux-amd64`。
+会依次用 `npm ci` 安装锁定版本的前端依赖、打包 Vue、嵌进 Go、编译出 `xianyu-stat.exe` 和 `xianyu-stat-linux-amd64`。
 
 ### 第一次使用
 

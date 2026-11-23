@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -664,8 +663,7 @@ func handleParseText(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Text string `json:"text"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, 512<<10) {
 		return
 	}
 	if strings.TrimSpace(in.Text) == "" {

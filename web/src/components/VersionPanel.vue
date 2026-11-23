@@ -11,11 +11,13 @@ import {
   markDailyUpdateChecked,
   markUpdateReleaseNotified
 } from '../updatePreferences'
+import { globalSession } from '../shopStore'
 // 遮罩点击守卫：在输入框里拖选文字划出弹窗松手时，不会误关弹窗
 const mask = maskCloser(() => close)
 
 
 const emit = defineEmits(['close', 'notify'])
+const canManageUpdate = computed(() => globalSession.value)
 const data = ref(null)
 const loading = ref(true)
 const err = ref('')
@@ -258,6 +260,10 @@ function startProgressPolling() {
 }
 
 async function checkUpdate() {
+  if (!canManageUpdate.value) {
+    notify('在线更新需要全局管理员登录', true)
+    return
+  }
   if (updBusy.value || confirming.value || applying.value) return
   updBusy.value = true; updErr.value = ''
   markDailyUpdateChecked()
@@ -438,7 +444,7 @@ async function applyUpdate() {
           </div>
 
           <!-- 在线更新：从 GitHub Release 拉新版本，容器内自行替换 -->
-          <div class="upd-card">
+          <div v-if="canManageUpdate" class="upd-card">
             <div class="upd-head">
               <b>在线更新</b>
               <span class="muted">当前 {{ data.version }}</span>
@@ -547,6 +553,9 @@ async function applyUpdate() {
                 <div class="muted upd-cfg-hint">在线更新固定从项目公开 Release 获取，不需要仓库地址或 Token。若服务器无法直连 GitHub，可填写 HTTP 或 SOCKS5 代理；留空即关闭。</div>
               </div>
             </details>
+          </div>
+          <div v-else class="upd-card">
+            <div class="upd-state muted">店铺账号可查看版本记录；检查与安装更新需要全局管理员登录。</div>
           </div>
 
           <div class="ver-section-title">本次更新说明</div>

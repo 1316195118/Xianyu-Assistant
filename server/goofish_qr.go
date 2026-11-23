@@ -386,8 +386,7 @@ func handleGoofishUmid(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Token string `json:"token"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxTinyJSONBody) {
 		return
 	}
 	shop := shopID(r)

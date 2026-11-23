@@ -43,8 +43,10 @@ for (const [href, link] of links) {
     let missingAnchor = ''
     if (url.origin === new URL(baseURL).origin && url.hash) {
       const anchorPage = await context.newPage()
-      await anchorPage.goto(href, { waitUntil: 'domcontentloaded' })
-      await anchorPage.waitForTimeout(200)
+      // 公开条款页是按需加载的 Vue 分包，domcontentloaded 时锚点尚未挂载。
+      // 等网络空闲并给渲染留一小段时间，避免把正常锚点误报为失效。
+      await anchorPage.goto(href, { waitUntil: 'networkidle' })
+      await anchorPage.waitForTimeout(400)
       missingAnchor = decodeURIComponent(url.hash.slice(1))
       anchorOK = ['overview', 'records', 'groups', 'consign', 'settings'].includes(missingAnchor) ||
         await anchorPage.evaluate((id) => !!document.getElementById(id) || !!document.querySelector(`[name="${CSS.escape(id)}"]`), missingAnchor)

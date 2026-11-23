@@ -9,7 +9,6 @@ package main
 //     老记录没有发货时间时才退回「按成交时间推测」，并明确标注「推测」。
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -419,8 +418,7 @@ func handleAlipayApply(w http.ResponseWriter, r *http.Request) {
 		// 已弃单仍然永远不动。
 		Force bool `json:"force"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 		return
 	}
 	aliMu.Lock()

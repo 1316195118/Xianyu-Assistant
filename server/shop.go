@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -154,8 +153,7 @@ func handleShops(w http.ResponseWriter, r *http.Request) {
 			Color string `json:"color"`
 			Note  string `json:"note"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeError(w, 400, "请求体解析失败")
+		if !decodeJSONBody(w, r, &in, maxSmallJSONBody) {
 			return
 		}
 		name := strings.TrimSpace(in.Name)
@@ -217,8 +215,7 @@ func handleShopByID(w http.ResponseWriter, r *http.Request) {
 			Sort     int     `json:"sort"`
 			Password *string `json:"password"` // nil=不改；""=清除密码；其它=设置新密码
 		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeError(w, 400, "请求体解析失败")
+		if !decodeJSONBody(w, r, &in, maxSmallJSONBody) {
 			return
 		}
 		name := strings.TrimSpace(in.Name)

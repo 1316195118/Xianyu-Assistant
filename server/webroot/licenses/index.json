@@ -2,9 +2,9 @@
   [
     "Go",
     "github.com/andybalholm/brotli",
-    "v1.0.6",
+    "v1.2.7",
     "MIT",
-    "licenses/github.com_andybalholm_brotli-v1.0.6.txt"
+    "licenses/github.com_andybalholm_brotli-v1.2.7.txt"
   ],
   [
     "Go",
@@ -37,9 +37,9 @@
   [
     "Go",
     "github.com/klauspost/compress",
-    "v1.17.4",
+    "v1.20.2",
     "BSD-3-Clause",
-    "licenses/github.com_klauspost_compress-v1.17.4.txt"
+    "licenses/github.com_klauspost_compress-v1.20.2.txt"
   ],
   [
     "Go",
@@ -68,6 +68,13 @@
     "v0.0.0-20230129092748-24d4a6f8daec",
     "BSD-3-Clause",
     "licenses/github.com_remyoudompheng_bigfft-v0.0.0-20230129092748-24d4a6f8daec.txt"
+  ],
+  [
+    "Go",
+    "github.com/xyproto/randomstring",
+    "v1.0.5",
+    "BSD-3-Clause",
+    "licenses/github.com_xyproto_randomstring-v1.0.5.txt"
   ],
   [
     "Go",

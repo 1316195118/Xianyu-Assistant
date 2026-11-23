@@ -17,7 +17,6 @@ package main
 // ============================================================
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -75,8 +74,7 @@ func setItemFlag(w http.ResponseWriter, r *http.Request, id int64, kind string) 
 		return
 	}
 	var in itemFlagReq
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxTinyJSONBody) {
 		return
 	}
 	it, err := getItem(id, shopID(r))
@@ -175,8 +173,7 @@ func handleCostFree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in costFreeReq
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxTinyJSONBody) {
 		return
 	}
 	if len(in.IDs) == 0 {
@@ -257,8 +254,7 @@ func handleEstimateCost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in estimateCostReq
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, 256<<10) {
 		return
 	}
 	if len(in.Items) == 0 {
@@ -511,8 +507,7 @@ func handleAutoLinkApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in autoLinkReq
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, 256<<10) {
 		return
 	}
 	if len(in.Links) == 0 {
@@ -596,8 +591,7 @@ func handleLinkPurchases(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in linkPurchasesReq
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxTinyJSONBody) {
 		return
 	}
 	if in.PurchaseID <= 0 || len(in.SaleIDs) == 0 {

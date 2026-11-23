@@ -10,7 +10,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -346,8 +345,7 @@ func handleGoofishRebind(w http.ResponseWriter, r *http.Request) {
 		Taobao    string `json:"taobao"`
 		UmidToken string `json:"umid_token"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, 256<<10) {
 		return
 	}
 	shop := shopID(r)
@@ -434,8 +432,7 @@ func handleGoofishLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Cookie string `json:"cookie"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxSmallJSONBody) {
 		return
 	}
 	raw := strings.TrimSpace(in.Cookie)
@@ -561,7 +558,9 @@ func handleGoofishPreview(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		BackfillMonths int `json:"backfill_months"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&in)
+	if !decodeOptionalJSONBody(w, r, &in, maxTinyJSONBody) {
+		return
+	}
 	gfProgress(shop, 5, "正在刷新登录态…")
 	// 换发失败不能直接阻断：旧会话可能仍然有效，换发响应也可能已经落库了新凭证。
 	c, _ := gfRenewAndLoadClient(shop, gfRenewBeforeSync)
@@ -610,8 +609,7 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 		// RefreshOrderNos 预览页逐条勾选要补正的订单号；只有明确勾选的订单才会补正。
 		RefreshOrderNos []string `json:"refresh_order_nos"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 		return
 	}
 	plan := gfPlans.get(shop)
@@ -869,7 +867,9 @@ func handleGoofishKeepAlive(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		On bool `json:"on"`
 	}
-	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&in)
+	if !decodeOptionalJSONBody(w, r, &in, maxTinyJSONBody) {
+		return
+	}
 	v := "0"
 	if in.On {
 		v = "1"
@@ -1043,7 +1043,9 @@ func handleGoofishAuto(w http.ResponseWriter, r *http.Request) {
 		Window   int   `json:"window"`
 		Backfill *bool `json:"backfill"`
 	}
-	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&in)
+	if !decodeOptionalJSONBody(w, r, &in, maxTinyJSONBody) {
+		return
+	}
 	d := in.Days
 	if d < 0 {
 		d = 0

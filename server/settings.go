@@ -71,6 +71,10 @@ func maskKey(k string) string {
 }
 
 func handleSettings(w http.ResponseWriter, r *http.Request) {
+	if !isGlobalAdmin(r) {
+		writeError(w, 403, "系统设置需要全局管理员登录")
+		return
+	}
 	switch r.Method {
 	case "GET":
 		base, key, model := effectiveOCRConfig()
@@ -98,8 +102,7 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 			ReadOnlyPassword      string  `json:"readonly_password"`
 			ClearReadOnlyPassword bool    `json:"clear_readonly_password"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeError(w, 400, "请求体解析失败")
+		if !decodeJSONBody(w, r, &in, maxSettingsJSONBody) {
 			return
 		}
 		if in.OCREngine == "local" || in.OCREngine == "vision" {
@@ -154,6 +157,10 @@ func handleSettings(w http.ResponseWriter, r *http.Request) {
 func handleSettingsTest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		writeError(w, 405, "method not allowed")
+		return
+	}
+	if !isGlobalAdmin(r) {
+		writeError(w, 403, "测试识别配置需要全局管理员登录")
 		return
 	}
 	base, key, model := effectiveOCRConfig()
@@ -213,11 +220,14 @@ func handleTags(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, tags)
 	case "POST":
+		if !isGlobalAdmin(r) {
+			writeError(w, 403, "运费标签属于全局设置，需要全局管理员登录")
+			return
+		}
 		var in struct {
 			Name string `json:"name"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeError(w, 400, "请求体解析失败")
+		if !decodeJSONBody(w, r, &in, maxSmallJSONBody) {
 			return
 		}
 		name := strings.TrimSpace(in.Name)
@@ -240,6 +250,10 @@ func handleTags(w http.ResponseWriter, r *http.Request) {
 func handleTagByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "DELETE" {
 		writeError(w, 405, "method not allowed")
+		return
+	}
+	if !isGlobalAdmin(r) {
+		writeError(w, 403, "运费标签属于全局设置，需要全局管理员登录")
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/api/tags/")

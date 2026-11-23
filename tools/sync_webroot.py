@@ -94,6 +94,77 @@ def inject_meta(build, version=''):
     return build
 
 
+def sync_build_metadata(build):
+    """让跳过版本递增的重同步也记录最新前端构建号。
+
+    完整发布由 version.bump 一次性写入状态、历史和 Go 源码；
+    XY_SKIP_VERSION=1 只用于重跑前端同步，如果此时构建内容变化，
+    仍需同步构建号，否则设置页会把新前端和旧后端构建号并列显示。
+    """
+    import json
+    import importlib.util
+
+    state_path = os.path.join(ROOT, 'version', 'state.json')
+    history_path = os.path.join(ROOT, 'version', 'history.json')
+    changelog_path = os.path.join(ROOT, 'version', 'CHANGELOG.md')
+    try:
+        with open(state_path, encoding='utf-8') as f:
+            state = json.load(f) or {}
+        version = str(state.get('version') or '')
+        if not version:
+            return version
+        if state.get('build') == build:
+            return version
+
+        state['build'] = build
+        tmp = state_path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(json.dumps(state, ensure_ascii=False, indent=2) + '\n')
+        os.replace(tmp, state_path)
+
+        with open(history_path, encoding='utf-8') as f:
+            history = json.load(f) or []
+        for entry in reversed(history):
+            if entry.get('version') == version:
+                entry['build'] = build
+                break
+        tmp = history_path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(json.dumps(history, ensure_ascii=False, indent=2) + '\n')
+        os.replace(tmp, history_path)
+
+        if os.path.isfile(changelog_path):
+            with open(changelog_path, encoding='utf-8') as f:
+                changelog = f.read()
+            heading = re.compile(
+                r'(## ' + re.escape(version) + r' · [^\n]+\n(?:.|\n)*?)'
+                r'(前端构建：`)[0-9a-f]{10}(`)',
+                re.M)
+            changelog = heading.sub(lambda m: m.group(1) + m.group(2) + build + m.group(3),
+                                    changelog, count=1)
+            tmp = changelog_path + '.tmp'
+            with open(tmp, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(changelog)
+            os.replace(tmp, changelog_path)
+
+        spec = importlib.util.spec_from_file_location(
+            'xy_version', os.path.join(ROOT, 'tools', 'version.py'))
+        vmod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(vmod)
+        vmod.generate_go(
+            version,
+            int(state.get('count') or 0),
+            str(state.get('updated_at') or ''),
+            str(state.get('note') or ''),
+            history,
+            build)
+        print(f'  已同步当前版本 {version} 的前端构建号：{build}')
+        return version
+    except Exception as e:  # noqa: BLE001  元数据同步失败不应阻断静态资源更新
+        print(f'  警告：同步构建号失败（不影响前端产物）：{e}')
+        return str(state.get('version') or '') if 'state' in locals() else ''
+
+
 def sync():
     if not os.path.isdir(DIST):
         raise SystemExit('错误：web/dist 不存在，请先运行 npm run build')
@@ -127,14 +198,9 @@ def sync():
         except Exception as e:  # noqa: BLE001  版本失败不应阻断构建
             print(f'  警告：版本号递增失败（不影响构建）：{e}')
     else:
-        # 跳过递增时，仍要把「当前」版本号写进 meta。
-        # 否则前端读不到 xy-version，设置页的版本号会显示成「—」。
-        try:
-            import json as _json
-            with open(os.path.join(ROOT, 'version', 'state.json'), encoding='utf-8') as f:
-                version = (_json.load(f) or {}).get('version', '')
-        except Exception:  # noqa: BLE001
-            version = ''
+        # 跳过递增时，同步当前版本号与最新的前端构建号，避免设置页显示
+        # 新前端搭配旧后端构建号。
+        version = sync_build_metadata(build)
     inject_meta(build, version)
     print(f'前端产物同步完成：{count} 个文件（清理旧 assets {removed} 个）-> {DEST}（构建 {build} / 版本 {version or "跳过"}）')
 

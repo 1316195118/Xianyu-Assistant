@@ -617,13 +617,11 @@ async function toggleSettle(g) {
     <div v-if="sortedGroups.length" class="group-grid">
       <section v-for="g in sortedGroups" :key="g.id" class="card group-card"
                :class="{ focused: focusedId === g.id, settled: isSettled(g) }"
-               :data-group-id="g.id" role="button" tabindex="0"
-               :aria-label="(isSettled(g) ? '已完结联单：' : '') + g.title + '，查看详情'"
-               @click="openDetail(g)" @keydown.enter="openDetail(g)">
+               :data-group-id="g.id" @click="openDetail(g)">
         <div class="gc-head">
-          <span class="gc-title" :title="g.title">
+          <button type="button" class="gc-title gc-open" :title="'查看联单：' + g.title" @click.stop="openDetail(g)">
             <span v-if="groupSource(g)" class="src-tag" :class="'src-' + groupSource(g)">{{ groupSource(g) }}</span>{{ g.title }}
-          </span>
+          </button>
         </div>
 
         <div class="gc-line">

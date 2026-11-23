@@ -19,7 +19,10 @@ async function auditViewport(width, height, routes) {
   const page = await context.newPage()
   page.on('pageerror', (error) => errors.push({ width, error: error.message }))
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push({ width, error: message.text() })
+    if (message.type() !== 'error') return
+    // 404 页故意返回 HTTP 404，浏览器会记一条资源加载错误；这不是页面脚本异常。
+    if (page.url().endsWith('/not-a-page') && /Failed to load resource.*404/i.test(message.text())) return
+    errors.push({ width, error: message.text() })
   })
 
   for (const route of routes) {

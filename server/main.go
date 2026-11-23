@@ -98,6 +98,7 @@ func main() {
 // securityHeaders 全局安全响应头，在 main.go 包住整个 mux。
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer drainRequestBody(r, 2<<20)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
@@ -106,11 +107,11 @@ func securityHeaders(next http.Handler) http.Handler {
 			// 只在 HTTPS 请求上发送 HSTS，避免内网 HTTP 直连部署被浏览器永久升级后无法访问。
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		}
-		// CSP：只允许同源资源；内联样式用于 Vue 的 :style 绑定，
-		// 内联脚本是 index.html 的主题初始化；OCR 需要 wasm 编译与 blob worker。
+		// CSP：脚本只允许同源文件；内联样式用于 Vue 的 :style 绑定，
+		// OCR 需要 wasm 编译与 blob worker。
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
-				"script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; "+
+				"script-src 'self' 'wasm-unsafe-eval'; "+
 				"style-src 'self' 'unsafe-inline'; "+
 				"img-src 'self' data: blob:; "+
 				"font-src 'self' data:; "+

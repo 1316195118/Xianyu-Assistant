@@ -87,7 +87,7 @@ func handleUndoOps(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// 真的删行：未消费也允许删除（契约允许）。
-		if _, err := db.Exec("DELETE FROM undo_ops WHERE token=?", token); err != nil {
+		if _, err := db.Exec("DELETE FROM undo_ops WHERE token=? AND shop_id=?", token, shopID(r)); err != nil {
 			writeError(w, 500, "删除撤销记录失败")
 			return
 		}
@@ -121,8 +121,7 @@ func handleBatchUpdate(w http.ResponseWriter, r *http.Request) {
 		IDs    []int64           `json:"ids"`
 		Fields map[string]string `json:"fields"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, 256<<10) {
 		return
 	}
 	// 白名单过滤 + 排序保证生成的 SQL 稳定
@@ -163,7 +162,7 @@ func handleBatchUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	setParts = append(setParts, "updated_at=?")
 	// 列名全部来自白名单，值走占位符，杜绝 SQL 注入
-	q := "UPDATE items SET " + strings.Join(setParts, ",") + " WHERE id=?"
+	q := "UPDATE items SET " + strings.Join(setParts, ",") + " WHERE id=? AND shop_id=?"
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -179,11 +178,11 @@ func handleBatchUpdate(w http.ResponseWriter, r *http.Request) {
 	ts := nowStr()
 	updated := 0
 	for _, id := range clean {
-		args := make([]interface{}, 0, len(cols)+2)
+		args := make([]interface{}, 0, len(cols)+3)
 		for _, c := range cols {
 			args = append(args, in.Fields[c]) // 空字符串即清空该字段
 		}
-		args = append(args, ts, id)
+		args = append(args, ts, id, shopID(r))
 		res, e := stmt.Exec(args...)
 		if e != nil {
 			stmt.Close()
@@ -295,8 +294,7 @@ func handleMonthlyTarget(w http.ResponseWriter, r *http.Request) {
 			Month  string  `json:"month"`
 			Target float64 `json:"target"`
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&in); err != nil {
-			writeError(w, 400, "请求体解析失败")
+		if !decodeJSONBody(w, r, &in, maxTinyJSONBody) {
 			return
 		}
 		month = strings.TrimSpace(in.Month)
@@ -820,11 +818,17 @@ func ensureAttachmentColumn() {
 func ensureOCRFeedbackTable() {
 	db.Exec(`CREATE TABLE IF NOT EXISTS ocr_feedback (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        shop_id    INTEGER NOT NULL DEFAULT 1,
         record_id  INTEGER NOT NULL DEFAULT 0,
         correct    INTEGER NOT NULL DEFAULT 0,
         note       TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL
     )`)
+	var n int
+	db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('ocr_feedback') WHERE name='shop_id'").Scan(&n)
+	if n == 0 {
+		db.Exec("ALTER TABLE ocr_feedback ADD COLUMN shop_id INTEGER NOT NULL DEFAULT 1")
+	}
 }
 
 // initExtrasSchema 服务启动时调用一次；handler 内也会幂等调用，兼容旧库与测试。
@@ -847,22 +851,22 @@ func handleOCRFeedback(w http.ResponseWriter, r *http.Request) {
 			Correct  bool   `json:"correct"`
 			Note     string `json:"note"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeError(w, 400, "请求体解析失败")
+		if !decodeJSONBody(w, r, &in, maxSmallJSONBody) {
 			return
 		}
 		c := 0
 		if in.Correct {
 			c = 1
 		}
-		if _, err := db.Exec("INSERT INTO ocr_feedback(record_id,correct,note,created_at) VALUES(?,?,?,?)",
-			in.RecordID, c, in.Note, nowStr()); err != nil {
+		if _, err := db.Exec("INSERT INTO ocr_feedback(shop_id,record_id,correct,note,created_at) VALUES(?,?,?,?,?)",
+			shopID(r), in.RecordID, c, in.Note, nowStr()); err != nil {
 			writeError(w, 500, "保存反馈失败")
 			return
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	case "GET":
-		rows, err := db.Query("SELECT id, record_id, correct, note, created_at FROM ocr_feedback ORDER BY id DESC LIMIT 50")
+		rows, err := db.Query("SELECT id, record_id, correct, note, created_at FROM ocr_feedback WHERE shop_id=? ORDER BY id DESC LIMIT 50",
+			shopID(r))
 		if err != nil {
 			writeError(w, 500, "查询反馈失败")
 			return
@@ -1050,7 +1054,7 @@ func handleAttachment(w http.ResponseWriter, r *http.Request) {
 		// 换图时把旧文件与旧缩略图一起清掉，否则旧图永远是磁盘上的孤儿
 		var oldName string
 		db.QueryRow("SELECT COALESCE(attachment,'') FROM items WHERE id=? AND shop_id=?", id, shopID(r)).Scan(&oldName)
-		if _, err := db.Exec("UPDATE items SET attachment=?, updated_at=? WHERE id=?", name, nowStr(), id); err != nil {
+		if _, err := db.Exec("UPDATE items SET attachment=?, updated_at=? WHERE id=? AND shop_id=?", name, nowStr(), id, shopID(r)); err != nil {
 			writeError(w, 500, "记录附件失败")
 			return
 		}
@@ -1274,10 +1278,26 @@ var loginLimiter = struct {
 
 func remoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil {
-		return host
+	if err != nil {
+		host = strings.TrimSpace(r.RemoteAddr)
 	}
-	return r.RemoteAddr
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if ip == nil || !isTrustedProxy(ip) {
+		return strings.Trim(host, "[]")
+	}
+	// 从右向左跳过可信代理，返回第一个非可信地址。
+	// 这样客户端自己伪造的最左侧 XFF 不会被当成真实来源。
+	parts := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		candidate := net.ParseIP(strings.TrimSpace(parts[i]))
+		if candidate != nil && !isTrustedProxy(candidate) {
+			return candidate.String()
+		}
+	}
+	if candidate := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); candidate != nil {
+		return candidate.String()
+	}
+	return strings.Trim(host, "[]")
 }
 
 func allowLogin(ip string) bool {
@@ -1559,8 +1579,7 @@ func handleConsignSettle(w http.ResponseWriter, r *http.Request) {
 		Amount float64 `json:"amount"`
 		Note   string  `json:"note"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<10)).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxSettingsJSONBody) {
 		return
 	}
 	owner := strings.TrimSpace(in.Owner)
@@ -1686,8 +1705,7 @@ func handleConsignAssignOwner(w http.ResponseWriter, r *http.Request) {
 		Kind    string  `json:"kind"`
 		ItemIDs []int64 `json:"item_ids"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, 256<<10) {
 		return
 	}
 	owner := strings.TrimSpace(in.Owner)

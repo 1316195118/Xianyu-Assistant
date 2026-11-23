@@ -1298,7 +1298,7 @@ html[data-theme="dark"] .chart-tip { background: var(--surface-2); }
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 3px; font-size: 11px; font-weight: 600; cursor: pointer; padding: 0;
   }
-  .tabbar > button.active:not(.tab-fab) { color: var(--brand-deep); }
+  .tabbar > button.active:not(.tab-fab) { color: var(--brand-ink); }
   .tabbar .tab-fab {
     flex: 0 0 auto; width: 54px; height: 54px; margin: -18px 6px 0 6px; align-self: center;
     border-radius: 50%; border: 3px solid #fff; background: var(--brand);
@@ -2098,6 +2098,7 @@ html[data-theme="dark"] .app-header { background: rgba(28,34,43,.88); }
 html[data-theme="dark"] .modal-head,
 html[data-theme="dark"] .modal-foot { background: var(--surface); }
 html[data-theme="dark"] .tabbar { background: rgba(28,34,43,.96); }
+html[data-theme="dark"] .tabbar > button.active:not(.tab-fab) { color: var(--brand); }
 html[data-theme="dark"] .tab-fab { border-color: var(--surface); }
 html[data-theme="dark"] .hero-card,
 html[data-theme="dark"] .stat-card.hero { background: linear-gradient(120deg, #2b2617 0%, var(--surface) 60%); border-color: var(--border-strong); }
@@ -2651,6 +2652,7 @@ html[data-theme="dark"] .gc-stamp {
 .advice-main { flex: 1; min-width: 0; }
 .advice-title { font-size: var(--fs-sm); font-weight: 700; line-height: 1.35; }
 .advice-desc { font-size: 12px; line-height: 1.55; margin-top: 2px; }
+html[data-theme="dark"] .lv-warn .advice-desc.muted { color: #9aa8bd; }
 .advice-act { flex: 0 0 auto; align-self: center; }
 .advice-empty { padding: 10px 0; font-size: 12px; }
 .lv-warn { border-color: rgba(245, 158, 11, .32); background: rgba(245, 158, 11, .06); }
@@ -5044,7 +5046,7 @@ html[data-theme="dark"] .price-hint { color: #9dbcff; }
 .tab-ico { position: relative; display: inline-flex; }
 .tab-badge {
   position: absolute; top: -6px; right: -9px; min-width: 15px; height: 15px;
-  padding: 0 3px; border-radius: 999px; background: var(--up); color: #fff;
+  padding: 0 3px; border-radius: 999px; background: #b33621; color: #fff;
   font-size: 10px; font-style: normal; font-weight: 800; line-height: 15px;
   text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.2);
 }
@@ -5226,7 +5228,7 @@ html[data-theme="dark"] .discard-dot { background: #4a1b0c; color: #f0997b; }
 .seal-inline .seal-main { font-size: 9px; }
 .seal-inline .seal-sub { font-size: 4.6px; }
 .seal-inline .seal-star { font-size: 3.6px; }
-.seal-group { color: var(--blue); }
+.seal-group { color: #3e61b4; }
 
 /* 已弃单/联单中标签已由圆章取代 */
 
@@ -5331,7 +5333,16 @@ html[data-theme="dark"] .discard-dot { background: #4a1b0c; color: #f0997b; }
   55%  { opacity: .74; }
   100% { opacity: .68; transform: rotate(-10deg) scale(1); }
 }
+@keyframes sealStampGroup {
+  0%   { opacity: 0; transform: rotate(-26deg) scale(1.9); }
+  55%  { opacity: .94; }
+  100% { opacity: 1; transform: rotate(-10deg) scale(1); }
+}
 .seal-inline { animation: sealStamp .48s cubic-bezier(.2, .9, .3, 1.15) both; }
+.seal-inline.seal-group {
+  opacity: 1;
+  animation-name: sealStampGroup;
+}
 
 /* 3) 占比条 / 目标进度条：从左往右长出来（只动 transform，不触发布局） */
 @keyframes barGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
@@ -6160,7 +6171,7 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
     height: 18px; margin-top: 1px; overflow: hidden; flex-wrap: nowrap;
   }
   .rec-table .kind-text { flex: 0 0 auto; font-size: 10.5px; font-weight: 700; letter-spacing: .02em; }
-  .rec-table .kind-text.is-sell { color: #c07a12; }
+  .rec-table .kind-text.is-sell { color: #8f5700; }
   .rec-table .kind-text.is-buy { color: #4b7bd6; }
   .rec-table .meta-sep { flex: 0 0 auto; color: #d3d7de; font-size: 10px; }
   .rec-table .cell-meta .cell-sub {
@@ -6250,6 +6261,8 @@ html[data-theme="dark"] .rec-table thead th.col-time,
 html[data-theme="dark"] .rec-table tbody td.col-time { border-color: #2a323e; }
 html[data-theme="dark"] .rec-table .kind-text.is-sell { color: #e0a94a; }
 html[data-theme="dark"] .rec-table .kind-text.is-buy { color: #7ea8ff; }
+html[data-theme="dark"] .seal-group { color: #9ab7ff; }
+html[data-theme="dark"] .group-card .gc-open:hover { color: var(--brand); }
 html[data-theme="dark"] .rec-table .meta-sep { color: #4a5464; }
 
 /* ============================================================
@@ -6282,13 +6295,19 @@ html[data-theme="dark"] .rec-table .meta-sep { color: #4a5464; }
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   white-space: normal; overflow: hidden;
 }
+.group-card .gc-open {
+  width: 100%; padding: 0; border: 0; background: transparent; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.group-card .gc-open:hover { color: var(--brand-ink); }
+.group-card .gc-open:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 4px; }
 .gc-title .src-tag { margin-right: 5px; vertical-align: 1px; }
 .gc-state {
   flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
   font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
 }
 .gc-state::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-.gc-state.open { color: #1f8a4c; background: #eaf7ef; }
+.gc-state.open { color: #146b3b; background: #eaf7ef; }
 .gc-state.done { color: var(--text-3); background: var(--surface-2); }
 
 /* 利润率靠卡片右边缘：金额几位数都不会把徽章推来推去，整列卡片对得齐 */

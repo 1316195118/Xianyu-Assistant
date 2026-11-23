@@ -154,6 +154,40 @@ def judge(level, case, st, text, allow_4xx=True):
     record(level, case, 'PASS', f'HTTP {st}')
 
 
+def normalize_expected(value):
+    """按后端 cleanControlChars 的规则计算字符串字段的期望值。"""
+    return ''.join(
+        ch for ch in value
+        if not ((ord(ch) < 0x20 and ch not in '\t\n\r')
+                or ord(ch) == 0x7f or 0x80 <= ord(ch) <= 0x9f))
+
+
+def clamp_expected(value, limit):
+    """按后端 clampRunes 的规则，以 Unicode 字符数截断。"""
+    return value if len(value) <= limit else value[:limit]
+
+
+def normalize_expected_time(value):
+    """复刻后端 normalizeTime，供时间字段回读比对。
+
+    Go 的 len/切片按 UTF-8 字节计算；遇到仅 19 字节处截断多字节字符时，
+    encoding/json 会把残缺序列编码成 U+FFFD。脚本也按这一行为计算期望值，
+    避免把「后端按业务规则规范化」误报成数据损坏。有效时间格式仍原样通过。
+    """
+    value = normalize_expected(value).strip()
+    if not value:
+        return ''
+    value = value.replace('T', ' ', 1)
+    size = len(value.encode('utf-8'))
+    if size == 10:
+        return value + ' 00:00:00'
+    if size == 16:
+        return value + ':00'
+    if size > 19:
+        return value.encode('utf-8')[:19].decode('utf-8', 'replace')
+    return value
+
+
 # ------------------------------------------------------------------ Layer A
 def layer_a(host, payloads):
     for name, val in payloads:
@@ -211,13 +245,19 @@ def layer_b(host, payloads):
                 record('B', f'readback {field}={name}', 'WARN', '列表未找到刚写入的记录')
                 continue
             # 后端会对输入做规范化：cleanControlChars 去 C0/DEL/C1，
-            # product 额外 TrimSpace（Go 的 \v\f 也在空白内）。按同规则算出期望值。
-            want = ''.join(
-                ch for ch in val
-                if not ((ord(ch) < 0x20 and ch not in '\t\n\r')
-                        or ord(ch) == 0x7f or 0x80 <= ord(ch) <= 0x9f))
+            # product 额外 TrimSpace，时间字段还会按 normalizeTime 规范化。
+            want = normalize_expected(val)
             if field == 'product':
-                want = want.strip()
+                want = clamp_expected(want.strip(), 200)
+            elif field in ('buy_time', 'sell_time'):
+                want = normalize_expected_time(val)
+            elif field in ('buy_order_no', 'sell_order_no',
+                           'buy_counterparty', 'sell_counterparty'):
+                want = clamp_expected(want, 100)
+            elif field in ('buy_ship_tag', 'sell_ship_tag'):
+                want = clamp_expected(want, 50)
+            elif field == 'note':
+                want = clamp_expected(want, 2000)
             actual = got.get(field)
             if actual != want:
                 record('B', f'readback {field}={name}', 'WARN',

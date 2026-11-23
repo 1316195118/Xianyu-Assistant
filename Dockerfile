@@ -10,7 +10,6 @@ RUN apk add --no-cache ca-certificates tzdata \
 
 WORKDIR /app
 COPY xianyu-stat-linux-amd64 /app/xianyu-stat
-RUN chmod +x /app/xianyu-stat
 
 # 三个目录分开挂载：
 #   /data   数据库（DB_PATH）
@@ -23,9 +22,14 @@ ENV DB_PATH=/data/xianyu.db \
     PORT=8080 \
     TZ=Asia/Shanghai
 
-# 卷挂载点先建好，避免首次以只读或空卷启动时写入失败
-RUN mkdir -p /data /config /backup
+# 以非 root 用户运行；在线更新需要替换 /app 下的二进制，因此运行用户还要拥有 /app。
+RUN addgroup -S xianyu \
+    && adduser -S -G xianyu -h /app -s /sbin/nologin xianyu \
+    && mkdir -p /data /config /backup \
+    && chmod +x /app/xianyu-stat \
+    && chown -R xianyu:xianyu /app /data /config /backup
 VOLUME ["/data", "/config", "/backup"]
 EXPOSE 8080
+USER xianyu
 
 ENTRYPOINT ["/app/xianyu-stat"]

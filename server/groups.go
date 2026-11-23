@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -263,8 +262,7 @@ func handleGroups(w http.ResponseWriter, r *http.Request) {
 			Externals []GroupExternal `json:"externals"`     // 外部卖出
 			ExtBuys   []GroupExternal `json:"externals_buy"` // 外部买入
 		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeError(w, 400, "请求体解析失败")
+		if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 			return
 		}
 		in.Title = strings.TrimSpace(in.Title)
@@ -350,7 +348,9 @@ func setGroupItemsTx(tx *sql.Tx, groupID int64, ids []int64, shopID int64) error
 	if err := ensureGroupInShopTx(tx, groupID, shopID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec("DELETE FROM group_items WHERE group_id=?", groupID); err != nil {
+	if _, err := tx.Exec(`DELETE FROM group_items
+        WHERE group_id=? AND group_id IN (SELECT id FROM link_groups WHERE shop_id=?)`,
+		groupID, shopID); err != nil {
 		return err
 	}
 	for _, id := range ids {
@@ -519,7 +519,9 @@ func mergeGroupsTx(tx *sql.Tx, target int64, sources, ids []int64, shopID int64,
 		if _, err := tx.Exec("UPDATE group_externals SET group_id=? WHERE group_id=? AND shop_id=?", target, sourceID, shopID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec("DELETE FROM group_items WHERE group_id=?", sourceID); err != nil {
+		if _, err := tx.Exec(`DELETE FROM group_items
+            WHERE group_id=? AND group_id IN (SELECT id FROM link_groups WHERE shop_id=?)`,
+			sourceID, shopID); err != nil {
 			return err
 		}
 		res, err := tx.Exec("DELETE FROM link_groups WHERE id=? AND shop_id=?", sourceID, shopID)
@@ -644,8 +646,7 @@ func handleGroupByID(w http.ResponseWriter, r *http.Request) {
 			Externals []GroupExternal `json:"externals"`     // 外部卖出
 			ExtBuys   []GroupExternal `json:"externals_buy"` // 外部买入
 		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeError(w, 400, "请求体解析失败")
+		if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 			return
 		}
 		in.Title = strings.TrimSpace(in.Title)
@@ -701,7 +702,9 @@ func handleGroupByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "开启事务失败")
 			return
 		}
-		if _, err := tx.Exec("DELETE FROM group_items WHERE group_id=?", id); err != nil {
+		if _, err := tx.Exec(`DELETE FROM group_items
+            WHERE group_id=? AND group_id IN (SELECT id FROM link_groups WHERE shop_id=?)`,
+			id, shopID(r)); err != nil {
 			tx.Rollback()
 			writeError(w, 500, "删除关联失败")
 			return
@@ -743,8 +746,7 @@ func handleGroupExternalsSave(w http.ResponseWriter, r *http.Request, id int64) 
 		Kind  string          `json:"kind"`
 		Items []GroupExternal `json:"items"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 		return
 	}
 	kind := "sell"
@@ -782,8 +784,7 @@ func handleGroupItemsAdd(w http.ResponseWriter, r *http.Request, id int64) {
 	var in struct {
 		ItemIDs []int64 `json:"item_ids"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 		return
 	}
 	ids := uniqueIDs(in.ItemIDs)
@@ -843,7 +844,7 @@ func handleGroupItemsAdd(w http.ResponseWriter, r *http.Request, id int64) {
 		}
 	}
 	if added > 0 {
-		db.Exec("UPDATE link_groups SET updated_at=? WHERE id=?", nowStr(), id)
+		db.Exec("UPDATE link_groups SET updated_at=? WHERE id=? AND shop_id=?", nowStr(), id, shopID(r))
 		mergeAfterMutation(shopID(r))
 	}
 	var g LinkGroup
@@ -992,7 +993,9 @@ func handleGroupSettle(w http.ResponseWriter, r *http.Request, id int64) {
 	var in struct {
 		Settled bool `json:"settled"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&in) // 缺省 false → 取反逻辑处理
+	if !decodeOptionalJSONBody(w, r, &in, maxTinyJSONBody) {
+		return
+	}
 	var cur string
 	if err := db.QueryRow("SELECT settled_at FROM link_groups WHERE id=? AND shop_id=?", id, shopID(r)).Scan(&cur); err != nil {
 		writeError(w, 404, "联单不存在")
@@ -1008,7 +1011,8 @@ func handleGroupSettle(w http.ResponseWriter, r *http.Request, id int64) {
 	if newSettled {
 		val = nowStr()
 	}
-	if _, err := db.Exec("UPDATE link_groups SET settled_at=?, updated_at=? WHERE id=?", val, nowStr(), id); err != nil {
+	if _, err := db.Exec("UPDATE link_groups SET settled_at=?, updated_at=? WHERE id=? AND shop_id=?",
+		val, nowStr(), id, shopID(r)); err != nil {
 		writeError(w, 500, "更新失败")
 		return
 	}
@@ -1199,8 +1203,7 @@ func handleLinkSale(w http.ResponseWriter, r *http.Request) {
 		PurchaseIDs []int64 `json:"purchase_ids"`
 		Title       string  `json:"title"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 		return
 	}
 	if in.SaleID <= 0 || len(in.PurchaseIDs) == 0 {

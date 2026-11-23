@@ -214,6 +214,7 @@ async function checkAuth() {
     hasAnyPassword.value = authEnabled.value
     // 有会话但不是全局会话 → 被锁在单店；没会话时按可自由切换处理（登录后会纠正）
     globalSession.value = !s.has_session || !!s.global_session
+    if (!globalSession.value) allShopsMode.value = false
     const hasSession = !!s.has_session
     const shopCount = (s.shops || []).length
     let picked = 0
@@ -353,6 +354,7 @@ function scheduleDailyUpdateCheck(delay = 3500) {
 
 async function runDailyUpdateCheck() {
   dailyUpdateTimer = 0
+  if (!globalSession.value) return
   if (!claimDailyUpdateCheck()) return
   try {
     const result = await api.updateCheck()
@@ -812,7 +814,7 @@ function goSettingsFromModal() {
           <p class="muted">{{ pageSub }}</p>
         </div>
         <div class="topbar-actions">
-          <button v-if="shops.length > 1" class="scope-pill" :class="{ on: allShopsMode }"
+          <button v-if="shops.length > 1 && globalSession" class="scope-pill" :class="{ on: allShopsMode }"
                   :title="allShopsMode ? '当前查看全部店铺合计，点击切回单店' : '当前只看这家店，点击切换为全部店铺合计'"
                   @click="allShopsMode = !allShopsMode">
             {{ allShopsMode ? '全部店铺' : '当前店铺' }}

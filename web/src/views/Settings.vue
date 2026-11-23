@@ -6,30 +6,29 @@ import { themeMode, motionMode, setThemeInstant } from '../theme'
 import HelpTip from '../components/HelpTip.vue'
 import { undoAction } from '../feedback'
 import { gfPanelOpen, gfStatus } from '../gfState'
-import { activeId, activeShop } from '../shopStore'
+import { activeId, activeShop, globalSession } from '../shopStore'
 
 // 设置页只保留入口，弹窗内容全部按需加载。闲鱼同步 / 支付宝导入这类
 // 面板会连带二维码、解析表单和业务组件，放首包会让设置页明显变重。
-const RecyclePanel = defineAsyncComponent(() => import('../components/RecyclePanel.vue'))
-const VersionPanel = defineAsyncComponent(() => import('../components/VersionPanel.vue'))
-const ShopManage = defineAsyncComponent(() => import('../components/ShopManage.vue'))
-const GoofishSync = defineAsyncComponent(() => import('../components/GoofishSync.vue'))
-const AlipayImport = defineAsyncComponent(() => import('../components/AlipayImport.vue'))
-function preloadSettingsPanels() {
-  const loaders = [
-    () => import('../components/RecyclePanel.vue'),
-    () => import('../components/VersionPanel.vue'),
-    () => import('../components/ShopManage.vue'),
-    () => import('../components/GoofishSync.vue'),
-    () => import('../components/AlipayImport.vue')
-  ]
-  const run = () => { for (const load of loaders) load().catch(() => {}) }
-  if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 2500 })
-  else setTimeout(run, 1200)
+const settingsPanelLoaders = {
+  recycle: () => import('../components/RecyclePanel.vue'),
+  version: () => import('../components/VersionPanel.vue'),
+  shop: () => import('../components/ShopManage.vue'),
+  goofish: () => import('../components/GoofishSync.vue'),
+  alipay: () => import('../components/AlipayImport.vue')
+}
+const RecyclePanel = defineAsyncComponent(settingsPanelLoaders.recycle)
+const VersionPanel = defineAsyncComponent(settingsPanelLoaders.version)
+const ShopManage = defineAsyncComponent(settingsPanelLoaders.shop)
+const GoofishSync = defineAsyncComponent(settingsPanelLoaders.goofish)
+const AlipayImport = defineAsyncComponent(settingsPanelLoaders.alipay)
+function preloadPanel(name) {
+  settingsPanelLoaders[name]?.().catch(() => {})
 }
 
 const props = defineProps({ refreshKey: { type: Number, default: 0 } })
 const emit = defineEmits(['notify', 'refresh'])
+const canManageGlobals = computed(() => globalSession.value)
 
 const themeOptions = [
   { v: 'system', t: '跟随系统', icon: 'M3 4h18v12H3zM8 20h8M12 16v4' },
@@ -246,7 +245,10 @@ async function verifyBackupNow() {
 }
 
 async function loadAuth() {
-  try { auth.value = await api.authStatus() } catch (e) { /* ignore */ }
+  try {
+    const s = await api.authStatus()
+    auth.value = { enabled: !!s.global, has_session: !!s.has_session, global_session: !!s.global_session }
+  } catch (e) { /* ignore */ }
 }
 async function loadBackups() {
   backupError.value = ''
@@ -283,13 +285,24 @@ async function load() {
 async function loadLicenses() {
   try { licenses.value = await api.getLicenses() } catch (e) { /* ignore */ }
 }
-onMounted(() => {
-  load(); loadLicenses(); loadAuth(); loadBackups()
-  // 先保证设置页首屏轻量，空闲后再预取弹窗，常见入口首次点击也能秒开。
-  preloadSettingsPanels()
+onMounted(async () => {
+  await loadAuth()
+  loadLicenses()
+  if (canManageGlobals.value) {
+    load()
+    loadBackups()
+  } else {
+    loading.value = false
+  }
 })
 // 撤销覆盖导入等整库级操作后，由 App 提升 refreshKey 触发本页重载
-watch(() => props.refreshKey, () => { load(); loadBackups(); loadAuth() })
+watch(() => props.refreshKey, () => {
+  loadAuth()
+  if (canManageGlobals.value) {
+    load()
+    loadBackups()
+  }
+})
 
 // ---------- 访问密码 ----------
 // 服务端要求管理密码 ≥8 位、只读密码 ≥4 位。两边必须同一个数，
@@ -675,17 +688,20 @@ async function test() {
 
 <template>
   <div class="page settings-page">
+    <div v-if="!canManageGlobals" class="notice-box settings-scope-note" role="status">
+      当前使用店铺密码登录，可管理本店订单、同步与数据；识别引擎、访问密码、自动备份和在线更新仅全局管理员可修改。
+    </div>
     <!-- 常用 -->
     <section class="set-group">
       <div class="set-group-head"><b>常用</b><span>绑定账号、导入账单、设定目标</span></div>
       <div class="card set-group-items">
-        <button class="set-row" @click="gfOpen = true">
+        <button class="set-row" @mouseenter="preloadPanel('goofish')" @focus="preloadPanel('goofish')" @click="gfOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg></span>
           <span class="set-row-main"><b>闲鱼同步</b><small>扫码绑定，一键拉单与自动对账</small></span>
           <span class="badge" :class="gfStatus.order_api_valid ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ gfStatus.order_api_valid ? '可用' : (gfStatus.logged_in ? '需恢复' : '待绑定') }}</span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" @click="aliOpen = true">
+        <button class="set-row" @mouseenter="preloadPanel('alipay')" @focus="preloadPanel('alipay')" @click="aliOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg></span>
           <span class="set-row-main"><b>支付宝账单导入</b><small>按订单号补服务费与运费</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
@@ -707,13 +723,13 @@ async function test() {
           <span class="set-row-main"><b>外观与动效</b><small>{{ themeLabel }} · {{ motionEffective === 'reduce' ? '减少动效' : '完整动效' }}</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" @click="engineOpen = true">
+        <button v-if="canManageGlobals" class="set-row" @click="engineOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10h4M7 14h8"/></svg></span>
           <span class="set-row-main"><b>识别引擎</b><small>本地 OCR 不联网 / 视觉大模型更准</small></span>
           <span class="badge badge-ok"><span class="dot"></span>{{ engine === 'local' ? '本地 OCR' : '视觉大模型' }}</span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" @click="advancedOpen = true">
+        <button v-if="canManageGlobals" class="set-row" @click="advancedOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l-4 3 4 3"/><path d="M16 9l4 3-4 3"/><path d="M14 5l-4 14"/></svg></span>
           <span class="set-row-main"><b>视觉大模型 API</b><small>仅在选用视觉模型时需要配置</small></span>
           <span class="badge" :class="meta.has_key ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ meta.has_key ? '已配置' : '未配置' }}</span>
@@ -731,18 +747,18 @@ async function test() {
     <section class="set-group">
       <div class="set-group-head"><b>店铺与安全</b><span>多店铺隔离与访问权限</span></div>
       <div class="card set-group-items">
-        <button class="set-row" @click="shopOpen = true">
+        <button class="set-row" @mouseenter="preloadPanel('shop')" @focus="preloadPanel('shop')" @click="shopOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16l-1 11H5L4 9z"/><path d="M8 9V6a4 4 0 0 1 8 0v3"/></svg></span>
           <span class="set-row-main"><b>店铺管理</b><small>新建、改名与删除店铺</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" @click="pwdOpen = true">
+        <button v-if="canManageGlobals" class="set-row" @click="pwdOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
           <span class="set-row-main"><b>访问密码</b><small>局域网 / 公网部署时建议开启</small></span>
           <span class="badge" :class="auth.enabled ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ auth.enabled ? '已开启' : '未开启' }}</span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" @click="readonlyOpen = true">
+        <button v-if="canManageGlobals" class="set-row" @click="readonlyOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.5"/></svg></span>
           <span class="set-row-main"><b>只读账号</b><small>独立密码，只能查看不能修改</small></span>
           <span class="badge" :class="!auth.enabled ? 'badge-buy' : (meta.has_readonly ? 'badge-ok' : 'badge-buy')"><span class="dot"></span>{{ !auth.enabled ? '需先设管理密码' : (meta.has_readonly ? '已开启' : '未设置') }}</span>
@@ -755,7 +771,7 @@ async function test() {
     <section class="set-group">
       <div class="set-group-head"><b>数据与维护</b><span>备份、迁移与误删恢复</span></div>
       <div class="card set-group-items">
-        <button class="set-row" @click="backupOpen = true">
+        <button v-if="canManageGlobals" class="set-row" @click="backupOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
           <span class="set-row-main"><b>自动备份</b><small>定时快照 · 上次 {{ backupError ? '读取失败' : (backup.last || '从未') }}</small></span>
           <span class="badge" :class="backupError ? 'badge-buy' : (backup.enabled ? 'badge-ok' : 'badge-buy')"><span class="dot"></span>{{ backupError ? '状态未知' : (backup.enabled ? '已开启' : '未开启') }}</span>
@@ -766,7 +782,7 @@ async function test() {
           <span class="set-row-main"><b>数据导出 / 导入</b><small>JSON / CSV / Excel，跨设备迁移</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" @click="recycleOpen = true">
+        <button class="set-row" @mouseenter="preloadPanel('recycle')" @focus="preloadPanel('recycle')" @click="recycleOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6l1 14h12l1-14"/><path d="M10 11v6M14 11v6"/></svg></span>
           <span class="set-row-main"><b>回收站</b><small>近 7 天的操作，可撤销恢复</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
@@ -778,7 +794,7 @@ async function test() {
     <section class="set-group">
       <div class="set-group-head"><b>关于</b><span>版本与版权信息</span></div>
       <div class="card set-group-items">
-        <button class="set-row" @click="versionOpen = true">
+        <button class="set-row" @mouseenter="preloadPanel('version')" @focus="preloadPanel('version')" @click="versionOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
           <span class="set-row-main"><b>版本信息</b><small>当前版本与更新日志</small></span>
           <span class="ver-tag mono">{{ versionLabel }}</span>
@@ -959,7 +975,7 @@ async function test() {
       <div class="modal" role="dialog" aria-modal="true" aria-label="数据导出与导入">
         <div class="modal-head"><h3>数据导出 / 导入</h3><button class="x" @click="dataOpen = false" aria-label="关闭">×</button></div>
         <div class="modal-body">
-          <div class="notice-box">JSON / CSV / Excel <b>只包含当前店铺</b>的明细（另含全局的运费标签与识别设置；<b>不含访问密码与 API Key</b>），可用于系统间迁移；导入同样只写入当前店铺。导入前会自动备份当前数据。</div>
+          <div class="notice-box">JSON / CSV / Excel <b>只包含当前店铺</b>的明细和月度目标；<b>不包含 Cookie、Token、访问密码、API Key、更新代理或其他店铺配置</b>。导入同样只写入当前店铺，导入前会自动备份当前数据。</div>
           <div class="set-field-label">导出</div>
           <div class="data-actions">
             <button class="btn btn-primary" :disabled="!!exporting" @click="doExport('json')"><span v-if="exporting === 'json'" class="spin"></span>{{ exporting === 'json' ? '导出中' : 'JSON 完整备份' }}</button>

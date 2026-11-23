@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -228,12 +227,13 @@ func shopAccessAllowed(r *http.Request, shopID int64) bool {
 
 // anyPasswordConfigured 系统里是否设置了任何密码（全局或店铺）。
 func anyPasswordConfigured() bool {
-	if authEnabled() {
-		return true
-	}
 	var n int
-	db.QueryRow("SELECT COUNT(*) FROM shops WHERE COALESCE(password_hash,'')<>''").Scan(&n)
-	return n > 0
+	// 一条查询判断全局密码和店铺密码，避免每个请求先查 settings 再查 shops。
+	err := db.QueryRow(`SELECT CASE WHEN
+        EXISTS(SELECT 1 FROM settings WHERE key='auth_hash' AND value<>'')
+        OR EXISTS(SELECT 1 FROM shops WHERE COALESCE(password_hash,'')<>'')
+        THEN 1 ELSE 0 END`).Scan(&n)
+	return err == nil && n > 0
 }
 
 // hasAnySession 是否持有任意有效会话（不区分全局/店铺）。
@@ -248,17 +248,18 @@ func hasAnySession(r *http.Request) bool {
 
 // isGlobalAdmin 当前是否是全局密码签发的管理员会话（未绑定店铺）。
 func isGlobalAdmin(r *http.Request) bool {
+	// 有效会话先验签：店铺会话可直接判为非全局管理员，无需再查密码配置。
+	if c, err := r.Cookie(authCookie); err == nil {
+		if ok, role, shop := verifyTokenFull(c.Value); ok {
+			return role == "admin" && shop == 0
+		}
+	}
 	// 一个密码都没设时，应用本就不设防：不该把新建/删除店铺这类全局操作
 	// 反锁住（否则多店铺功能在未设密码的部署里直接不可用）。
 	if !anyPasswordConfigured() {
 		return true
 	}
-	c, err := r.Cookie(authCookie)
-	if err != nil {
-		return false
-	}
-	ok, role, shop := verifyTokenFull(c.Value)
-	return ok && role == "admin" && shop == 0
+	return false
 }
 
 // shopHasPassword 该店铺是否设了密码。
@@ -350,6 +351,18 @@ func authWrap(fn http.HandlerFunc) http.HandlerFunc {
 			writeError(w, 403, "只读账号不能修改数据")
 			return
 		}
+		// 跨店汇总与全局系统能力只属于全局管理员。店铺会话即使手工构造请求，
+		// 也不能借 all=1、更新、备份或系统设置越过本店边界。
+		if !isGlobalAdmin(r) {
+			if r.URL.Query().Get("all") == "1" {
+				writeError(w, 403, "全部店铺汇总需要全局管理员登录")
+				return
+			}
+			if isGlobalOnlyPath(r.URL.Path) {
+				writeError(w, 403, "该功能需要全局管理员登录")
+				return
+			}
+		}
 		// 店铺上下文统一在这里定好：所有业务查询都依赖它，
 		// 分散到各 handler 解析必然会漏，而漏一处就是跨店串数据。
 		sid, err := resolveShop(r)
@@ -389,6 +402,18 @@ func authWrap(fn http.HandlerFunc) http.HandlerFunc {
 		}
 		fn(w, r)
 	}
+}
+
+func isGlobalOnlyPath(path string) bool {
+	switch {
+	case path == "/api/settings", path == "/api/settings/test":
+		return true
+	case strings.HasPrefix(path, "/api/update/"):
+		return true
+	case strings.HasPrefix(path, "/api/backups"), strings.HasPrefix(path, "/api/backup/"):
+		return true
+	}
+	return false
 }
 
 func isWriteMethod(m string) bool {
@@ -450,8 +475,7 @@ func handleShopLogin(w http.ResponseWriter, r *http.Request) {
 		ShopID   int64  `json:"shop_id"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxTinyJSONBody) {
 		return
 	}
 	if in.ShopID <= 0 {
@@ -491,8 +515,7 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxTinyJSONBody) {
 		return
 	}
 	exp := time.Now().Add(7 * 24 * time.Hour).Unix()
@@ -530,6 +553,9 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 func requestIsHTTPS(r *http.Request) bool {
 	if r.TLS != nil {
 		return true
+	}
+	if !requestFromTrustedProxy(r) {
+		return false
 	}
 	proto := r.Header.Get("X-Forwarded-Proto")
 	if i := strings.IndexByte(proto, ','); i >= 0 {
@@ -569,13 +595,18 @@ func handleAuthPassword(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 		Disable  bool   `json:"disable"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxTinyJSONBody) {
 		return
 	}
-	if authEnabled() {
-		if !isAuthed(r) {
+	// 只要系统里已有任何密码（全局或店铺），改全局密码就必须由全局管理员会话发起。
+	// 否则只给某家店配了密码时，匿名访问者可以抢先把全局密码设成自己的。
+	if anyPasswordConfigured() {
+		if !hasAnySession(r) {
 			writeError(w, 401, "未登录")
+			return
+		}
+		if !isGlobalAdmin(r) {
+			writeError(w, 403, "只有全局管理员可以修改访问密码")
 			return
 		}
 		if !verifyPassword(in.Old, getSetting("auth_hash"), getSetting("auth_salt")) {

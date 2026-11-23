@@ -12,7 +12,7 @@ python tools/package_goofish_extension.py
 
 echo "[3/8] 安装前端依赖并打包 Vue ..."
 cd "$ROOT/web"
-npm install --no-audit --no-fund
+npm ci --no-audit --no-fund
 # 逐文件清空 dist，避免批量删除触发安全策略；Vite 只产出少量文件
 python "$ROOT/tools/sync_webroot.py" prepare
 npm run build

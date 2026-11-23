@@ -27,9 +27,11 @@ type undoSnapshot struct {
 	Items      []map[string]any `json:"items,omitempty"`
 	GroupItems []map[string]any `json:"group_items,omitempty"`
 	Groups     []map[string]any `json:"groups,omitempty"`
-	ShipTags   []map[string]any `json:"ship_tags,omitempty"`   // import_replace：ship_tags 全表
-	BackupName string           `json:"backup_name,omitempty"` // delete_backup：备份文件名
-	BackupData string           `json:"backup_data,omitempty"` // delete_backup：文件内容 base64
+	// 联单外部成交也要进快照：删除联单或覆盖导入后，撤销必须连这部分一起恢复。
+	GroupExternals []map[string]any `json:"group_externals,omitempty"`
+	ShipTags       []map[string]any `json:"ship_tags,omitempty"`   // import_replace：ship_tags 全表
+	BackupName     string           `json:"backup_name,omitempty"` // delete_backup：备份文件名
+	BackupData     string           `json:"backup_data,omitempty"` // delete_backup：文件内容 base64
 }
 
 // errUndoConflict 表示恢复的目标 id 已被占用，handleUndo 会整体回滚并返回 409。
@@ -64,8 +66,8 @@ CREATE TABLE IF NOT EXISTS undo_ops (
 }
 
 // pruneUndoOps 撤销容量治理：
-//  1) 删除 7 天前的所有记录；
-//  2) 其余按「未消费 + 新」优先保留，超过 200 条或 snapshot 累计超过 64MB 时，
+//  1. 删除 7 天前的所有记录；
+//  2. 其余按「未消费 + 新」优先保留，超过 200 条或 snapshot 累计超过 64MB 时，
 //     删除优先级低的记录（已消费、较旧优先被清）。
 //
 // 排序 consumed ASC, created_at DESC 即「保留优先级从高到低」；
@@ -221,8 +223,13 @@ func snapshotItemsUndo(op string, ids []int64, shopID int64) string {
 		} else {
 			log.Printf("撤销快照 items 读取失败(%s): %v", op, err)
 		}
-		giWhere, giArgs := idsWhere("item_id", ids)
-		if rows, err := queryMaps("SELECT * FROM group_items WHERE "+giWhere, giArgs...); err == nil {
+		giWhere, giArgs := idsWhere("gi.item_id", ids)
+		giArgs = append(giArgs, shopID)
+		if rows, err := queryMaps(`SELECT gi.* FROM group_items gi
+            WHERE `+giWhere+` AND (
+                EXISTS (SELECT 1 FROM link_groups g WHERE g.id=gi.group_id AND g.shop_id=?)
+                OR EXISTS (SELECT 1 FROM items i WHERE i.id=gi.item_id AND i.shop_id=?)
+            )`, append(giArgs, shopID)...); err == nil {
 			snap.GroupItems = rows
 		} else {
 			log.Printf("撤销快照 group_items 读取失败(%s): %v", op, err)
@@ -239,15 +246,22 @@ func snapshotItemsUndo(op string, ids []int64, shopID int64) string {
 // snapshotGroupUndo 在删除联单前取 link_groups 行 + group_items 关联，保存快照并返回 token。
 func snapshotGroupUndo(op string, groupID int64, shopID int64) string {
 	snap := undoSnapshot{Op: op}
-	if rows, err := queryMaps("SELECT * FROM link_groups WHERE id=?", groupID); err == nil {
+	if rows, err := queryMaps("SELECT * FROM link_groups WHERE id=? AND shop_id=?", groupID, shopID); err == nil {
 		snap.Groups = rows
 	} else {
 		log.Printf("撤销快照 link_groups 读取失败: %v", err)
 	}
-	if rows, err := queryMaps("SELECT * FROM group_items WHERE group_id=?", groupID); err == nil {
+	if rows, err := queryMaps(`SELECT gi.* FROM group_items gi
+        JOIN link_groups g ON g.id=gi.group_id
+        WHERE gi.group_id=? AND g.shop_id=?`, groupID, shopID); err == nil {
 		snap.GroupItems = rows
 	} else {
 		log.Printf("撤销快照 group_items 读取失败: %v", err)
+	}
+	if rows, err := queryMaps("SELECT * FROM group_externals WHERE group_id=? AND shop_id=?", groupID, shopID); err == nil {
+		snap.GroupExternals = rows
+	} else {
+		log.Printf("撤销快照 group_externals 读取失败: %v", err)
 	}
 	token, err := saveUndo(op, snap, shopID)
 	if err != nil {
@@ -269,6 +283,7 @@ func decodeUndoSnapshot(data string) (*undoSnapshot, error) {
 	normalizeUndoMaps(snap.Items)
 	normalizeUndoMaps(snap.GroupItems)
 	normalizeUndoMaps(snap.Groups)
+	normalizeUndoMaps(snap.GroupExternals)
 	normalizeUndoMaps(snap.ShipTags)
 	return &snap, nil
 }
@@ -387,6 +402,11 @@ func restoreDeletedGroup(tx *sql.Tx, snap *undoSnapshot) (int, error) {
 	if err := restoreGroupItems(tx, snap.GroupItems); err != nil {
 		return 0, err
 	}
+	if len(snap.GroupExternals) > 0 {
+		if err := insertMapsOrIgnore(tx, "group_externals", sortedKeys(snap.GroupExternals[0]), snap.GroupExternals); err != nil {
+			return 0, err
+		}
+	}
 	return len(snap.Groups), nil
 }
 
@@ -471,6 +491,7 @@ func restoreImportReplace(tx *sql.Tx, snap *undoSnapshot, shopID int64) (int, er
 	// ship_tags 是全局共享配置，不在此清空（快照里的标签用 INSERT OR IGNORE 补回）。
 	for _, q := range []string{
 		"DELETE FROM group_items WHERE group_id IN (SELECT id FROM link_groups WHERE shop_id=?)",
+		"DELETE FROM group_externals WHERE shop_id=?",
 		"DELETE FROM items WHERE shop_id=?",
 		"DELETE FROM link_groups WHERE shop_id=?",
 	} {
@@ -498,7 +519,12 @@ func restoreImportReplace(tx *sql.Tx, snap *undoSnapshot, shopID int64) (int, er
 			return 0, err
 		}
 	}
-	return len(snap.Items) + len(snap.Groups) + len(snap.ShipTags) + len(snap.GroupItems), nil
+	if len(snap.GroupExternals) > 0 {
+		if err := insertMapsOrIgnore(tx, "group_externals", sortedKeys(snap.GroupExternals[0]), snap.GroupExternals); err != nil {
+			return 0, err
+		}
+	}
+	return len(snap.Items) + len(snap.Groups) + len(snap.ShipTags) + len(snap.GroupItems) + len(snap.GroupExternals), nil
 }
 
 // handleUndo：POST /api/undo {token}，在一个事务里按 op 分派恢复，成功后标记 consumed。
@@ -512,8 +538,7 @@ func handleUndo(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Token string `json:"token"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxTinyJSONBody) {
 		return
 	}
 	in.Token = strings.TrimSpace(in.Token)
@@ -582,7 +607,7 @@ func handleUndo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "提交失败")
 		return
 	}
-	if _, err := db.Exec("UPDATE undo_ops SET consumed=1 WHERE token=?", in.Token); err != nil {
+	if _, err := db.Exec("UPDATE undo_ops SET consumed=1 WHERE token=? AND shop_id=?", in.Token, shopID(r)); err != nil {
 		log.Printf("标记撤销记录已消费失败: %v", err)
 	}
 	writeJSON(w, map[string]interface{}{"ok": true, "restored": restored})

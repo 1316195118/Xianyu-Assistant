@@ -450,8 +450,7 @@ func handleMatch(w http.ResponseWriter, r *http.Request) {
 		Product string `json:"product"`
 		Side    string `json:"side"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 		return
 	}
 	in.Product = strings.TrimSpace(in.Product)
@@ -496,8 +495,7 @@ func handleBatchDelete(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		IDs []int64 `json:"ids"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 		return
 	}
 	clean := in.IDs[:0]
@@ -561,7 +559,7 @@ func handleBatchDelete(w http.ResponseWriter, r *http.Request) {
 func handleTrend(w http.ResponseWriter, r *http.Request) {
 	where, args := buildWhere(r) // shop-scope: buildWhere 内部已带 shop_id 条件
 	sid := shopID(r)
-	if r.URL.Query().Get("all") == "1" {
+	if r.URL.Query().Get("all") == "1" && isGlobalAdmin(r) {
 		sid = -1
 	}
 	// 派生分摊数据必须在主查询之前取完。不能拿着 items 的 Rows 再去申请第二条连接，
@@ -747,8 +745,9 @@ func buildWhere(r *http.Request) (string, []interface{}) {
 
 	// 店铺隔离的第一道条件：明细列表的 COUNT 与分页取数共用这个 where，
 	// 放在数组首位而不是末尾拼接，后续任何新条件都不会把它挤掉。
-	// all=1 时放开店铺条件（概览「全部店铺合计」视图用，仅统计接口传入）。
-	if r.URL.Query().Get("all") == "1" {
+	// all=1 时放开店铺条件（概览「全部店铺合计」视图用，仅全局管理员可用）。
+	// 这里再做一层防御，保证即使未来新 handler 忘记走 authWrap，也不会直接串店。
+	if r.URL.Query().Get("all") == "1" && isGlobalAdmin(r) {
 		conds = append(conds, "1=1")
 	} else {
 		conds = append(conds, "shop_id = ?")
@@ -998,8 +997,7 @@ func listRecords(w http.ResponseWriter, r *http.Request) {
 // 卖出单可关联到某个买进单（parent_id），一个买进单可挂 N 个卖出单。
 func createRecord(w http.ResponseWriter, r *http.Request) {
 	var in ItemInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 		return
 	}
 	sanitizeItemInput(&in) // 过滤 NUL/C0/DEL/C1 控制字符，避免写进 SQLite TEXT
@@ -1369,8 +1367,7 @@ func handleRecordByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var in ItemInput
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeError(w, 400, "请求体解析失败")
+		if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 			return
 		}
 		sanitizeItemInput(&in)
@@ -1824,8 +1821,7 @@ func handleRecordsExists(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		OrderNos []string `json:"order_nos"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "请求体解析失败")
+	if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 		return
 	}
 	// 去空白、去重、封顶 200 条：再多也没必要，且 IN 列表过长会拖慢查询

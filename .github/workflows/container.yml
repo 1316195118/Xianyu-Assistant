@@ -21,6 +21,25 @@ jobs:
         with:
           go-version-file: server/go.mod
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 后端测试与静态检查
+        working-directory: server
+        run: |
+          go test -count=1 ./...
+          go vet ./...
+
+      - name: 前端依赖审计与构建
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm audit --omit=dev --audit-level=high
+          npm run build
+
       - name: 校验浏览器扩展并刷新下载包
         run: |
           node --test tools/goofish_extension/background.test.js

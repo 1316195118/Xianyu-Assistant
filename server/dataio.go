@@ -20,14 +20,41 @@ type exportBundle struct {
 	Settings   map[string]string `json:"settings"`
 }
 
-// 这些设置项属于敏感/环境相关，导出时排除
-var privateSettings = map[string]bool{
-	"auth_hash": true, "auth_salt": true, "auth_secret": true,
-	"readonly_password_hash": true, "readonly_salt": true,
-	"ocr_api_key": true,
-	// 更新用的 GitHub Token 属于凭据，代理地址也可能带账号密码，
-	// 都不该跟着备份文件流出去
-	"update_token": true, "update_proxy": true,
+const monthlyTargetPrefix = "monthly_target@"
+
+// shopMonthlyTargetKey 只接受「月度目标 + YYYY-MM + 当前店铺」这一种店铺级设置。
+// 其余设置一律不参与导出/导入，避免 Cookie、Token、全局 OCR 或更新代理随备份扩散。
+func shopMonthlyTargetKey(key string, sid int64) (string, bool) {
+	key = strings.TrimSpace(key)
+	if !strings.HasPrefix(key, monthlyTargetPrefix) {
+		return "", false
+	}
+	rest := strings.TrimPrefix(key, monthlyTargetPrefix)
+	at := strings.LastIndexByte(rest, '@')
+	if at < 0 {
+		return "", false
+	}
+	month := rest[:at]
+	if len(month) != 7 || month[4] != '-' {
+		return "", false
+	}
+	for i, c := range month {
+		if i == 4 {
+			continue
+		}
+		if c < '0' || c > '9' {
+			return "", false
+		}
+	}
+	m, err := strconv.Atoi(month[5:])
+	if err != nil || m < 1 || m > 12 {
+		return "", false
+	}
+	wantSuffix := "@" + strconv.FormatInt(sid, 10)
+	if !strings.HasSuffix(key, wantSuffix) {
+		return "", false
+	}
+	return key, true
 }
 
 // collectExport 导出当前店铺的数据。运费标签等全局配置照常带上，
@@ -58,13 +85,13 @@ func collectExport(shopID int64) (exportBundle, error) {
 			b.Tags = append(b.Tags, n)
 		}
 	}
-	setRows, err := db.Query("SELECT key, value FROM settings")
+	setRows, err := db.Query("SELECT key, value FROM settings WHERE key LIKE ?", monthlyTargetPrefix+"%")
 	if err == nil {
 		defer setRows.Close()
 		for setRows.Next() {
 			var k, v string
 			setRows.Scan(&k, &v)
-			if !privateSettings[k] && v != "" {
+			if _, ok := shopMonthlyTargetKey(k, shopID); ok && v != "" {
 				b.Settings[k] = v
 			}
 		}
@@ -194,8 +221,7 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 		Mode string        `json:"mode"` // merge | replace
 		Data *exportBundle `json:"data"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, 400, "文件解析失败：不是有效的导出 JSON")
+	if !decodeJSONBody(w, r, &in, maxImportJSONBody) {
 		return
 	}
 	if in.Data == nil || in.Data.Items == nil {
@@ -242,6 +268,10 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "导入前快照失败: "+e.Error())
 			return
 		}
+		if snap.GroupExternals, e = queryMaps("SELECT * FROM group_externals WHERE shop_id=?", shopID(r)); e != nil {
+			writeError(w, 500, "导入前快照失败: "+e.Error())
+			return
+		}
 		if snap.ShipTags, e = queryMaps("SELECT * FROM ship_tags"); e != nil {
 			writeError(w, 500, "导入前快照失败: "+e.Error())
 			return
@@ -261,9 +291,18 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 
 	if in.Mode == "replace" {
 		// 覆盖导入只清空当前店铺；运费标签是全局共享配置，不随单店导入清空。
-		if _, err := tx.Exec("DELETE FROM items WHERE shop_id=?", shopID(r)); err != nil {
-			writeError(w, 500, "清空数据失败")
-			return
+		// 导入包不包含联单，因此旧联单、成员关系和外部成交也必须一并清掉，
+		// 否则删除明细后会留下指向不存在订单的陈旧关联。
+		for _, q := range []string{
+			"DELETE FROM group_items WHERE group_id IN (SELECT id FROM link_groups WHERE shop_id=?)",
+			"DELETE FROM group_externals WHERE shop_id=?",
+			"DELETE FROM items WHERE shop_id=?",
+			"DELETE FROM link_groups WHERE shop_id=?",
+		} {
+			if _, err := tx.Exec(q, shopID(r)); err != nil {
+				writeError(w, 500, "清空数据失败")
+				return
+			}
 		}
 	}
 
@@ -295,20 +334,28 @@ func handleImport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	for _, t := range in.Data.Tags {
-		if strings.TrimSpace(t) != "" {
-			tx.Exec("INSERT OR IGNORE INTO ship_tags(name, created_at) VALUES(?,?)", strings.TrimSpace(t), now)
+	if isGlobalAdmin(r) {
+		for _, t := range in.Data.Tags {
+			if strings.TrimSpace(t) != "" {
+				tx.Exec("INSERT OR IGNORE INTO ship_tags(name, created_at) VALUES(?,?)", strings.TrimSpace(t), now)
+			}
 		}
 	}
-	// 只恢复非敏感设置，且 merge 模式下不覆盖已有值
+	// 导入设置使用白名单：只接收当前店铺的月度目标，绝不落全局键或别店键。
 	for k, v := range in.Data.Settings {
-		if privateSettings[k] || k == "" {
+		if _, ok := shopMonthlyTargetKey(k, shopID(r)); !ok {
 			continue
 		}
-		if in.Mode == "merge" && getSetting(k) != "" {
-			continue
+		if in.Mode == "merge" {
+			var existing string
+			if err := tx.QueryRow("SELECT value FROM settings WHERE key=?", k).Scan(&existing); err == nil && existing != "" {
+				continue
+			}
 		}
-		tx.Exec("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", k, v)
+		if _, err := tx.Exec("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", k, v); err != nil {
+			writeError(w, 500, "导入设置失败")
+			return
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		writeError(w, 500, "提交失败: "+err.Error())
