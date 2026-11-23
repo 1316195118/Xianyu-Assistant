@@ -958,7 +958,8 @@ function onHeadEnd() {
           </div>
 
           <div v-else class="preview-row">
-            <img :src="previewUrl" class="preview-img" alt="截图预览" />
+            <img :src="previewUrl" class="preview-img" alt="待识别的闲鱼订单截图预览"
+                 width="108" height="108" decoding="async" />
             <div class="preview-side">
               <div class="recognize-state">
                 <span v-if="recState === 'recognizing'" class="muted"><span class="spin"></span> {{ recMsg }}</span>
@@ -1291,7 +1292,7 @@ function onHeadEnd() {
           <label>订单截图附件</label>
           <div class="attachment-row">
             <img v-if="attachmentName" :src="api.attachmentUrl(props.record.id, { w: 240, file: attachmentName })" class="attachment-thumb"
-                 alt="订单截图" role="button" tabindex="0" title="点击查看大图"
+                 alt="已有订单截图，点击查看大图" width="64" height="64" role="button" tabindex="0" title="点击查看大图"
                  @click="viewerSrc = api.attachmentUrl(props.record.id, { file: attachmentName })"
                  @keyup.enter="viewerSrc = api.attachmentUrl(props.record.id, { file: attachmentName })" />
             <label class="btn btn-sm btn-quiet">

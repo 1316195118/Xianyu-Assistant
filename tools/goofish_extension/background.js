@@ -15,6 +15,8 @@ const LOGIN_REFRESH_RETRY_MS = 30 * 60 * 1000
 const LOGIN_REFRESH_TIMEOUT_MS = 25 * 1000
 const LOGIN_REFRESH_SETTLE_MS = 350
 const LOGIN_REFRESH_URL = 'https://www.goofish.com/?xy_ext_refresh=1'
+const INTERACTIVE_LOGIN_URL = 'https://www.goofish.com/login'
+const INTERACTIVE_LOGIN_WINDOW_MS = 10 * 60 * 1000
 const AUTH_COOKIE_NAMES = new Set([
   'cookie2', 'sgcookie', 'unb', 'cna', 't', '_tb_token_', '_m_h5_tk',
   'cookie17', 'lgc', 'tracknick', '_nk_', 'havana_lgc_exp',
@@ -26,6 +28,7 @@ let refreshing = null
 let updateChecking = null
 let connectionChecking = null
 let pendingTimer = null
+let interactiveLoginTimer = null
 
 async function getConfig() {
   const saved = await chrome.storage.local.get(DEFAULT_CONFIG)
@@ -410,6 +413,149 @@ async function refreshLoginSession(reason = 'scheduled') {
   return refreshing
 }
 
+function interactiveLoginActive(saved) {
+  const startedAt = Number(saved.interactiveLoginStartedAt || 0)
+  return startedAt > 0 && Date.now() - startedAt < INTERACTIVE_LOGIN_WINDOW_MS &&
+    !['success', 'failed'].includes(saved.interactiveLoginState)
+}
+
+async function setInteractiveLoginState(state, message, extra = {}) {
+  await chrome.storage.local.set({
+    interactiveLoginState: state,
+    interactiveLoginMessage: message,
+    interactiveLoginUpdatedAt: new Date().toISOString(),
+    ...extra
+  })
+}
+
+async function completeInteractiveLogin(ok, message, nick = '') {
+  const saved = await chrome.storage.local.get({
+    interactiveLoginStartedAt: 0,
+    interactiveLoginState: '',
+    interactiveLoginCookieChangedAt: 0
+  })
+  if (!saved.interactiveLoginStartedAt ||
+      Date.now() - Number(saved.interactiveLoginStartedAt || 0) >= INTERACTIVE_LOGIN_WINDOW_MS) {
+    return
+  }
+  if (ok) {
+    await setInteractiveLoginState('success', message || '扫码登录成功，登录态已上报并通过校验', {
+      interactiveLoginNick: nick,
+      interactiveLoginFinishedAt: Date.now()
+    })
+    await setBadge(true, message || '扫码登录成功')
+    return
+  }
+  if (!saved.interactiveLoginCookieChangedAt) return
+  await setInteractiveLoginState('failed', message || '登录未完成，请重试', {
+    interactiveLoginFinishedAt: Date.now()
+  })
+}
+
+async function verifyInteractiveLogin() {
+  const saved = await chrome.storage.local.get({
+    interactiveLoginStartedAt: 0,
+    interactiveLoginState: '',
+    interactiveLoginCookieChangedAt: 0,
+    interactiveLoginBaselineFingerprint: ''
+  })
+  if (!interactiveLoginActive(saved)) return
+
+  const jar = await readLoginCookies()
+  if (!jar.goofish.has('cookie2') && !jar.goofish.has('unb')) {
+    await setInteractiveLoginState('waiting', '官方登录页已打开，请用闲鱼 App 扫码并确认')
+    return
+  }
+  const currentFingerprint = await fingerprint(jar.goofish, jar.sso)
+  const changed = !saved.interactiveLoginCookieChangedAt &&
+    currentFingerprint !== saved.interactiveLoginBaselineFingerprint
+  if (!saved.interactiveLoginCookieChangedAt && !changed) {
+    await setInteractiveLoginState('waiting', '官方登录页已打开，请用闲鱼 App 扫码并确认')
+    return
+  }
+  await setInteractiveLoginState('verifying', '已检测到登录完成，正在校验并上报…', {
+    interactiveLoginCookieChangedAt: Date.now()
+  })
+  const result = await syncNow(false)
+  if (result.ok) {
+    await completeInteractiveLogin(true, '扫码登录成功，登录态已上报并通过校验', result.nick || '')
+  }
+}
+
+async function noteInteractiveLoginCookieChange() {
+  const saved = await chrome.storage.local.get({
+    interactiveLoginStartedAt: 0,
+    interactiveLoginState: ''
+  })
+  if (!interactiveLoginActive(saved)) return
+  await setInteractiveLoginState('verifying', '已检测到登录完成，正在校验并上报…', {
+    interactiveLoginCookieChangedAt: Date.now()
+  })
+}
+
+async function armInteractiveLogin() {
+  const baselineJar = await readLoginCookies()
+  const baselineFingerprint = await fingerprint(baselineJar.goofish, baselineJar.sso)
+  await chrome.storage.local.set({
+    interactiveLoginStartedAt: Date.now(),
+    interactiveLoginState: 'waiting',
+    interactiveLoginMessage: '官方登录页已打开，请用闲鱼 App 扫码并确认',
+    interactiveLoginCookieChangedAt: 0,
+    interactiveLoginFinishedAt: 0,
+    interactiveLoginNick: '',
+    interactiveLoginBaselineFingerprint: baselineFingerprint
+  })
+  await setBadge(true, '已打开闲鱼官方登录页，等待扫码完成')
+  if (interactiveLoginTimer) clearTimeout(interactiveLoginTimer)
+  interactiveLoginTimer = setTimeout(() => {
+    interactiveLoginTimer = null
+    verifyInteractiveLogin().catch(() => {})
+  }, 2500)
+  return {
+    ok: true,
+    message: '官方登录页已打开，请用闲鱼 App 扫码并确认'
+  }
+}
+
+async function openInteractiveLogin(scheduleVerification = true) {
+  const cfg = await getConfig()
+  if (!await ensureServerPermission(cfg.server)) {
+    return {
+      ok: false,
+      message: '请先在快捷面板保存鱼助手服务器和店铺，再打开官方扫码登录'
+    }
+  }
+
+  let tab = null
+  const saved = await chrome.storage.local.get({ interactiveLoginTabId: 0 })
+  const existingTabId = Number(saved.interactiveLoginTabId || 0)
+  if (existingTabId) {
+    try {
+      const existing = await chrome.tabs.get(existingTabId)
+      if (existing && /^https:\/\/(?:www\.)?goofish\.com\/login(?:[?#]|$)/i.test(existing.url || '')) {
+        tab = await chrome.tabs.update(existingTabId, { active: true })
+      }
+    } catch (error) {
+      // 标签页已关闭时直接新建。
+    }
+  }
+  if (!tab || !tab.id) {
+    tab = await chrome.tabs.create({ url: INTERACTIVE_LOGIN_URL, active: true })
+  }
+
+  await chrome.storage.local.set({ interactiveLoginTabId: Number(tab.id) || 0 })
+  const armed = await armInteractiveLogin()
+  if (!scheduleVerification && interactiveLoginTimer) {
+    clearTimeout(interactiveLoginTimer)
+    interactiveLoginTimer = null
+  }
+  return {
+    ...armed,
+    tabId: Number(tab.id) || 0,
+    message: '已打开闲鱼官方登录页，请用闲鱼 App 扫码并确认'
+  }
+}
+
 async function syncNow(force = false) {
   if (syncing) return syncing
   syncing = (async () => {
@@ -422,6 +568,7 @@ async function syncNow(force = false) {
       const jar = await readLoginCookies()
       if (!jar.goofishRaw) {
         await setBadge(false, '浏览器里还没有闲鱼登录 Cookie，请先登录 www.goofish.com')
+        await completeInteractiveLogin(false, '还没有检测到闲鱼登录，请完成扫码后重试')
         return { ok: false, heartbeatOK, message: '请先在当前浏览器登录闲鱼' }
       }
 
@@ -431,6 +578,7 @@ async function syncNow(force = false) {
         lastAttemptedFingerprint: '',
         lastAttemptAt: 0,
         lastResult: '',
+        lastNick: '',
         lastLoginRefreshAt: 0,
         autoRefreshLogin: true
       })
@@ -459,6 +607,7 @@ async function syncNow(force = false) {
           ? '浏览器登录凭证已上报，但服务端尚未恢复；请检查服务端提示'
           : (refreshNote || '订单接口可用，登录态未变化')
         await setBadge(true, detail)
+        await completeInteractiveLogin(true, detail, stored.lastNick || '')
         return { ok: true, heartbeatOK, message: detail, refreshed: !!refreshNote }
       }
       const coolingDown = currentFingerprint === stored.lastAttemptedFingerprint &&
@@ -469,6 +618,7 @@ async function syncNow(force = false) {
         ))
         const message = '本次登录态校验失败，' + minutes + ' 分钟后再试；若已重新登录请在快捷面板点“立即同步”'
         await setBadge(false, message)
+        await completeInteractiveLogin(false, message)
         return { ok: false, heartbeatOK, message }
       }
       await chrome.storage.local.set({
@@ -491,11 +641,13 @@ async function syncNow(force = false) {
       })
       const message = refreshNote ? refreshNote + '，已自动上报并通过校验' : '已自动上报并通过校验'
       await setBadge(true, message)
+      await completeInteractiveLogin(true, message, result.nick || '')
       return { ok: true, heartbeatOK, message, nick: result.nick || '', refreshed: !!refreshNote }
     } catch (error) {
       const message = error && error.message ? error.message : String(error)
       await chrome.storage.local.set({ lastResult: 'error', lastError: message, lastSyncAt: new Date().toISOString() })
       await setBadge(false, message)
+      await completeInteractiveLogin(false, message)
       return { ok: false, heartbeatOK, message }
     } finally {
       syncing = null
@@ -535,6 +687,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 chrome.cookies.onChanged.addListener((change) => {
   if (change.removed || !AUTH_COOKIE_NAMES.has(change.cookie.name)) return
+  noteInteractiveLoginCookieChange().catch(() => {})
   debounceSync()
 })
 
@@ -558,7 +711,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         lastExtensionUpdateCheckAt: '', extensionLatestVersion: '',
         extensionCheckedVersion: '',
         extensionUpdateAvailable: false, extensionDownloadUrl: '',
-        extensionLatestSha256: '', extensionUpdateError: ''
+        extensionLatestSha256: '', extensionUpdateError: '',
+        interactiveLoginStartedAt: 0, interactiveLoginState: '',
+        interactiveLoginMessage: '', interactiveLoginNick: '',
+        interactiveLoginUpdatedAt: '', interactiveLoginFinishedAt: 0
       }),
       getConfig()
     ]).then(([saved, cfg]) => sendResponse({
@@ -575,6 +731,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message && message.type === 'check-connection') {
     checkConnection().then(sendResponse)
+    return true
+  }
+  if (message && message.type === 'arm-interactive-login') {
+    armInteractiveLogin().then(sendResponse).catch((error) => {
+      sendResponse({ ok: false, message: error && error.message ? error.message : String(error) })
+    })
+    return true
+  }
+  if (message && message.type === 'open-interactive-login') {
+    openInteractiveLogin().then(sendResponse).catch((error) => {
+      sendResponse({ ok: false, message: error && error.message ? error.message : String(error) })
+    })
     return true
   }
 })

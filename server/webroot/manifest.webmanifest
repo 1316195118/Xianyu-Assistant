@@ -1,7 +1,7 @@
 {
-  "name": "闲鱼售卖统计",
-  "short_name": "闲鱼记账",
-  "description": "闲鱼买卖记录、利润与成本统计，支持离线使用",
+  "name": "鱼助手 · 闲鱼售卖统计",
+  "short_name": "鱼助手",
+  "description": "自托管的闲鱼记账、成本分摊与利润统计工具",
   "lang": "zh-CN",
   "start_url": "/",
   "scope": "/",

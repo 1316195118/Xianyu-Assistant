@@ -133,10 +133,12 @@ import {
   markUpdateReleaseNotified
 } from './updatePreferences'
 import ShopSwitcher from './components/ShopSwitcher.vue'
+import SiteFooter from './components/SiteFooter.vue'
 import { activeId as activeShopId, loadShops, shops, globalSession, hasAnyPassword } from './shopStore'
 import { allShopsMode } from './shopScope'
 import { shopPickedThisSession, clearShopPicked } from './shopId'
 import { gfStatus, gfPanelOpen, gfRebindRequest } from './gfState'
+import { applyPageMeta } from './seo'
 import {
   online, connected, onRealtime, connectRealtime, disconnectRealtime, clientId
 } from './realtime'
@@ -237,21 +239,15 @@ async function checkAuth() {
 }
 function onUnauthorized() { needLogin.value = true; showModal.value = false }
 
-// 首屏之后趁空闲把其余视图的分包取回来。切店铺时视图会整体重建，
-// 分包若还没到就会先显示骨架——预取之后这一步永远是同步的，不会再空一下。
-const preloadTargets = [
-  ...Object.entries(viewLoaders),
-  ...Object.entries(panelLoaders).map(([key, loader]) => ['panel:' + key, loader])
-]
-function preloadViews() {
-  if (navigator.onLine === false) return
-  const run = () => {
-    for (const [k, l] of preloadTargets) {
-      try { loadChunk(k, l).catch(() => {}) } catch (e) { /* 预取失败不影响使用 */ }
-    }
-  }
-  if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 3000 })
-  else setTimeout(run, 1500)
+// 首屏不一次性拉取所有视图和弹窗。只对用户即将进入的导航做轻量预取，
+// 既保留点击后的即时反馈，也避免移动网络首访时无意义地下载全部分包。
+function prefetchView(key) {
+  if (navigator.onLine === false || !viewLoaders[key]) return
+  try { loadChunk(key, viewLoaders[key]).catch(() => {}) } catch (e) { /* 忽略预取失败 */ }
+}
+function prefetchPanel(key) {
+  if (navigator.onLine === false || !panelLoaders[key]) return
+  try { loadChunk('panel:' + key, panelLoaders[key]).catch(() => {}) } catch (e) { /* 忽略预取失败 */ }
 }
 
 // ---------- 多人实时同步 ----------
@@ -296,6 +292,8 @@ function openGfPanel(rebind = false) {
   gfPanelOpen.value = true
 }
 const gfBad = computed(() => !!gfStatus.value.expired || !!gfStatus.value.sync_error)
+const gfText = computed(() => gfBad.value ? '需恢复' : (gfStatus.value.order_api_valid ? '闲鱼' : (gfStatus.value.logged_in ? '待检测' : '去绑定')))
+const gfAriaLabel = computed(() => `闲鱼绑定状态：${gfText.value}`)
 const gfTip = computed(() => {
   if (gfBad.value) return '闲鱼登录已失效：' + (gfStatus.value.sync_error || '请在浏览器中重新登录闲鱼') + '，点击查看恢复方式'
   if (gfStatus.value.order_api_valid) return `闲鱼订单接口可用「${gfStatus.value.nick}」，点击查看同步状态`
@@ -374,7 +372,6 @@ async function runDailyUpdateCheck() {
 watch([authChecking, needLogin], ([checking, login]) => {
   if (!checking && !login) scheduleDailyUpdateCheck()
 }, { immediate: true })
-
 onMounted(() => {
   slowBootTimer = setTimeout(() => { if (authChecking.value) slowBoot.value = true }, 6000)
   loadTodoCount()
@@ -382,7 +379,6 @@ onMounted(() => {
   checkAuth()
   loadShops()
   startRealtime()
-  preloadViews()
   window.addEventListener('xy-unauthorized', onUnauthorized)
   window.addEventListener('hashchange', onHash)
   window.addEventListener('keydown', onGlobalKey)
@@ -434,6 +430,10 @@ const hashView = (h) => {
   return validViews.includes(v) ? v : 'overview'
 }
 const view = ref(hashView(location.hash))
+watch([view, needLogin, authChecking], ([currentView, login, checking]) => {
+  if (checking) return
+  applyPageMeta(login ? 'login' : currentView, { canonicalPath: '/' })
+}, { immediate: true })
 const showModal = ref(location.hash.endsWith('-add'))
 const viewOnly = ref(false)          // 弹窗是否以「只读查看」打开
 const focusQuery = ref('')           // 从商品利润排行跳明细时要过滤的商品名
@@ -786,18 +786,20 @@ function goSettingsFromModal() {
         <span class="side-brand-text"><b>闲鱼售卖统计</b><small>经营数据看板</small></span>
       </div>
       <nav class="side-nav">
-        <button v-for="n in navItems" :key="n.key" :class="{ active: view === n.key }" :aria-current="view === n.key ? 'page' : undefined" @click="switchView(n.key)">
+        <button v-for="n in navItems" :key="n.key" :class="{ active: view === n.key }" :aria-current="view === n.key ? 'page' : undefined"
+                @mouseenter="prefetchView(n.key)" @focus="prefetchView(n.key)" @click="switchView(n.key)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="n.icon" /></svg>
           <span>{{ n.label }}</span>
         </button>
       </nav>
       <div class="side-foot">
-        <button class="side-add" @click="openAdd">
+        <button class="side-add" @mouseenter="prefetchPanel('recordModal')" @focus="prefetchPanel('recordModal')" @click="openAdd">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           上传截图录入
         </button>
         <button v-if="authEnabled" class="side-logout" @click="doLogout">退出登录</button>
-        <div class="side-ver muted">数据仅存本机 · 离线可用</div>
+        <a class="side-legal" href="/privacy">隐私政策</a>
+        <div class="side-ver muted">数据仅存你的服务器 · 离线可用</div>
       </div>
     </aside>
 
@@ -822,15 +824,15 @@ function goSettingsFromModal() {
             <span class="presence-text">{{ connected ? (online > 1 ? `${online} 人在线` : '实时同步') : '离线' }}</span>
           </span>
           <button class="gf-presence" :class="{ bad: gfBad, on: gfStatus.order_api_valid }"
-                  :title="gfTip" @click="openGfPanel(gfBad)" aria-label="查看闲鱼绑定状态">
+                  :title="gfTip" @click="openGfPanel(gfBad)" :aria-label="gfAriaLabel">
             <i class="gf-presence-dot" aria-hidden="true"></i>
-            <span class="gf-presence-text">{{ gfBad ? '需恢复' : (gfStatus.order_api_valid ? '闲鱼' : (gfStatus.logged_in ? '待检测' : '去绑定')) }}</span>
+            <span class="gf-presence-text">{{ gfText }}</span>
           </button>
-          <button class="topbar-cmd" @click="cmdOpen = true" title="命令面板 (Ctrl / ⌘ + K)" aria-label="打开命令面板">
+          <button class="topbar-cmd" @mouseenter="prefetchPanel('commandPalette')" @focus="prefetchPanel('commandPalette')" @click="cmdOpen = true" title="命令面板 (Ctrl / ⌘ + K)" aria-label="打开命令面板，⌘K">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
             <kbd>⌘K</kbd>
           </button>
-          <button class="btn btn-primary topbar-add" @click="openAdd">
+          <button class="btn btn-primary topbar-add" @mouseenter="prefetchPanel('recordModal')" @focus="prefetchPanel('recordModal')" @click="openAdd">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             <span>上传截图</span>
           </button>
@@ -862,6 +864,7 @@ function goSettingsFromModal() {
           <Consign v-else-if="view === 'consign'" :key="'cs-' + activeShopId" :refreshKey="refreshKey" :initialTab="consignTab" :focusNonce="consignFocusNonce" @notify="notify" />
           <Settings v-else :key="'st-' + activeShopId" :refreshKey="refreshKey" @notify="notify" @refresh="bump" />
         </KeepAlive>
+        <SiteFooter />
       </div>
     </main>
 
@@ -879,14 +882,15 @@ function goSettingsFromModal() {
 
     <!-- 手机底部导航 -->
     <nav class="tabbar" :class="{ 'is-input-focus': inputFocused }">
-      <button v-for="n in navItems" :key="n.key" :class="{ active: view === n.key }" :aria-current="view === n.key ? 'page' : undefined" @click="switchView(n.key)">
+      <button v-for="n in navItems" :key="n.key" :class="{ active: view === n.key }" :aria-current="view === n.key ? 'page' : undefined"
+              @touchstart.passive="prefetchView(n.key)" @focus="prefetchView(n.key)" @click="switchView(n.key)">
         <span class="tab-ico">
           <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="n.icon" /></svg>
           <i v-if="n.key === 'records' && todoCount > 0" class="tab-badge" :title="todoCount + ' 单未挂成本'">{{ todoCount > 99 ? '99+' : todoCount }}</i>
         </span>
         <span>{{ n.label }}</span>
       </button>
-      <button class="tab-fab" @click="openAdd" aria-label="上传截图录入">
+      <button class="tab-fab" @touchstart.passive="prefetchPanel('recordModal')" @focus="prefetchPanel('recordModal')" @click="openAdd" aria-label="上传截图录入">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
     </nav>

@@ -296,7 +296,8 @@ onUnmounted(() => {
 
           <div v-if="rows.length" class="bi-thumbs">
             <div v-for="r in rows" :key="r.key" class="bi-thumb-cell">
-              <img :src="r.thumb" alt="" />
+              <img :src="r.thumb" :alt="`待识别订单截图：${r.file?.name || '未命名图片'}`"
+                   width="76" height="101" loading="lazy" decoding="async" />
               <button class="bi-thumb-x" @click="removeRow(r)" aria-label="移除">×</button>
             </div>
           </div>
@@ -334,7 +335,8 @@ onUnmounted(() => {
           </div>
           <div class="bi-queue">
             <div v-for="(r, i) in rows" :key="r.key" class="bi-qrow">
-              <img :src="r.thumb" alt="" class="bi-qthumb" />
+              <img :src="r.thumb" :alt="`正在识别的订单截图 ${i + 1}`"
+                   class="bi-qthumb" width="30" height="38" decoding="async" />
               <span class="bi-qname">第 {{ i + 1 }} 张</span>
               <span class="bi-qstate" :class="r.state">
                 <template v-if="r.state === 'pending'">等待</template>
@@ -365,7 +367,8 @@ onUnmounted(() => {
               <label class="bi-check">
                 <input type="checkbox" :checked="r.picked && pickable(r)" :disabled="!pickable(r)" @change="r.picked = $event.target.checked" />
               </label>
-              <img v-if="r.thumb" :src="r.thumb" alt="" class="bi-thumb" />
+              <img v-if="r.thumb" :src="r.thumb" :alt="`第 ${i + 1} 条订单截图：${r.file?.name || r.product || '待核对记录'}`"
+                   class="bi-thumb" width="52" height="66" loading="lazy" decoding="async" />
               <div v-else class="bi-thumb bi-thumb-json" title="来自闲鱼网页版导出的数据">JSON</div>
               <div class="bi-main">
                 <div class="bi-line1">

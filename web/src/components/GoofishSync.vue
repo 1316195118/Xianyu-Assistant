@@ -189,7 +189,7 @@ async function loadStatus() {
     pingMsg.value = ''
     // 自动同步失败会存 sync_error，页面一打开就能看到具体原因（不用等手动同步）
     const bridgeHint = s.bridge_online
-      ? '浏览器扩展在线，请在当前浏览器重新登录闲鱼，成功后会立即自动上报。'
+      ? '浏览器扩展在线，请点击扩展图标并使用「打开官方扫码登录」，成功后会立即自动上报。'
       : '请在当前浏览器登录闲鱼并确认扩展已启用，或临时重新粘贴 Cookie。'
     if (s.sync_error) pingMsg.value = s.sync_error + '。' + bridgeHint
     else if (s.expired) pingMsg.value = '登录会话已失效，服务器无法自行换回 cookie2。' + bridgeHint
@@ -493,8 +493,8 @@ onMounted(async () => {
 
             <div class="gf-bridge-callout">
               <div>
-                <b>推荐：浏览器扩展自动续期并上报</b>
-                <span>用平时登录闲鱼的 Edge / Chrome 即可。扩展会后台续期登录态，Cookie 更新后自动上传，不需要专用窗口、托盘程序或每天手动检查。</span>
+                <b>正式登录入口：浏览器扩展官方扫码登录</b>
+                <span>安装并连接扩展后，点击浏览器工具栏的鱼助手图标，再点「打开官方扫码登录」。扩展会打开闲鱼官方登录页，扫码完成后自动检测、上报并校验。</span>
               </div>
               <div class="gf-extension-install">
                 <a class="btn btn-sm btn-primary" href="/downloads/goofish-extension.zip" download="goofish-extension.zip">
@@ -503,7 +503,7 @@ onMounted(async () => {
                 </a>
                 <span>下载后解压，运行 <code>install_goofish_extension.bat</code>，再在扩展页加载解压目录。</span>
               </div>
-              <small>浏览器运行时自动处理；只有在闲鱼明确要求重新扫码或验证码时才需要人工验证。电脑关机后服务器仍能用已保存凭证拉单。</small>
+              <small>登录始终由闲鱼官方页面完成，扩展不会保存闲鱼账号密码。电脑关机后服务器仍能用已保存凭证拉单。</small>
             </div>
 
             <div v-if="status.bridge_auth_required" class="gf-extension-gate">
@@ -520,6 +520,7 @@ onMounted(async () => {
               </div>
             </div>
 
+            <div class="gf-manual-title">备用：手动粘贴 Cookie</div>
             <div class="gf-steps">
               <div class="gf-step"><b>1</b><span>电脑浏览器打开 <code>www.goofish.com</code> 并登录</span></div>
               <div class="gf-step"><b>2</b><span>按 <kbd>F12</kbd>，切到「网络」面板（Network）</span></div>
@@ -537,16 +538,17 @@ onMounted(async () => {
             <div class="gf-qr-sep"><span>或者</span></div>
             <button class="btn gf-qr-btn" :disabled="busy" @click="startQR">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 20h.01"/></svg>
-              扫码登录（实验性）
+              服务器扫码（实验性，备用）
             </button>
-            <div class="gf-qr-tip muted">闲鱼设备指纹校验严格，服务器生成的二维码可能提示「二维码失效」；更稳妥的方法是在平时登录闲鱼的浏览器中安装扩展。</div>
+            <div class="gf-qr-tip muted">服务器生成的二维码可能因闲鱼设备指纹校验而失效。正式入口请使用上方浏览器扩展的「官方扫码登录」。</div>
 
             <div v-if="qrOpen" class="gf-qr-panel">
               <div class="gf-qr-head">
                 <b>用闲鱼 App 扫码登录</b>
                 <button class="x" @click="stopQR" aria-label="关闭扫码">×</button>
               </div>
-              <img v-if="qrImg" class="gf-qr-img" :src="qrImg" alt="闲鱼登录二维码" />
+              <img v-if="qrImg" class="gf-qr-img" :src="qrImg" alt="闲鱼官方登录二维码，请使用闲鱼 App 扫码"
+                   width="230" height="230" decoding="async" />
               <div v-else class="gf-qr-loading"><span class="spin"></span> 正在生成二维码…</div>
               <div v-if="qrMsg" class="gf-qr-msg" :class="{ ok: qrStatus === 'confirmed' || qrStatus === 'scanned', err: qrStatus === 'failed' }">{{ qrMsg }}</div>
               <div v-else-if="qrStatus === 'new'" class="gf-qr-msg muted">打开手机闲鱼 App → 扫一扫 → 确认登录</div>
@@ -602,8 +604,8 @@ onMounted(async () => {
                 <ol>
                   <li>下载并解压扩展包，运行 <code>install_goofish_extension.bat</code>。</li>
                   <li>在扩展页启用「开发人员模式」，选择「加载解压缩的扩展」，指向刚解压的目录。</li>
-                  <li>在浏览器里正常登录 <code>www.goofish.com</code>。</li>
                   <li>点击浏览器工具栏里的扩展图标，在快捷面板填写服务器和店铺；如需配对码，点下方生成后填入。</li>
+                  <li>保存连接后，点扩展里的「打开官方扫码登录」，用闲鱼 App 完成官方扫码。</li>
                   <li>面板显示「当前可用」且服务器、配对码、闲鱼三项正常，即表示连接可用。</li>
                 </ol>
                 <a class="btn btn-sm gf-extension-download" href="/downloads/goofish-extension.zip" download="goofish-extension.zip">下载最新扩展包</a>

@@ -679,18 +679,18 @@ async function test() {
     <section class="set-group">
       <div class="set-group-head"><b>常用</b><span>绑定账号、导入账单、设定目标</span></div>
       <div class="card set-group-items">
-        <button class="set-row" aria-label="打开闲鱼同步" @click="gfOpen = true">
+        <button class="set-row" @click="gfOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg></span>
           <span class="set-row-main"><b>闲鱼同步</b><small>扫码绑定，一键拉单与自动对账</small></span>
           <span class="badge" :class="gfStatus.order_api_valid ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ gfStatus.order_api_valid ? '可用' : (gfStatus.logged_in ? '需恢复' : '待绑定') }}</span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" aria-label="打开支付宝账单导入" @click="aliOpen = true">
+        <button class="set-row" @click="aliOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg></span>
           <span class="set-row-main"><b>支付宝账单导入</b><small>按订单号补服务费与运费</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" aria-label="打开月度利润目标" @click="targetOpen = true">
+        <button class="set-row" @click="targetOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg></span>
           <span class="set-row-main"><b>月度利润目标</b><small>首页显示本月完成进度</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
@@ -702,24 +702,24 @@ async function test() {
     <section class="set-group">
       <div class="set-group-head"><b>外观与识别</b><span>界面显示与截图识别方式</span></div>
       <div class="card set-group-items">
-        <button class="set-row" aria-label="打开外观与动效" @click="appearanceOpen = true">
+        <button class="set-row" @click="appearanceOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg></span>
           <span class="set-row-main"><b>外观与动效</b><small>{{ themeLabel }} · {{ motionEffective === 'reduce' ? '减少动效' : '完整动效' }}</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" aria-label="打开识别引擎" @click="engineOpen = true">
+        <button class="set-row" @click="engineOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10h4M7 14h8"/></svg></span>
           <span class="set-row-main"><b>识别引擎</b><small>本地 OCR 不联网 / 视觉大模型更准</small></span>
           <span class="badge badge-ok"><span class="dot"></span>{{ engine === 'local' ? '本地 OCR' : '视觉大模型' }}</span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" aria-label="打开视觉大模型 API" @click="advancedOpen = true">
+        <button class="set-row" @click="advancedOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l-4 3 4 3"/><path d="M16 9l4 3-4 3"/><path d="M14 5l-4 14"/></svg></span>
           <span class="set-row-main"><b>视觉大模型 API</b><small>仅在选用视觉模型时需要配置</small></span>
           <span class="badge" :class="meta.has_key ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ meta.has_key ? '已配置' : '未配置' }}</span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" aria-label="打开识别与配对说明" @click="helpOpen = true">
+        <button class="set-row" @click="helpOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-.9.7-1.5 1.2-1.5 2.5"/><path d="M12 17h.01"/></svg></span>
           <span class="set-row-main"><b>识别与配对说明</b><small>买卖判定、自动配对与利润口径</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
@@ -731,18 +731,18 @@ async function test() {
     <section class="set-group">
       <div class="set-group-head"><b>店铺与安全</b><span>多店铺隔离与访问权限</span></div>
       <div class="card set-group-items">
-        <button class="set-row" aria-label="管理店铺" @click="shopOpen = true">
+        <button class="set-row" @click="shopOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16l-1 11H5L4 9z"/><path d="M8 9V6a4 4 0 0 1 8 0v3"/></svg></span>
           <span class="set-row-main"><b>店铺管理</b><small>新建、改名与删除店铺</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" aria-label="打开访问密码" @click="pwdOpen = true">
+        <button class="set-row" @click="pwdOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
           <span class="set-row-main"><b>访问密码</b><small>局域网 / 公网部署时建议开启</small></span>
           <span class="badge" :class="auth.enabled ? 'badge-ok' : 'badge-buy'"><span class="dot"></span>{{ auth.enabled ? '已开启' : '未开启' }}</span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" aria-label="打开只读账号设置" @click="readonlyOpen = true">
+        <button class="set-row" @click="readonlyOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.5"/></svg></span>
           <span class="set-row-main"><b>只读账号</b><small>独立密码，只能查看不能修改</small></span>
           <span class="badge" :class="!auth.enabled ? 'badge-buy' : (meta.has_readonly ? 'badge-ok' : 'badge-buy')"><span class="dot"></span>{{ !auth.enabled ? '需先设管理密码' : (meta.has_readonly ? '已开启' : '未设置') }}</span>
@@ -755,18 +755,18 @@ async function test() {
     <section class="set-group">
       <div class="set-group-head"><b>数据与维护</b><span>备份、迁移与误删恢复</span></div>
       <div class="card set-group-items">
-        <button class="set-row" aria-label="打开自动备份" @click="backupOpen = true">
+        <button class="set-row" @click="backupOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
           <span class="set-row-main"><b>自动备份</b><small>定时快照 · 上次 {{ backupError ? '读取失败' : (backup.last || '从未') }}</small></span>
           <span class="badge" :class="backupError ? 'badge-buy' : (backup.enabled ? 'badge-ok' : 'badge-buy')"><span class="dot"></span>{{ backupError ? '状态未知' : (backup.enabled ? '已开启' : '未开启') }}</span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" aria-label="打开数据导出与导入" @click="dataOpen = true">
+        <button class="set-row" @click="dataOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M4 17v3h16v-3"/></svg></span>
           <span class="set-row-main"><b>数据导出 / 导入</b><small>JSON / CSV / Excel，跨设备迁移</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" aria-label="打开回收站" @click="recycleOpen = true">
+        <button class="set-row" @click="recycleOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6l1 14h12l1-14"/><path d="M10 11v6M14 11v6"/></svg></span>
           <span class="set-row-main"><b>回收站</b><small>近 7 天的操作，可撤销恢复</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
@@ -778,13 +778,13 @@ async function test() {
     <section class="set-group">
       <div class="set-group-head"><b>关于</b><span>版本与版权信息</span></div>
       <div class="card set-group-items">
-        <button class="set-row" aria-label="查看版本信息与更新日志" @click="versionOpen = true">
+        <button class="set-row" @click="versionOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
           <span class="set-row-main"><b>版本信息</b><small>当前版本与更新日志</small></span>
           <span class="ver-tag mono">{{ versionLabel }}</span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
-        <button class="set-row" aria-label="开源许可与版权声明" @click="licensesOpen = true">
+        <button class="set-row" @click="licensesOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg></span>
           <span class="set-row-main"><b>开源许可与版权声明</b><small>第三方组件归属与许可证全文</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>

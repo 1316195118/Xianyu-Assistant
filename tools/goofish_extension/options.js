@@ -14,9 +14,14 @@ const updateDownload = document.getElementById('updateDownload')
 const updateDownloadLabel = document.getElementById('updateDownloadLabel')
 const checkUpdateButton = document.getElementById('checkUpdate')
 const checkUpdateLabel = document.getElementById('checkUpdateLabel')
+const officialLoginButton = document.getElementById('officialLogin')
+const officialLoginLabel = document.getElementById('officialLoginLabel')
+const interactiveLoginStatus = document.getElementById('interactiveLoginStatus')
 let updateBusy = false
+let officialLoginBusy = false
 let downloadUrl = ''
 let latestVersion = ''
+let interactiveLoginTimer = null
 
 function setMessage(text, kind = '') {
   message.textContent = text
@@ -53,8 +58,41 @@ function clearUpdateProgress() {
 
 function setButtonBusy(button, label, busy, text) {
   button.disabled = busy
+  button.setAttribute('aria-disabled', busy ? 'true' : 'false')
   button.classList.toggle('loading', busy)
   label.textContent = text
+}
+
+function renderInteractiveLogin(saved) {
+  const state = saved && saved.interactiveLoginState
+  if (!state || !saved.interactiveLoginMessage) {
+    interactiveLoginStatus.hidden = true
+    return
+  }
+  interactiveLoginStatus.hidden = false
+  interactiveLoginStatus.className = 'interactive-login-status ' + state
+  interactiveLoginStatus.textContent = saved.interactiveLoginNick && state === 'success'
+    ? '登录成功：' + saved.interactiveLoginNick + '，登录态已上报并通过校验'
+    : saved.interactiveLoginMessage
+}
+
+function scheduleInteractiveLoginRefresh(saved) {
+  if (interactiveLoginTimer) clearInterval(interactiveLoginTimer)
+  interactiveLoginTimer = null
+  if (!saved || !['waiting', 'verifying'].includes(saved.interactiveLoginState)) return
+  interactiveLoginTimer = setInterval(async () => {
+    try {
+      const runtime = await chrome.runtime.sendMessage({ type: 'get-runtime-status' })
+      const latest = runtime && runtime.saved
+      renderInteractiveLogin(latest)
+      if (!latest || !['waiting', 'verifying'].includes(latest.interactiveLoginState)) {
+        clearInterval(interactiveLoginTimer)
+        interactiveLoginTimer = null
+      }
+    } catch (error) {
+      // 单次状态读取失败不打断当前页面，下一次继续刷新。
+    }
+  }, 2500)
 }
 
 function renderUpdate(state, currentVersion = '') {
@@ -186,6 +224,30 @@ async function downloadUpdate() {
   }
 }
 
+async function openOfficialLogin() {
+  if (officialLoginBusy) return
+  officialLoginBusy = true
+  setButtonBusy(officialLoginButton, officialLoginLabel, true, '正在打开官方登录页…')
+  interactiveLoginStatus.hidden = false
+  interactiveLoginStatus.className = 'interactive-login-status waiting'
+  interactiveLoginStatus.textContent = '正在当前浏览器打开闲鱼官方登录页…'
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'arm-interactive-login' })
+    if (!result || !result.ok) throw new Error(result && result.message ? result.message : '无法打开官方登录页')
+    interactiveLoginStatus.textContent = result.message || '请在官方页面完成扫码'
+    setMessage('已打开闲鱼官方登录页，请用闲鱼 App 扫码', 'ok')
+    scheduleInteractiveLoginRefresh({ interactiveLoginState: 'waiting' })
+  } catch (error) {
+    const text = error && error.message ? error.message : String(error)
+    interactiveLoginStatus.className = 'interactive-login-status failed'
+    interactiveLoginStatus.textContent = text
+    setMessage(text, 'error')
+  } finally {
+    officialLoginBusy = false
+    setButtonBusy(officialLoginButton, officialLoginLabel, false, '打开闲鱼官方扫码登录')
+  }
+}
+
 async function load() {
   const cfg = await chrome.storage.local.get({
     server: DEFAULT_SERVER, shopId: 1, bridgeToken: '', autoRefreshLogin: true
@@ -196,6 +258,8 @@ async function load() {
   autoRefreshInput.checked = cfg.autoRefreshLogin !== false
   const runtime = await chrome.runtime.sendMessage({ type: 'get-runtime-status' })
   if (runtime && runtime.saved) {
+    renderInteractiveLogin(runtime.saved)
+    scheduleInteractiveLoginRefresh(runtime.saved)
     renderUpdate({
       ...runtime.saved,
       currentExtensionVersion: runtime.currentExtensionVersion
@@ -250,4 +314,5 @@ document.getElementById('save').addEventListener('click', save)
 document.getElementById('sync').addEventListener('click', syncNow)
 checkUpdateButton.addEventListener('click', () => requestUpdateCheck(true))
 updateDownload.addEventListener('click', downloadUpdate)
+officialLoginButton.addEventListener('click', openOfficialLogin)
 load().catch((error) => setMessage(error.message || String(error), 'error'))

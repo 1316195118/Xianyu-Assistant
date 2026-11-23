@@ -148,6 +148,71 @@ h1 { margin: 0; font-size: 17px; letter-spacing: .02em; }
 .health-item.checking i { animation: pulse 1s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .35; transform: scale(.8); } }
 
+.official-login-card {
+  display: grid;
+  gap: 9px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid #dfbe63;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #fffaf0, #fff3c8);
+  box-shadow: 0 8px 22px rgb(157 107 0 / 8%);
+}
+.official-login-copy {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.official-login-copy > div { min-width: 0; display: grid; gap: 2px; }
+.official-login-copy b { font-size: 12.5px; }
+.official-login-copy small {
+  color: #745c1b;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.official-login-icon {
+  width: 31px;
+  height: 31px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #f2c64e;
+  color: #513b00;
+  font-size: 17px;
+  font-weight: 850;
+}
+.official-login-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 39px;
+  border: 1px solid #2b2415;
+  border-radius: 10px;
+  background: #2b2415;
+  color: #fff5d3;
+  font-size: 12px;
+  font-weight: 760;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform .14s ease, background .14s ease;
+}
+.official-login-button:hover { background: #443817; }
+.official-login-button:active { transform: translateY(1px); }
+.interactive-login-status {
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 64%);
+  color: #614b12;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.interactive-login-status[hidden] { display: none; }
+.interactive-login-status.verifying { color: #815800; }
+.interactive-login-status.success { background: #e4f5e8; color: var(--green); }
+.interactive-login-status.failed { background: #fae7e8; color: var(--red); }
+
 form {
   padding: 15px;
   border: 1px solid var(--line);
@@ -315,7 +380,8 @@ button:disabled { cursor: wait; opacity: .72; }
   animation: spin .7s linear infinite;
   vertical-align: -2px;
 }
-button.loading .spinner { display: inline-block; }
+button.loading .spinner,
+.official-login-button.loading .spinner { display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .update-banner {
@@ -419,6 +485,14 @@ footer {
   .update-banner:hover { background: #332a12; }
   .update-banner.opened { border-color: #356844; background: #132a1b; color: #93dfa9; }
   .update-banner.error { border-color: #743a3e; background: #32191c; color: #ffb1b5; }
+  .official-login-card { border-color: #735c1d; background: linear-gradient(145deg, #29230f, #201d14); }
+  .official-login-copy small { color: #d4bf7c; }
+  .official-login-icon { background: #745d1d; color: #ffe18b; }
+  .official-login-button { border-color: #f1b91d; background: #f1b91d; color: #241b00; }
+  .official-login-button:hover { background: #ffd35a; }
+  .interactive-login-status { background: rgb(10 14 21 / 55%); color: #f2d996; }
+  .interactive-login-status.success { background: #173b24; }
+  .interactive-login-status.failed { background: #471f23; }
   .text-button { color: #b5c1d4; }
 }
 

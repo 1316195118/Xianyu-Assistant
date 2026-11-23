@@ -2,8 +2,29 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import './style.css'
 import './theme'
+import { applyPageMeta, publicPageForPath } from './seo'
 
-createApp(App).mount('#app')
+const publicLoaders = {
+  privacy: () => import('./pages/PrivacyPage.vue'),
+  terms: () => import('./pages/TermsPage.vue'),
+  notFound: () => import('./pages/NotFoundPage.vue')
+}
+
+async function mountPage() {
+  const page = publicPageForPath(location.pathname)
+  if (publicLoaders[page]) {
+    applyPageMeta(page, { canonicalPath: location.pathname })
+    const component = (await publicLoaders[page]()).default
+    createApp(component).mount('#app')
+    return
+  }
+  createApp(App).mount('#app')
+}
+
+mountPage().catch((error) => {
+  console.error('页面加载失败', error)
+  document.getElementById('app').textContent = '页面加载失败，请刷新后重试。'
+})
 
 // 部署新版后，浏览器里还开着的旧页面引用的分包文件名已被清理，
 // 点进「明细 / 联单 / 设置」时动态 import 会 404，页面就停在那里出不来。

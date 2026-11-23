@@ -990,8 +990,9 @@ function onCardClick(r, e) {
     </section>
 
     <!-- 汇总：6 张卡填满网格，净利润按中国习惯正红负绿 -->
-    <div class="section-caption sum-caption" @click="sumOpen = !sumOpen" :aria-expanded="sumOpen"
-         title="手机上点这里展开 / 收起六项汇总">
+    <div class="section-caption sum-caption" role="button" tabindex="0" @click="sumOpen = !sumOpen" :aria-expanded="sumOpen"
+         title="手机上点这里展开 / 收起六项汇总"
+         @keydown.enter.prevent="sumOpen = !sumOpen" @keydown.space.prevent="sumOpen = !sumOpen">
       <span>数据汇总</span><small>按当前筛选条件统计</small>
       <span class="sum-peek">{{ fmtNum(total) }} 条 · 净利 <b class="num" :class="filteredProfit >= 0 ? 'pos' : 'neg'">{{ fmtMoney(filteredProfit) }}</b></span>
       <svg class="sum-chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
@@ -1287,7 +1288,8 @@ function onCardClick(r, e) {
                 <td v-if="showCols.shot" class="col-shot">
                   <button v-if="r.attachment" type="button" class="td-thumb" @click.stop="openImage(r)"
                           title="查看订单截图" aria-label="查看订单截图">
-                    <img :src="thumbUrl(r, 160)" alt="订单截图" loading="lazy" decoding="async" />
+                    <img :src="thumbUrl(r, 160)" :alt="`${r.product || '交易记录'}订单截图`"
+                         width="34" height="46" loading="lazy" decoding="async" />
                   </button>
                   <span v-else class="td-thumb-empty">—</span>
                 </td>
@@ -1354,7 +1356,8 @@ function onCardClick(r, e) {
                   <div v-if="r.attachment" class="detail-group">
                     <div class="dg-title">订单截图</div>
                     <button type="button" class="dg-attach" @click.stop="openImage(r)">
-                      <img :src="thumbUrl(r, 720)" alt="订单截图" loading="lazy" decoding="async" />
+                      <img :src="thumbUrl(r, 720)" :alt="`${r.product || '交易记录'}订单截图，点击查看大图`"
+                           width="34" height="46" loading="lazy" decoding="async" />
                       <span class="dg-attach-tip">点击查看大图</span>
                     </button>
                   </div>

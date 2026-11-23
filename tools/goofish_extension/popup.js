@@ -16,6 +16,9 @@ const statusDetail = document.getElementById('statusDetail')
 const serverHealth = document.getElementById('serverHealth')
 const bridgeHealth = document.getElementById('bridgeHealth')
 const goofishHealth = document.getElementById('goofishHealth')
+const officialLoginButton = document.getElementById('officialLogin')
+const officialLoginLabel = document.getElementById('officialLoginLabel')
+const interactiveLoginStatus = document.getElementById('interactiveLoginStatus')
 const updateBanner = document.getElementById('updateBanner')
 const updateTitle = document.getElementById('updateTitle')
 const updateHint = document.getElementById('updateHint')
@@ -23,6 +26,7 @@ const openOptionsButton = document.getElementById('openOptions')
 const openOptionsLabel = document.getElementById('openOptionsLabel')
 const version = document.getElementById('version')
 let openingOptions = false
+let openingOfficialLogin = false
 
 function normalizeServer(value) {
   return String(value || '').trim().replace(/\/+$/, '')
@@ -120,6 +124,7 @@ function renderRuntime(runtime) {
   if (runtime.currentExtensionVersion) {
     version.textContent = '扩展 v' + runtime.currentExtensionVersion
   }
+  renderInteractiveLogin(saved)
   if (saved.extensionUpdateAvailable) {
     updateBanner.hidden = false
     updateTitle.textContent = '发现扩展新版 v' + saved.extensionLatestVersion
@@ -145,6 +150,20 @@ function renderRuntime(runtime) {
     return
   }
   setStatus('', '等待连接', '保存服务器和店铺后，扩展会自动检查闲鱼登录态。')
+}
+
+function renderInteractiveLogin(saved) {
+  const state = saved && saved.interactiveLoginState
+  if (!state || !saved.interactiveLoginMessage) {
+    interactiveLoginStatus.hidden = true
+    return
+  }
+  interactiveLoginStatus.hidden = false
+  interactiveLoginStatus.className = 'interactive-login-status ' + state
+  interactiveLoginStatus.textContent = saved.interactiveLoginMessage
+  if (state === 'success' && saved.interactiveLoginNick) {
+    interactiveLoginStatus.textContent = '登录成功：' + saved.interactiveLoginNick + '，登录态已上报并通过校验'
+  }
 }
 
 let connectionRequest = null
@@ -253,6 +272,35 @@ async function syncNow() {
   }
 }
 
+async function openOfficialLogin() {
+  if (openingOfficialLogin) return
+  openingOfficialLogin = true
+  officialLoginButton.disabled = true
+  officialLoginButton.setAttribute('aria-disabled', 'true')
+  officialLoginButton.classList.add('loading')
+  officialLoginLabel.textContent = '正在打开官方登录页…'
+  interactiveLoginStatus.hidden = false
+  interactiveLoginStatus.className = 'interactive-login-status waiting'
+  interactiveLoginStatus.textContent = '正在当前浏览器打开闲鱼官方登录页…'
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'arm-interactive-login' })
+    if (!result || !result.ok) throw new Error(result && result.message ? result.message : '无法打开官方登录页')
+    interactiveLoginStatus.textContent = result.message || '请在官方页面完成扫码'
+    setMessage(result.message || '请在官方页面完成扫码', 'ok')
+  } catch (error) {
+    const text = error && error.message ? error.message : String(error)
+    interactiveLoginStatus.className = 'interactive-login-status failed'
+    interactiveLoginStatus.textContent = text
+    setMessage(text, 'error')
+  } finally {
+    openingOfficialLogin = false
+    officialLoginButton.disabled = false
+    officialLoginButton.setAttribute('aria-disabled', 'false')
+    officialLoginButton.classList.remove('loading')
+    officialLoginLabel.textContent = '打开官方扫码登录'
+  }
+}
+
 async function openOptionsPage() {
   if (openingOptions) return
   openingOptions = true
@@ -285,6 +333,7 @@ async function openOptionsPage() {
 
 form.addEventListener('submit', save)
 syncButton.addEventListener('click', syncNow)
+officialLoginButton.addEventListener('click', openOfficialLogin)
 openOptionsButton.addEventListener('click', openOptionsPage)
 updateBanner.addEventListener('click', (event) => {
   event.preventDefault()

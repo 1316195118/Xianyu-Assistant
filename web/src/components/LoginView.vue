@@ -2,6 +2,7 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { api } from '../api'
 import { setShopId, markShopPicked } from '../shopId'
+import SiteFooter from './SiteFooter.vue'
 
 const emit = defineEmits(['success'])
 
@@ -112,18 +113,19 @@ function submitShop() {
     <div class="login-watermark" aria-hidden="true">鱼</div>
     <div class="login-card" :class="{ shake }">
       <div class="login-mark">鱼</div>
-      <h2>闲鱼售卖统计</h2>
+      <p class="login-eyebrow">自托管闲鱼经营账本</p>
+      <h2>每一单到底赚多少，<br>打开就算清。</h2>
 
       <!-- 第一步：全局密码 -->
       <template v-if="stage === 'global'">
-        <p class="muted">请输入访问密码</p>
+        <p class="muted login-purpose">自动同步订单，分摊进货与联单成本，再扣掉运费和平台费用。</p>
         <form @submit.prevent="submitGlobal">
           <input class="input" type="password" v-model="password" autofocus
             :class="{ 'is-err': !!err }" :aria-invalid="!!err"
             placeholder="访问密码" autocomplete="current-password" @input="err = ''" />
           <div v-if="err" class="tip err" style="margin-top:10px">{{ err }}</div>
           <button class="btn btn-primary login-btn" :disabled="loading">
-            <span v-if="loading" class="spin"></span>下一步
+            <span v-if="loading" class="spin"></span>进入我的经营账本
           </button>
         </form>
       </template>
@@ -167,5 +169,6 @@ function submitShop() {
         <code class="login-code">xianyu-stat --reset-password</code>
       </div>
     </div>
+    <SiteFooter class="login-footer" />
   </div>
 </template>

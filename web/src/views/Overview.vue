@@ -63,6 +63,7 @@ const monthlyTrend = ref(null)
 const loading = ref(true)
 // 已经有数据时刷新不再回骨架屏：后台静默拉新，页面内容不闪
 const showSkeleton = computed(() => loading.value && !stats.value)
+const firstUse = computed(() => !!stats.value && Number(stats.value.total_count || 0) === 0)
 const error = ref('')
 
 // 图形入场：首次渲染就带着动画（滚到这儿的人能直接看到），
@@ -389,8 +390,25 @@ const chart = computed(() => {
   <div class="page ov-page">
     <div v-if="error" class="alert-err">{{ error }} <button class="btn btn-sm" @click="load">重试</button></div>
 
+    <section v-if="firstUse" class="card ov-onboarding">
+      <div class="ov-onboarding-copy">
+        <p class="ov-onboarding-eyebrow">自托管闲鱼经营账本</p>
+        <h2>每一单到底赚多少，<br>打开就算清。</h2>
+        <p>上传订单截图或配置闲鱼同步，把成交价、进货成本、运费和平台服务费放在一张账单里。默认 OCR 在浏览器本地运行，图片不上传。</p>
+        <div class="ov-onboarding-actions">
+          <button class="btn btn-primary" @click="emit('add')">录入第一笔成交</button>
+          <button class="btn btn-quiet" @click="emit('goto-settings')">配置闲鱼自动同步</button>
+        </div>
+      </div>
+      <ol class="ov-onboarding-steps" aria-label="开始使用三步">
+        <li><b>01</b><span>上传截图或同步闲鱼订单</span></li>
+        <li><b>02</b><span>核对成本、运费与服务费</span></li>
+        <li><b>03</b><span>查看真实利润和联单收益</span></li>
+      </ol>
+    </section>
+
     <!-- Hero：本月经营。完结单核算已经在下面单独一条，这里放"这个月做得怎么样" -->
-    <section class="card hero-card">
+    <section v-if="!firstUse" class="card hero-card">
       <div class="hero-main">
         <div class="hero-label">
           本月净利润
@@ -500,13 +518,15 @@ const chart = computed(() => {
 
     <!-- 完结单核算：联单维度的三个数 -->
     <div v-if="!showSkeleton" class="settle-strip card" :class="{ 'ss-open': ssOpen }">
-      <div class="ss-title" role="button" tabindex="0" @click="ssOpen = !ssOpen"
-           @keyup.enter="ssOpen = !ssOpen" @keyup.space.prevent="ssOpen = !ssOpen">
-        完结单核算<HelpTip text="两块钱合在一起算：① 点了「完结」的联单（完结成交额 = 联单内卖单到手价，完结成本 = 联单内买价 + 买运费）；② 卖单自己填好了成本的单（到手价 − 这单带走的货品成本），填完成本就自动算已结算，不用再包联单。两者之差就是完结净利润。" />
-        <!-- 单数是次要信息，做成标题旁的小标签；三个金额并列更好对比，也不再出现 2×2 右下角空一格 -->
-        <span class="ss-count">{{ fmtNum(stats?.settled_sold || 0) }} 单</span>
-        <!-- 默认收起：首屏空间有限，收起来能完整放下；点标题展开看金额 -->
-        <svg class="ss-chev" :class="{ open: ssOpen }" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      <div class="ss-title">
+        <button type="button" class="ss-toggle" :aria-expanded="ssOpen" @click="ssOpen = !ssOpen">
+          完结单核算
+          <!-- 单数是次要信息，做成标题旁的小标签；三个金额并列更好对比，也不再出现 2×2 右下角空一格 -->
+          <span class="ss-count">{{ fmtNum(stats?.settled_sold || 0) }} 单</span>
+          <!-- 默认收起：首屏空间有限，收起来能完整放下；点标题展开看金额 -->
+          <svg class="ss-chev" :class="{ open: ssOpen }" aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <HelpTip text="两块钱合在一起算：① 点了「完结」的联单（完结成交额 = 联单内卖单到手价，完结成本 = 联单内买价 + 买运费）；② 卖单自己填好了成本的单（到手价 − 这单带走的货品成本），填完成本就自动算已结算，不用再包联单。两者之差就是完结净利润。" />
       </div>
       <div v-show="ssOpen" class="ss-nums">
         <div><span>完结成交额</span><b class="num"><AnimatedNumber :value="stats?.settled_sales || 0" v-slot="{ value }">{{ fmtMoney(value) }}</AnimatedNumber></b></div>

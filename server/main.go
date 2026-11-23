@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"html"
 	"io/fs"
 	"log"
 	"mime"
@@ -51,6 +52,8 @@ func main() {
 
 	mux := http.NewServeMux()
 	registerAPI(mux)
+	mux.HandleFunc("/robots.txt", serveRobots)
+	mux.HandleFunc("/sitemap.xml", serveSitemap)
 
 	sub, err := fs.Sub(webrootFS, "webroot")
 	if err != nil {
@@ -99,6 +102,10 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), payment=(), usb=()")
+		if requestIsHTTPS(r) {
+			// 只在 HTTPS 请求上发送 HSTS，避免内网 HTTP 直连部署被浏览器永久升级后无法访问。
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		// CSP：只允许同源资源；内联样式用于 Vue 的 :style 绑定，
 		// 内联脚本是 index.html 的主题初始化；OCR 需要 wasm 编译与 blob worker。
 		w.Header().Set("Content-Security-Policy",
@@ -138,6 +145,8 @@ func spaHandler(sub fs.FS, fileServer http.Handler) http.Handler {
 			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 			w.Header().Set("Pragma", "no-cache")
 			w.Header().Set("Expires", "0")
+			serveIndexHTML(w, r, sub)
+			return
 		} else if strings.HasPrefix(clean, "assets/") {
 			// 文件名含内容哈希，内容永不变，可长期强缓存
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
@@ -161,14 +170,8 @@ func spaHandler(sub fs.FS, fileServer http.Handler) http.Handler {
 				return
 			}
 			// 其他路径回退 index.html，交给前端路由
-			data, e := fs.ReadFile(sub, "index.html")
-			if e != nil {
-				http.NotFound(w, r)
-				return
-			}
 			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Write(data)
+			serveIndexHTML(w, r, sub)
 			return
 		}
 		// 构建时会为哈希资源预生成 Brotli / gzip 副本。直接发送预压缩文件，
@@ -178,6 +181,128 @@ func spaHandler(sub fs.FS, fileServer http.Handler) http.Handler {
 		}
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+func requestOrigin(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); forwarded == "http" || forwarded == "https" {
+		scheme = forwarded
+	}
+	return scheme + "://" + r.Host
+}
+
+func serveIndexHTML(w http.ResponseWriter, r *http.Request, sub fs.FS) {
+	data, err := fs.ReadFile(sub, "index.html")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	origin := html.EscapeString(requestOrigin(r))
+	meta, known := indexMetaForPath(r.URL.Path)
+	status := http.StatusOK
+	if !known {
+		status = http.StatusNotFound
+	}
+	data = []byte(strings.ReplaceAll(string(data), "__SITE_ORIGIN__", origin))
+	data = injectIndexMeta(data, meta, origin, r.URL.Path)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	if r.Method != http.MethodHead {
+		_, _ = w.Write(data)
+	}
+}
+
+type indexMeta struct {
+	Title       string
+	Description string
+	Robots      string
+}
+
+func indexMetaForPath(requestPath string) (indexMeta, bool) {
+	clean := strings.TrimSuffix(requestPath, "/")
+	switch clean {
+	case "", "/index.html":
+		return indexMeta{
+			Title:       "鱼助手 · 闲鱼售卖统计",
+			Description: "鱼助手是一款自托管的闲鱼售卖统计工具：自动同步订单，分摊进货成本与联单成本，算清运费、服务费和真实利润。",
+			Robots:      "noindex, nofollow",
+		}, true
+	case "/privacy":
+		return indexMeta{
+			Title:       "隐私政策｜鱼助手闲鱼售卖统计",
+			Description: "了解鱼助手收集哪些经营数据、为何收集、如何保存和删除，以及闲鱼登录、OCR、备份与第三方服务的数据流向。",
+			Robots:      "index, follow",
+		}, true
+	case "/terms":
+		return indexMeta{
+			Title:       "服务条款｜鱼助手闲鱼售卖统计",
+			Description: "查看鱼助手自托管账本的使用规则、账户安全、数据责任、知识产权、第三方服务、免责声明与争议处理。",
+			Robots:      "index, follow",
+		}, true
+	default:
+		return indexMeta{
+			Title:       "页面未找到｜鱼助手",
+			Description: "你访问的页面不存在或已经移动，可返回经营概览、交易明细、联单或系统设置继续使用鱼助手。",
+			Robots:      "noindex, nofollow",
+		}, false
+	}
+}
+
+func injectIndexMeta(data []byte, meta indexMeta, origin, requestPath string) []byte {
+	out := string(data)
+	title := html.EscapeString(meta.Title)
+	description := html.EscapeString(meta.Description)
+	canonical := html.EscapeString(strings.TrimSuffix(origin, "/") + "/" + strings.TrimPrefix(requestPath, "/"))
+	out = strings.Replace(out, "<title>鱼助手 · 闲鱼售卖统计</title>", "<title>"+title+"</title>", 1)
+	out = strings.Replace(out,
+		`<meta name="description" content="鱼助手是一款自托管的闲鱼售卖统计工具：自动同步订单，分摊进货成本与联单成本，算清运费、服务费和真实利润。" />`,
+		`<meta name="description" content="`+description+`" />`, 1)
+	out = strings.Replace(out, `<meta property="og:title" content="鱼助手 · 闲鱼售卖统计" />`,
+		`<meta property="og:title" content="`+title+`" />`, 1)
+	out = strings.Replace(out,
+		`<meta property="og:description" content="自动同步闲鱼订单，分摊进货与联单成本，把运费、服务费和真实利润一笔算清。" />`,
+		`<meta property="og:description" content="`+description+`" />`, 1)
+	out = strings.Replace(out, `<meta name="twitter:title" content="鱼助手 · 闲鱼售卖统计" />`,
+		`<meta name="twitter:title" content="`+title+`" />`, 1)
+	out = strings.Replace(out,
+		`<meta name="twitter:description" content="自动同步闲鱼订单，分摊进货与联单成本，算清真实利润。" />`,
+		`<meta name="twitter:description" content="`+description+`" />`, 1)
+
+	extra := `<meta property="og:url" content="` + canonical + `" />` + "\n    " +
+		`<link rel="canonical" href="` + canonical + `" />`
+	if meta.Robots != "" {
+		extra += "\n    " + `<meta name="robots" content="` + html.EscapeString(meta.Robots) + `" />`
+	}
+	out = strings.Replace(out, `<meta property="og:type" content="website" />`,
+		`<meta property="og:type" content="website" />`+"\n    "+extra, 1)
+	return []byte(out)
+}
+
+func serveRobots(w http.ResponseWriter, r *http.Request) {
+	origin := strings.TrimSuffix(requestOrigin(r), "/")
+	body := "User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /downloads/\n\nSitemap: " + origin + "/sitemap.xml\n"
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	if r.Method != http.MethodHead {
+		_, _ = w.Write([]byte(body))
+	}
+}
+
+func serveSitemap(w http.ResponseWriter, r *http.Request) {
+	origin := html.EscapeString(strings.TrimSuffix(requestOrigin(r), "/"))
+	body := `<?xml version="1.0" encoding="UTF-8"?>` + "\n" +
+		`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n" +
+		`  <url><loc>` + origin + `/privacy</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>` + "\n" +
+		`  <url><loc>` + origin + `/terms</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>` + "\n" +
+		`</urlset>` + "\n"
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	if r.Method != http.MethodHead {
+		_, _ = w.Write([]byte(body))
+	}
 }
 
 func servePrecompressed(w http.ResponseWriter, r *http.Request, sub fs.FS, clean string) bool {

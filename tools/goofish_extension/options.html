@@ -64,16 +64,32 @@
       </div>
     </section>
 
+    <section class="card official-login-card">
+      <div class="official-login-head">
+        <span class="official-login-mark" aria-hidden="true">◉</span>
+        <div>
+          <h2>官方扫码登录</h2>
+          <p>在平时使用的浏览器中打开闲鱼官方登录页。完成扫码后，扩展会自动检测登录态、上报并校验，不需要复制 Cookie。</p>
+        </div>
+      </div>
+      <a id="officialLogin" class="primary official-login-button"
+         href="https://www.goofish.com/login" target="_blank" rel="noopener noreferrer" role="button">
+        <span id="officialLoginLabel">打开闲鱼官方扫码登录</span>
+        <span class="spinner" aria-hidden="true"></span>
+      </a>
+      <p id="interactiveLoginStatus" class="interactive-login-status" role="status" aria-live="polite" hidden></p>
+    </section>
+
     <section class="card guide">
       <h2>使用方式</h2>
       <ol>
-        <li>先在当前浏览器打开 <b>www.goofish.com</b> 并完成登录。</li>
         <li>填写鱼助手地址、店铺 ID；若鱼助手启用了访问密码，再填入扩展配对码。</li>
-        <li>点击「保存并连接」，扩展会立即续期并上报一次。</li>
+        <li>点击「保存并连接」。</li>
+        <li>需要登录或重新登录时，点击上方「打开闲鱼官方扫码登录」，用闲鱼 App 扫码即可。</li>
         <li>之后浏览器会后台续期、自动上报，不需要每天手动处理。</li>
       </ol>
       <p>不需要专用浏览器窗口，也不需要托盘程序。电脑关机后，鱼助手服务器继续使用最后一次验证通过的凭证拉单；下次打开浏览器时扩展会自动检查并更新登录态。</p>
-      <p><b>安全边界：</b>只有闲鱼仍认可当前浏览器登录时才能自动续期。若闲鱼已要求重新扫码、验证码或账号验证，扩展无法代替你通过验证，会在角标显示 <b>!</b> 和原因。</p>
+      <p><b>安全边界：</b>扩展只打开闲鱼官方登录页，不会保存闲鱼账号密码，也不会代替你通过验证码或账号验证。登录手机号、密码和扫码确认始终由闲鱼官方页面处理。</p>
     </section>
 
     <section class="card security">

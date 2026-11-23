@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">鱼助手 · 闲鱼售卖统计</title>
+  <desc id="desc">自托管闲鱼记账与利润分析工具的社交分享预览图</desc>
+  <defs>
+    <linearGradient id="canvas" x1="40" y1="20" x2="1150" y2="610" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fffdf7"/>
+      <stop offset=".62" stop-color="#fff8e7"/>
+      <stop offset="1" stop-color="#ffedb5"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ffda5e"/>
+      <stop offset="1" stop-color="#f3a300"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="690" y1="115" x2="1090" y2="500" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#302817"/>
+      <stop offset="1" stop-color="#1d1a13"/>
+    </linearGradient>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M44 0H0V44" fill="none" stroke="#9a7b25" stroke-opacity=".08"/>
+    </pattern>
+    <filter id="card-shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#5d470d" flood-opacity=".2"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#canvas)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <circle cx="1080" cy="38" r="260" fill="#f7b500" opacity=".12"/>
+  <circle cx="34" cy="610" r="210" fill="#f7b500" opacity=".08"/>
+  <path d="M-34 508C188 378 340 598 600 472s358-237 650-114v300H-34Z" fill="#fff" opacity=".32"/>
+  <g transform="translate(72 62)">
+    <rect width="66" height="66" rx="18" fill="url(#gold)"/>
+    <path d="M22 33 8 21c6 8 6 16 0 24l14-12Z" fill="#241c0c"/>
+    <path d="M20 33c7-14 24-20 39-12 9 5 11 14 4 21-9 10-30 13-43-2-2-2-2-5 0-7Z" fill="#241c0c"/>
+    <circle cx="54" cy="31" r="3.2" fill="#fff7dc"/>
+    <text x="84" y="29" fill="#282113" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="27" font-weight="800">鱼助手</text>
+    <text x="84" y="53" fill="#76643a" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="600" letter-spacing="1.6">XIANYU ASSISTANT</text>
+  </g>
+  <rect x="72" y="170" width="116" height="34" rx="17" fill="#2a2417"/>
+  <text x="92" y="193" fill="#fff3c7" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="700" letter-spacing="1">自托管记账</text>
+  <text x="72" y="285" fill="#231d10" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="72" font-weight="900" letter-spacing="-2">闲鱼售卖统计</text>
+  <text x="74" y="354" fill="#3f351d" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="31" font-weight="700">进货、成交、运费、服务费，一笔算清。</text>
+  <text x="74" y="407" fill="#6e6041" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="22" font-weight="500">自动同步订单 · 分摊成本 · 看见真正的利润</text>
+  <g transform="translate(72 470)">
+    <rect width="92" height="3" rx="1.5" fill="#f7a600"/>
+    <text x="0" y="35" fill="#806d42" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="17" font-weight="600">手机记录 · 电脑总览 · NAS 常驻</text>
+  </g>
+  <g transform="translate(690 112)" filter="url(#card-shadow)">
+    <rect width="430" height="406" rx="34" fill="url(#ink)"/>
+    <rect x="26" y="26" width="378" height="88" rx="22" fill="#fff" opacity=".055"/>
+    <text x="52" y="57" fill="#b7ad91" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="600">本月经营概览</text>
+    <text x="52" y="94" fill="#fff5d4" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="34" font-weight="800">¥ 12,860.40</text>
+    <rect x="52" y="119" width="94" height="24" rx="12" fill="#e8704f" opacity=".18"/>
+    <path d="m63 133 6-7 6 4 8-10" fill="none" stroke="#ff9b81" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="94" y="137" fill="#ffb39d" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="13" font-weight="700">+18.6%</text>
+    <g transform="translate(32 150)">
+      <rect width="366" height="154" rx="22" fill="#fff" opacity=".045"/>
+      <path d="M24 118C72 110 92 72 131 88s66 27 99-22 67-20 107-52" fill="none" stroke="#f8bd25" stroke-width="7" stroke-linecap="round"/>
+      <path d="M24 118C72 110 92 72 131 88s66 27 99-22 67-20 107-52V138H24Z" fill="#f8bd25" opacity=".11"/>
+      <g fill="#f8bd25">
+        <circle cx="24" cy="118" r="5"/><circle cx="131" cy="88" r="5"/><circle cx="230" cy="66" r="5"/><circle cx="337" cy="14" r="6"/>
+      </g>
+    </g>
+    <g transform="translate(32 328)">
+      <g>
+        <text x="0" y="0" fill="#aaa089" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="13">成交单</text>
+        <text x="0" y="31" fill="#fff5d4" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="25" font-weight="800">286</text>
+      </g>
+      <g transform="translate(120 0)">
+        <text x="0" y="0" fill="#aaa089" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="13">在库成本</text>
+        <text x="0" y="31" fill="#fff5d4" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="25" font-weight="800">¥ 8.4万</text>
+      </g>
+      <g transform="translate(250 0)">
+        <text x="0" y="0" fill="#aaa089" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="13">利润率</text>
+        <text x="0" y="31" fill="#ffc93d" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="25" font-weight="800">31.8%</text>
+      </g>
+    </g>
+  </g>
+  <text x="1128" y="596" text-anchor="end" fill="#8c784a" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="600">github.com/1316195118/Xianyu-Assistant</text>
+</svg>

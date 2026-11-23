@@ -96,12 +96,37 @@ button:disabled { cursor: wait; opacity: .72; }
 .update-box.downloading .update-symbol { animation: update-float .8s ease-in-out infinite alternate; }
 .update-box.ready { border-color: #8ac59b; background: #f1faf3; }
 .update-box.ready .update-symbol { background: #c9ecd3; color: #226b3a; }
+.official-login-card {
+  border-color: #dfbd61;
+  background: linear-gradient(145deg, #fffdf7, #fff5d5);
+}
+.official-login-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.official-login-head h2 { margin: 0 0 5px; font-size: 17px; }
+.official-login-head p { margin: 0; color: #6d5a28; line-height: 1.6; }
+.official-login-mark {
+  width: 40px; height: 40px; flex: none; display: grid; place-items: center;
+  border-radius: 12px; background: #f3ca59; color: #503a00; font-size: 21px; font-weight: 850;
+}
+.official-login-button {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; background: #2b2415; border-color: #2b2415; color: #fff5d3;
+  text-decoration: none; cursor: pointer; box-sizing: border-box;
+}
+.official-login-button:hover { background: #443817; border-color: #443817; color: #fff5d3; }
+.interactive-login-status {
+  margin: 10px 0 0; padding: 9px 11px; border-radius: 9px;
+  background: rgb(255 255 255 / 66%); color: #6d5518; line-height: 1.55;
+}
+.interactive-login-status[hidden] { display: none; }
+.interactive-login-status.verifying { color: #845900; }
+.interactive-login-status.success { background: #e5f6e9; color: #226b3a; }
+.interactive-login-status.failed { background: #fbe8e9; color: #a1262d; }
 .spinner {
   display: none; width: 12px; height: 12px; margin-left: 6px;
   border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
   animation: update-spin .7s linear infinite;
 }
-button.loading .spinner { display: inline-block; }
+.official-login-button.loading .spinner { display: inline-block; }
 @keyframes update-spin { to { transform: rotate(360deg); } }
 @keyframes update-float { to { transform: translateY(-2px); } }
 .guide h2 { margin: 0 0 10px; font-size: 17px; }
@@ -124,6 +149,14 @@ button.loading .spinner { display: inline-block; }
   .update-box.error { background: #2a1719; border-color: #71363b; }
   .update-box.ready { background: #13291b; border-color: #396e49; }
   .update-box.ready .update-symbol { background: #28573a; color: #a8ecb9; }
+  .official-login-card { border-color: #735b1d; background: linear-gradient(145deg, #29230f, #201d14); }
+  .official-login-head p { color: #d4bf7c; }
+  .official-login-mark { background: #745d1d; color: #ffe18b; }
+  .official-login-button { background: #f0b91b; border-color: #f0b91b; color: #221b00; }
+  .official-login-button:hover { background: #ffd15a; border-color: #ffd15a; color: #221b00; }
+  .interactive-login-status { background: rgb(10 14 21 / 55%); color: #f2d996; }
+  .interactive-login-status.success { background: #173b24; color: #8be0a3; }
+  .interactive-login-status.failed { background: #471f23; color: #ffb0b4; }
   .update-download { background: #f0b91b; color: #221b00; }
   label small { color: #9ba7ba; }
   button:hover { background: #202938; }

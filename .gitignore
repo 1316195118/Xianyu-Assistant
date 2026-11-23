@@ -30,6 +30,7 @@ dist/
 config.json
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 *_rsa
@@ -62,3 +63,9 @@ coverage.out
 *.test
 __pycache__/
 *.pyc
+
+# ========== 本地审计 / 浏览器配置 / 临时文件 ==========
+/qa-artifacts/
+/*.exe~
+/$null
+/]

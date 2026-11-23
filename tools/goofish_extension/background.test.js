@@ -56,13 +56,18 @@ function makeBackground({ cookies, fetchImpl, config = {} }) {
     },
     tabs: {
       async create(options) {
-        const tab = { id: nextTabId++, url: options.url, status: 'loading' }
+        const tab = { id: nextTabId++, url: options.url, status: 'loading', active: !!options.active }
         tabs.push(tab)
         setTimeout(() => tabUpdated.emit(tab.id, { status: 'complete' }, tab), 1)
         return tab
       },
       async get(tabId) {
         return tabs.find((tab) => tab.id === tabId) || { id: tabId, status: 'loading', url: 'https://www.goofish.com/' }
+      },
+      async update(tabId, options) {
+        const tab = tabs.find((item) => item.id === tabId) || { id: tabId, status: 'complete', url: 'https://www.goofish.com/' }
+        Object.assign(tab, options)
+        return tab
       },
       async remove(tabId) { removedTabs.push(tabId) },
       onUpdated: tabUpdated
@@ -72,7 +77,7 @@ function makeBackground({ cookies, fetchImpl, config = {} }) {
       onStartup: { addListener: noop },
       onMessage: { addListener: noop },
       async openOptionsPage() {},
-      getManifest() { return { version: '1.2.1' } }
+      getManifest() { return { version: '1.2.3' } }
     }
   }
   const context = vm.createContext({
@@ -337,7 +342,7 @@ test('从鱼助手服务器检查扩展新版并设置更新角标', async () =>
   })
   const result = await context.checkExtensionUpdate(true)
   assert.equal(result.ok, true)
-  assert.equal(result.currentVersion, '1.2.1')
+  assert.equal(result.currentVersion, '1.2.3')
   assert.equal(result.latestVersion, '1.3.0')
   assert.equal(result.updateAvailable, true)
   assert.equal(result.downloadUrl, 'http://10.10.10.251:18083/downloads/goofish-extension.zip')
@@ -364,6 +369,75 @@ test('扩展已是最新版本时不显示更新下载入口', async () => {
   assert.equal(store.extensionUpdateAvailable, false)
 })
 
+test('官方扫码登录会打开闲鱼登录页并保存等待状态', async () => {
+  const { context, store, tabs } = makeBackground({
+    cookies: { goofish: [] },
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  })
+
+  const result = await context.openInteractiveLogin(false)
+  assert.equal(result.ok, true)
+  assert.equal(tabs.length, 1)
+  assert.equal(tabs[0].url, 'https://www.goofish.com/login')
+  assert.equal(tabs[0].active, true)
+  assert.equal(store.interactiveLoginTabId, tabs[0].id)
+  assert.equal(store.interactiveLoginState, 'waiting')
+  assert.match(store.interactiveLoginMessage, /扫码/)
+  assert.ok(store.interactiveLoginStartedAt > 0)
+})
+
+test('官方登录链接由扩展页面直接打开时只记录登录起点', async () => {
+  const { context, store, tabs } = makeBackground({
+    cookies: { goofish: [] },
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  })
+
+  const result = await context.armInteractiveLogin()
+  assert.equal(result.ok, true)
+  assert.equal(tabs.length, 0)
+  assert.equal(store.interactiveLoginState, 'waiting')
+  assert.ok(store.interactiveLoginBaselineFingerprint)
+  assert.ok(store.interactiveLoginStartedAt > 0)
+})
+
+test('官方扫码登录不会把已有旧认证 Cookie 误判为刚完成登录', async () => {
+  let requests = 0
+  const { context, store } = makeBackground({
+    cookies: {
+      goofish: [
+        { name: 'cookie2', value: 'old-cookie-value' },
+        { name: 'unb', value: 'old-user' }
+      ]
+    },
+    fetchImpl: async () => {
+      requests++
+      return { ok: true, status: 200, json: async () => ({}) }
+    }
+  })
+
+  await context.openInteractiveLogin(false)
+  assert.ok(store.interactiveLoginBaselineFingerprint)
+  await context.verifyInteractiveLogin()
+
+  assert.equal(store.interactiveLoginState, 'waiting')
+  assert.match(store.interactiveLoginMessage, /扫码/)
+  assert.equal(requests, 0)
+})
+
+test('扫码登录期间检测到认证 Cookie 后进入校验状态', async () => {
+  const { context, store } = makeBackground({
+    cookies: { goofish: [] },
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  })
+  store.interactiveLoginStartedAt = Date.now()
+  store.interactiveLoginState = 'waiting'
+
+  await context.noteInteractiveLoginCookieChange()
+  assert.equal(store.interactiveLoginState, 'verifying')
+  assert.match(store.interactiveLoginMessage, /正在校验/)
+  assert.ok(store.interactiveLoginCookieChangedAt > 0)
+})
+
 test('扩展版本改变后会忽略当天旧缓存，重新检查服务器', async () => {
   let checks = 0
   const { context, store } = makeBackground({
@@ -386,7 +460,7 @@ test('扩展版本改变后会忽略当天旧缓存，重新检查服务器', as
   const result = await context.checkExtensionUpdate(false)
   assert.equal(checks, 1)
   assert.equal(result.updateAvailable, false)
-  assert.equal(store.extensionCheckedVersion, '1.2.1')
+  assert.equal(store.extensionCheckedVersion, '1.2.3')
 })
 
 test('版本号按数字段比较，不会把 1.1.10 误判低于 1.1.9', () => {
