@@ -61,6 +61,19 @@ async function auditViewport(width, height, routes) {
         naturalWidth: img.naturalWidth,
         naturalHeight: img.naturalHeight
       }))
+      const cardMetrics = (selector) => {
+        const el = document.querySelector(selector)
+        if (!el) return null
+        const rect = el.getBoundingClientRect()
+        const style = getComputedStyle(el)
+        const value = el.querySelector('.hero-value, .kpi-value')
+        return {
+          width: Math.round(rect.width * 10) / 10,
+          height: Math.round(rect.height * 10) / 10,
+          padding: style.padding,
+          valueFontSize: value ? getComputedStyle(value).fontSize : ''
+        }
+      }
       return {
         title: document.title,
         description: document.querySelector('meta[name="description"]')?.content || '',
@@ -75,7 +88,11 @@ async function auditViewport(width, height, routes) {
         },
         overflowX: root.scrollWidth > root.clientWidth,
         smallTargets: smallTargets.slice(0, 20),
-        images
+        images,
+        cards: {
+          hero: cardMetrics('.hero-card'),
+          salesKpi: cardMetrics('.kpi-card')
+        }
       }
     })
     const key = route === '/' ? 'home' : route.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '')
@@ -88,13 +105,13 @@ async function auditViewport(width, height, routes) {
 }
 
 const publicRoutes = ['/', '/privacy', '/terms', '/not-a-page']
-const appRoutes = ['/#records', '/#groups', '/#consign', '/#settings']
+const appRoutes = ['/#records', '/#groups', '/#consign', '/#operations', '/#settings']
 
 await auditViewport(1440, 900, [...publicRoutes, ...appRoutes])
 await auditViewport(768, 1024, [...publicRoutes, ...appRoutes])
 await auditViewport(390, 844, [...publicRoutes, ...appRoutes])
 await auditViewport(375, 812, [...publicRoutes, ...appRoutes])
-await auditViewport(3840, 2160, ['/', '/privacy', '/#records', '/#settings'])
+await auditViewport(3840, 2160, ['/', '/privacy', '/#records', '/#operations', '/#settings'])
 
 await browser.close()
 await fs.writeFile(path.join(outputDir, 'report.json'), JSON.stringify({ results, errors }, null, 2))

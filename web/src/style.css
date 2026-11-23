@@ -2764,6 +2764,26 @@ html[data-theme="dark"] .topbar.scrolled { box-shadow: 0 8px 24px rgba(0, 0, 0, 
 
 /* ---------- 顶栏命令入口 ---------- */
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
+.topbar-ops {
+  display: none;
+  min-height: 38px;
+  padding: 0 11px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-weight: 650;
+  cursor: pointer;
+}
+.topbar-ops:hover,
+.topbar-ops.active {
+  border-color: rgba(245, 181, 0, .42);
+  background: var(--brand-soft);
+  color: var(--brand-ink);
+}
 .topbar-cmd {
   display: inline-flex; align-items: center; gap: 6px;
   height: 34px; padding: 0 9px; border-radius: 9px;
@@ -2875,11 +2895,18 @@ html.theme-anim .select {
 /* ---------- 移动端 ---------- */
 @media (max-width: 900px) {
   .topbar-cmd { display: none; }
+  .topbar-ops { display: inline-flex; }
 }
 @media (max-width: 600px) {
   .cmd-mask { padding-top: 8vh; align-items: flex-start; }
   .cmd-panel { max-height: 78vh; max-height: calc(var(--app-vh, 100vh) * 0.78); }
   .topbar { padding-top: 12px; padding-bottom: 10px; }
+  .topbar-ops {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 9px;
+  }
+  .topbar-ops span { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .cmd-enter-active, .cmd-leave-active { transition: opacity .01ms; }
@@ -4442,7 +4469,7 @@ html[data-theme="dark"] .upd-progress.bad {
   margin-top: -24px;
   width: 48px;
   height: 48px;
-  opacity: .42;
+  opacity: .78;
 }
 .seal-row .seal-main { font-size: 9px; }
 .seal-row .seal-sub { font-size: 5px; }
@@ -4455,7 +4482,7 @@ html[data-theme="dark"] .upd-progress.bad {
   width: 40px;
   height: 40px;
   margin-right: 8px;
-  opacity: .5;
+  opacity: .78;
   border-width: 1.5px;
 }
 .seal-mini::before { inset: 3px; border-width: 1px; }
@@ -4464,7 +4491,7 @@ html[data-theme="dark"] .upd-progress.bad {
 .seal-mini .seal-star { font-size: 4px; }
 
 @media (max-width: 600px) {
-  .mobile-cards .seal { width: 42px; height: 42px; right: 20px; top: 29px; opacity: .5; }
+  .mobile-cards .seal { width: 42px; height: 42px; right: 20px; top: 29px; opacity: .86; }
   .mobile-cards .seal .seal-main { font-size: 8.6px; }
   .mobile-cards .seal .seal-sub { font-size: 4.4px; }
 }
@@ -5787,17 +5814,19 @@ html[data-motion="reduce"] .modal-mask .modal, html[data-motion="reduce"] .ali-m
 /* ============================================================
    寄卖：印章 / 标签 / 归属候选 / 寄卖页
    ============================================================ */
-.seal-consign { color: #8b5cf6; }
+.seal-consign { color: #4c1d95; }
 .seal-consign .seal-inner { border-color: currentColor; }
 /* 代采：垫钱替别人买，用青色和寄卖的紫色区分开 */
-.seal-daicai { color: #0d9488; }
+.seal-daicai { color: #0f766e; }
 .seal-daicai .seal-inner { border-color: currentColor; }
 .consign-tag {
   display: inline-flex; align-items: center; padding: 1px 6px;
-  border: 1.5px solid #8b5cf6; color: #8b5cf6; border-radius: 6px;
+  border: 1.5px solid #4c1d95; color: #4c1d95; border-radius: 6px;
   font-size: 10px; font-weight: 700; transform: rotate(-4deg); white-space: nowrap;
 }
-.consign-tag.daicai-tag { border-color: #0d9488; color: #0d9488; }
+html[data-theme="dark"] .seal-consign { color: #c4b5fd; }
+html[data-theme="dark"] .consign-tag { border-color: #c4b5fd; color: #c4b5fd; }
+.consign-tag.daicai-tag { border-color: #0f766e; color: #0f766e; }
 html[data-theme="dark"] .seal-daicai { color: #2dd4bf; }
 html[data-theme="dark"] .consign-tag.daicai-tag { border-color: #2dd4bf; color: #2dd4bf; }
 .owner-chip {
@@ -6172,7 +6201,7 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
   }
   .rec-table .kind-text { flex: 0 0 auto; font-size: 10.5px; font-weight: 700; letter-spacing: .02em; }
   .rec-table .kind-text.is-sell { color: #8f5700; }
-  .rec-table .kind-text.is-buy { color: #4b7bd6; }
+  .rec-table .kind-text.is-buy { color: #3664b5; }
   .rec-table .meta-sep { flex: 0 0 auto; color: #d3d7de; font-size: 10px; }
   .rec-table .cell-meta .cell-sub {
     max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -7120,6 +7149,11 @@ html[data-motion="reduce"] .upd-progress.bad {
     margin-inline: auto;
     padding: 26px 36px 56px;
   }
+  /* 首页两张重点卡保持常规桌面尺寸。大屏只放大内容区留白，
+     不再把卡内文案跟着全局字号一起撑高。 */
+  .kpi-grid .kpi-card { height: 118px; }
+  .kpi-card .kpi-label { font-size: 13.5px; }
+  .kpi-card .kpi-foot { font-size: 11px; }
   .settings-page { max-width: 1360px; }
 }
 
@@ -7139,11 +7173,6 @@ html[data-motion="reduce"] .upd-progress.bad {
     padding: 30px 44px 68px;
   }
   .page { gap: 18px; }
-  .hero-card { padding: 28px 34px; }
-  .hero-value { font-size: 46px; }
-  .kpi-grid { gap: 18px; }
-  .kpi-card { padding: 19px 22px; }
-  .kpi-value { font-size: 26px; }
   .settings-page {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7170,11 +7199,6 @@ html[data-motion="reduce"] .upd-progress.bad {
     padding: 36px 56px 84px;
   }
   .settings-page { max-width: 2680px; gap: 26px 34px; }
-  .hero-card { padding: 32px 38px; }
-  .hero-value { font-size: 52px; }
-  .kpi-grid { gap: 22px; }
-  .kpi-card { padding: 22px 26px; }
-  .kpi-value { font-size: 30px; }
 }
 
 /* ============================================================
@@ -8218,4 +8242,34 @@ html[data-motion="reduce"] .cs-chev { animation: none !important; transition: no
     margin-left: 4px;
   }
   .help-tip::after { inset: -10px; }
+}
+
+/* 手机首页的小控件保留 44px 触摸区，但不让触摸区把整张卡撑高。
+   「算价」用伪元素扩大点击范围；「周/月/总」改成同一行等分，
+   避免销售额卡因为三个 44px 宽按钮换行而多出一整行。 */
+@media (max-width: 600px) {
+  .hero-card .hero-calc {
+    height: 22px !important;
+    min-height: 22px !important;
+  }
+  .hero-card .hero-calc::after { inset: -11px -8px; }
+
+  .kpi-card .kpi-label-row {
+    flex-wrap: nowrap;
+    gap: 2px;
+  }
+  .kpi-card .kpi-label-row > span:first-child {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .kpi-card .kpi-seg {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .kpi-card .kpi-seg button {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0 !important;
+    padding-inline: 4px;
+  }
 }

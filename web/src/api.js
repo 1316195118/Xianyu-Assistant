@@ -444,6 +444,36 @@ export const api = {
   ocrFeedbackList() { return req('/api/ocr-feedback') },
   verifyBackup() { return req('/api/backup/verify') },
   health() { return req('/api/health') },
+  // ---------- 经营中心 ----------
+  operationsHealth() { return req('/api/operations/health') },
+  operationsTransport() { return req('/api/operations/transport') },
+  operationsTransportImport(rows, apply = false, force = false, source = 'CSV') {
+    return req('/api/operations/transport/import', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows, apply: !!apply, force: !!force, source })
+    })
+  },
+  operationsFees() { return req('/api/operations/fees') },
+  operationsFeeReconcile(payload) {
+    return req('/api/operations/fees/reconcile', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    })
+  },
+  operationsOwnerStatement(owner, kind = 'sell', params = {}) {
+    const q = new URLSearchParams({ ...params, kind }).toString()
+    return req('/api/operations/owners/' + encodeURIComponent(owner) + '/statement' + (q ? '?' + q : ''))
+  },
+  operationsLots() { return req('/api/operations/lots') },
+  saveLotMeta(payload) {
+    return req('/api/operations/lots/meta', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    })
+  },
+  operationsPricing(params = {}) {
+    const q = new URLSearchParams(params).toString()
+    return req('/api/operations/pricing' + (q ? '?' + q : ''))
+  },
+  operationsMultiShop() { return req('/api/operations/multi-shop') },
   attachmentUrl(id, opts = {}) {
     // w=缩略图宽度（手机上列表只要几十像素，没必要拉 1MB 原图）
     // file=记录里的附件文件名，用来取版本号，命中服务端一年强缓存

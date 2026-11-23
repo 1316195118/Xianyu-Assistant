@@ -80,6 +80,10 @@ PATHS = [
     '/api/purchases', '/api/backups', '/api/undo/ops', '/api/records/1',
     '/api/groups/1', '/api/groups/by-item/1', '/api/tags/1',
     '/api/records/1/attachment', '/api/backups/xxx',
+    '/api/operations/health', '/api/operations/transport',
+    '/api/operations/fees', '/api/operations/owners/1/statement',
+    '/api/operations/lots', '/api/operations/pricing',
+    '/api/operations/multi-shop',
 ]
 
 # 响应体里出现这些说明后端把内部错误泄漏给了调用方
@@ -205,6 +209,15 @@ def layer_a(host, payloads):
             body.update({'text': val, 'name': val, 'title': val, 'q': val,
                          'product': val, 'password': val, 'token': val,
                          'item_ids': [], 'side': 'sell'})
+            st, txt = http(host, 'POST', p, body)
+            judge('A', f'POST {p} {name}', st, txt)
+        for p in ['/api/operations/transport/import',
+                  '/api/operations/fees/reconcile',
+                  '/api/operations/lots/meta']:
+            body = {k: val for k in STR_FIELDS}
+            body.update({'text': val, 'name': val, 'title': val, 'q': val,
+                         'product': val, 'owner': val, 'lot_key': val,
+                         'rows': [], 'data': {}})
             st, txt = http(host, 'POST', p, body)
             judge('A', f'POST {p} {name}', st, txt)
 

@@ -202,6 +202,9 @@ CREATE TABLE IF NOT EXISTS settings (
 	if err := createGroupTables(); err != nil {
 		return err
 	}
+	if err := createOperationsTables(); err != nil {
+		return err
+	}
 	// link_groups 表已确保存在，再补 settled_at 列（旧库升级用，幂等）
 	if err := backfillGroupColumns(); err != nil {
 		return err

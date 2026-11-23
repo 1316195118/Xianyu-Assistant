@@ -14,7 +14,8 @@ const mask = maskCloser(() => emit('close'))
 const props = defineProps({
   record: { type: Object, default: null },   // 传入即为编辑模式
   viewOnly: { type: Boolean, default: false },// true=只读查看（联单里点订单进来就是这个）
-  prefill: { type: Object, default: null }    // 定价速算带过来的预填值（仅新增时生效）
+  prefill: { type: Object, default: null },   // 定价速算带过来的预填值（仅新增时生效）
+  initialFile: { type: Object, default: null } // PWA 分享 / 粘贴截图直接进入识别
 })
 const emit = defineEmits(['close', 'saved', 'open-settings'])
 
@@ -316,7 +317,12 @@ function normProductLocal(s) {
 async function loadEngine() {
   try { engine.value = (await api.getSettings()).ocr_engine || 'local' } catch (e) { /* 默认本地 */ }
 }
-onMounted(() => { loadTags(); loadEngine(); loadPurchases(); loadGroupsMeta(); loadOwners() })
+onMounted(() => {
+  loadTags(); loadEngine(); loadPurchases(); loadGroupsMeta(); loadOwners()
+  if (!isEdit.value && props.initialFile instanceof Blob) {
+    nextTick(() => setFile(props.initialFile))
+  }
+})
 
 // 新增模式下草稿自动存到本机，误关弹窗不会丢已填内容
 const feedbackMsg = ref('')

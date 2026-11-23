@@ -376,6 +376,17 @@ func registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/consign/settlements/", authWrap(handleConsignSettlementByID))
 	mux.HandleFunc("/api/ocr-feedback", authWrap(handleOCRFeedback))
 	mux.HandleFunc("/api/backup/verify", authWrap(handleBackupVerify))
+	// 经营中心：体检、物流账单、服务费核销、归属人对账、批次、定价与多店驾驶舱
+	mux.HandleFunc("/api/operations/health", authWrap(handleOperationsHealth))
+	mux.HandleFunc("/api/operations/transport", authWrap(handleOperationsTransport))
+	mux.HandleFunc("/api/operations/transport/import", authWrap(handleOperationsTransportImport))
+	mux.HandleFunc("/api/operations/fees", authWrap(handleOperationsFees))
+	mux.HandleFunc("/api/operations/fees/reconcile", authWrap(handleOperationsFeeReconcile))
+	mux.HandleFunc("/api/operations/owners/", authWrap(handleOperationsOwnerStatement))
+	mux.HandleFunc("/api/operations/lots", authWrap(handleOperationsLots))
+	mux.HandleFunc("/api/operations/lots/meta", authWrap(handleOperationsLotMeta))
+	mux.HandleFunc("/api/operations/pricing", authWrap(handleOperationsPricing))
+	mux.HandleFunc("/api/operations/multi-shop", authWrap(handleOperationsMultiShop))
 
 	// 多人实时同步：SSE 变更流 + 在线状态
 	mux.HandleFunc("/api/events", authWrap(handleEvents))

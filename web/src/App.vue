@@ -92,12 +92,14 @@ const viewLoaders = {
   records: () => import('./views/Records.vue'),
   groups: () => import('./views/Groups.vue'),
   consign: () => import('./views/Consign.vue'),
+  operations: () => import('./views/Operations.vue'),
   settings: () => import('./views/Settings.vue')
 }
 const Records = lazyView('records', viewLoaders.records)
 const Settings = lazyView('settings', viewLoaders.settings)
 const Groups = lazyView('groups', viewLoaders.groups)
 const Consign = lazyView('consign', viewLoaders.consign)
+const Operations = lazyView('operations', viewLoaders.operations)
 
 // 录入弹窗和工具面板不属于首屏：先让概览和导航出来，再在空闲时预取。
 // 真正打开时若网络较慢会继续显示原页面，不在启动阶段阻塞首屏。
@@ -394,6 +396,8 @@ onMounted(() => {
   window.addEventListener('touchcancel', onPullEnd, { passive: true })
   window.addEventListener('focusin', onInputFocusIn)
   window.addEventListener('focusout', onInputFocusOut)
+  window.addEventListener('paste', onPaste)
+  setTimeout(consumeSharedImage, 500)
   onScroll()
 })
 onUnmounted(() => {
@@ -417,6 +421,7 @@ onUnmounted(() => {
   window.removeEventListener('touchcancel', onPullEnd)
   window.removeEventListener('focusin', onInputFocusIn)
   window.removeEventListener('focusout', onInputFocusOut)
+  window.removeEventListener('paste', onPaste)
   document.body.classList.remove('overlay-open')
 })
 function onLoginSuccess() { needLogin.value = false; bump() }
@@ -426,7 +431,7 @@ async function doLogout() {
   needLogin.value = true
 }
 
-const validViews = ['overview', 'records', 'groups', 'consign', 'settings']
+const validViews = ['overview', 'records', 'groups', 'consign', 'operations', 'settings']
 const hashView = (h) => {
   const v = h.replace('#', '').replace('-add', '')
   return validViews.includes(v) ? v : 'overview'
@@ -445,6 +450,7 @@ const focusNonce = ref(0)            // 每次跳转自增：明细页挂载时�
 const consignTab = ref('sell')       // 从外部订单跳寄卖页时，直接打开对应账本
 const consignFocusNonce = ref(0)
 const editing = ref(null)
+const sharedFile = ref(null)         // 分享目标 / 粘贴截图带入录入弹窗
 const refreshKey = ref(0)
 const toasts = ref([])
 const focusGroupId = ref(null)   // 从明细点联单标签时，联动定位到该联单
@@ -570,14 +576,17 @@ const navItems = [
   { key: 'records', label: '明细', icon: 'M4 6h16M4 12h16M4 18h16' },
   { key: 'groups', label: '联单', icon: 'M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7' },
   { key: 'consign', label: '寄卖', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8' },
+  { key: 'operations', label: '经营', icon: 'M4 20V10M10 20V4M16 20v-7M22 20H2' },
   { key: 'settings', label: '设置', icon: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1-2.8 2.8-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21h-4v-.2a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1-2.8-2.8.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3v-4h.2a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1 2.8-2.8.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3h4v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1 2.8 2.8-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21v4h-.2a1.6 1.6 0 0 0-1.4 1z' }
 ]
-const pageTitle = computed(() => ({ overview: '经营概览', records: '交易明细', groups: '联动单', consign: '寄卖', settings: '系统设置' }[view.value]))
+const mobileNavItems = navItems.filter((n) => n.key !== 'operations')
+const pageTitle = computed(() => ({ overview: '经营概览', records: '交易明细', groups: '联动单', consign: '寄卖', operations: '经营中心', settings: '系统设置' }[view.value]))
 const pageSub = computed(() => ({
   overview: '实时掌握利润、成本与费用构成',
   records: '按交易时间排序 · 检索 / 筛选 / 批量管理',
   groups: '多买多卖挂同一个联单 · 看哪类商品利润高',
   consign: '寄卖代卖 + 垫钱代采 · 按人查账结算，不计入自己的利润成本',
+  operations: '数据体检、物流运费、服务费核销、对账单、库龄与智能定价',
   settings: '识别引擎、安全、备份与数据'
 }[view.value]))
 
@@ -587,7 +596,8 @@ const commands = computed(() => [
   { id: 'nav-records', label: '交易明细', desc: '检索 / 筛选 / 批量管理', icon: navItems[1].icon, hint: '页面', keywords: 'records 明细 记录 列表', run: () => switchView('records') },
   { id: 'nav-groups', label: '联动单', desc: '多买多卖挂同一联单', icon: navItems[2].icon, hint: '页面', keywords: 'groups 联单 联动', run: () => switchView('groups') },
   { id: 'nav-consign', label: '寄卖', desc: '寄卖 / 代采两本账，按人结算', icon: navItems[3].icon, hint: '页面', keywords: 'consign 寄卖 代卖 代采 垫付 归属 张三 李四', run: () => switchView('consign') },
-  { id: 'nav-settings', label: '系统设置', desc: '识别引擎、安全、备份与数据', icon: navItems[4].icon, hint: '页面', keywords: 'settings 设置 配置 备份', run: () => switchView('settings') },
+  { id: 'nav-operations', label: '经营中心', desc: '体检、物流、费用、对账、库龄与定价', icon: navItems[4].icon, hint: '页面', keywords: 'operations 经营 体检 物流 运费 服务费 对账 库龄 定价 补货 多店', run: () => switchView('operations') },
+  { id: 'nav-settings', label: '系统设置', desc: '识别引擎、安全、备份与数据', icon: navItems[5].icon, hint: '页面', keywords: 'settings 设置 配置 备份', run: () => switchView('settings') },
   { id: 'add', label: '上传截图录入', desc: '新建一条买卖记录', icon: 'M12 5v14M5 12h14', hint: 'N', keywords: 'add new 新建 录入 上传', run: openAdd },
   { id: 'batch', label: '批量导入截图', desc: '一次识别多张订单截图', icon: 'M12 16V4M7 9l5-5 5 5M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2', hint: '批量', keywords: 'batch 批量 多张 导入 截图', run: openBatch },
   { id: 'theme-light', label: '切换到浅色模式', desc: '固定使用浅色主题', icon: 'M12 4V2M12 22v-2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M18.4 5.6l1.4-1.4M4.2 19.8l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', hint: '主题', keywords: 'theme light 浅色 亮色', run: () => { themeMode.value = 'light' } },
@@ -638,13 +648,43 @@ async function loadTodoCount() {
   try { todoCount.value = Number((await api.todoCount()).unlinked) || 0 } catch (e) { todoCount.value = 0 }
 }
 watch(refreshKey, loadTodoCount)
-function openAdd(prefill = null) {
+function openAdd(prefill = null, initialFile = null) {
   // @click="openAdd" 会把 MouseEvent 传进来，不能当成预填数据
   const pf = prefill && typeof prefill === 'object' && !(prefill instanceof Event) && 'sell_price' in prefill ? prefill : null
   editing.value = null
   calcPrefill.value = pf
+  sharedFile.value = initialFile instanceof Blob ? initialFile : null
   showModal.value = true
   setHash(hashFor(view.value, true))
+}
+function openAddWithFile(file) {
+  if (!(file instanceof Blob)) return
+  openAdd(null, file)
+  notify('截图已带入，正在识别…', false, null, { tone: 'info' })
+}
+function onPaste(e) {
+  if (!e.clipboardData || showModal.value) return
+  const item = Array.from(e.clipboardData.items || []).find((x) => x.kind === 'file' && x.type.startsWith('image/'))
+  if (!item) return
+  const file = item.getAsFile()
+  if (!file) return
+  e.preventDefault()
+  openAddWithFile(file)
+}
+async function consumeSharedImage() {
+  if (!('caches' in window)) return
+  try {
+    const cache = await caches.open('xianyu-share-v1')
+    const key = '/__xy-shared-image__'
+    const res = await cache.match(key)
+    if (!res) return
+    const blob = await res.blob()
+    await cache.delete(key)
+    if (!blob.size) return
+    const type = res.headers.get('X-Image-Type') || blob.type || 'image/png'
+    const name = res.headers.get('X-Image-Name') || 'shared-order.png'
+    openAddWithFile(new File([blob], name, { type }))
+  } catch (e) { /* 分享目标不可用时静默，仍可粘贴或选择图片 */ }
 }
 // 定价速算「用这个价录入」：关掉工具，带着结果打开录入弹窗
 function onCalcUse(data) { openAdd(data) }
@@ -653,7 +693,7 @@ function openEdit(r) { viewOnly.value = false; editing.value = r; showModal.valu
 // 和明细/联单页显式的编辑按钮区分开，避免手一滑就改到账。
 function openViewRecord(r) { viewOnly.value = true; editing.value = r; showModal.value = true }
 // 关闭时先让 Transition 走完离场动画，再清空编辑数据，避免淡出过程中表单闪成空白
-function closeModal() { showModal.value = false; viewOnly.value = false; calcPrefill.value = null; setHash(hashFor(view.value)) }
+function closeModal() { showModal.value = false; viewOnly.value = false; calcPrefill.value = null; sharedFile.value = null; setHash(hashFor(view.value)) }
 function clearEditing() { editing.value = null }
 // 统一键盘调度：确认框打开时不干预，Esc 交由 ConfirmHost 处理
 function onGlobalKey(e) {
@@ -830,6 +870,10 @@ function goSettingsFromModal() {
             <i class="gf-presence-dot" aria-hidden="true"></i>
             <span class="gf-presence-text">{{ gfText }}</span>
           </button>
+          <button class="topbar-ops" :class="{ active: view === 'operations' }" @click="switchView('operations')" aria-label="打开经营中心" title="经营中心">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+            <span>经营</span>
+          </button>
           <button class="topbar-cmd" @mouseenter="prefetchPanel('commandPalette')" @focus="prefetchPanel('commandPalette')" @click="cmdOpen = true" title="命令面板 (Ctrl / ⌘ + K)" aria-label="打开命令面板，⌘K">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
             <kbd>⌘K</kbd>
@@ -859,11 +903,12 @@ function goSettingsFromModal() {
              因页面切到后台等原因丢失，新视图就永远等不到插入时机，整页空白。 -->
         <!-- 保留缓存：切回某个页面时先用上次的内容渲染，再后台静默刷新。
              以前每次切页都重新挂载 → 先出整页骨架再等接口，看起来「一直在加载」。 -->
-        <KeepAlive :max="6">
+        <KeepAlive :max="7">
           <Overview v-if="view === 'overview'" :key="'ov-' + activeShopId" :refreshKey="refreshKey" @add="openAdd" @goto-records="gotoRecords" @goto-record="gotoRecord" @goto-product="gotoProduct" @goto-settings="switchView('settings')" @goto-calc="calcOpen = true" @goto-report="reportOpen = true" @notify="notify" />
           <Records v-else-if="view === 'records'" :key="'rc-' + activeShopId" :refreshKey="refreshKey" :highlightId="highlightId" :focusQuery="focusQuery" :focusNorm="focusNorm" :focusType="focusType" :focusNonce="focusNonce" @add="openAdd" @edit="openEdit" @refresh="bump" @notify="notify" @goto-group="gotoGroup" @goto-consign="gotoConsign" @batch="openBatch" />
           <Groups v-else-if="view === 'groups'" :key="'gp-' + activeShopId" :refreshKey="refreshKey" :focusGroupId="focusGroupId" @notify="notify" @edit="openEdit" @view="openViewRecord" @focused="focusGroupId = null" />
           <Consign v-else-if="view === 'consign'" :key="'cs-' + activeShopId" :refreshKey="refreshKey" :initialTab="consignTab" :focusNonce="consignFocusNonce" @notify="notify" />
+          <Operations v-else-if="view === 'operations'" :key="'op-' + activeShopId" :refreshKey="refreshKey" :globalAdmin="globalSession" @notify="notify" @refresh="bump" @goto-records="gotoRecords" @goto-record="gotoRecord" @goto-consign="gotoConsign" @use-price="openAdd" />
           <Settings v-else :key="'st-' + activeShopId" :refreshKey="refreshKey" @notify="notify" @refresh="bump" />
         </KeepAlive>
         <SiteFooter />
@@ -884,7 +929,7 @@ function goSettingsFromModal() {
 
     <!-- 手机底部导航 -->
     <nav class="tabbar" :class="{ 'is-input-focus': inputFocused }">
-      <button v-for="n in navItems" :key="n.key" :class="{ active: view === n.key }" :aria-current="view === n.key ? 'page' : undefined"
+      <button v-for="n in mobileNavItems" :key="n.key" :class="{ active: view === n.key }" :aria-current="view === n.key ? 'page' : undefined"
               @touchstart.passive="prefetchView(n.key)" @focus="prefetchView(n.key)" @click="switchView(n.key)">
         <span class="tab-ico">
           <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="n.icon" /></svg>
@@ -909,7 +954,7 @@ function goSettingsFromModal() {
     </Transition>
 
     <Transition name="modal" @after-leave="clearEditing">
-      <RecordModal v-if="showModal" :record="editing" :viewOnly="viewOnly" :prefill="calcPrefill" @close="closeModal" @saved="onSaved" @open-settings="goSettingsFromModal" />
+      <RecordModal v-if="showModal" :record="editing" :viewOnly="viewOnly" :prefill="calcPrefill" :initialFile="sharedFile" @close="closeModal" @saved="onSaved" @open-settings="goSettingsFromModal" />
     </Transition>
     <Transition name="modal">
       <component :is="BatchImportComp" v-if="batchOpen && BatchImportComp"

@@ -5,7 +5,7 @@ import path from 'node:path'
 
 const baseURL = process.env.XY_AUDIT_URL || 'http://127.0.0.1:18089'
 const outputDir = path.resolve('qa-artifacts/axe-audit')
-const routes = ['/', '/privacy', '/terms', '/not-a-page', '/#records', '/#groups', '/#consign', '/#settings']
+const routes = ['/', '/privacy', '/terms', '/not-a-page', '/#records', '/#groups', '/#consign', '/#operations', '/#settings']
 const viewports = [
   { width: 1440, height: 900 },
   { width: 768, height: 1024 },
@@ -31,6 +31,7 @@ for (const viewport of viewports) {
   for (const route of routes) {
     await page.goto(baseURL + route, { waitUntil: 'networkidle' })
     await page.waitForTimeout(700)
+    await page.addStyleTag({ content: '*,*::before,*::after{animation:none!important;transition:none!important}' })
     await page.evaluate(() => {
       for (const animation of document.getAnimations()) {
         try { animation.finish() } catch (error) { /* 无限动画无需强制结束 */ }

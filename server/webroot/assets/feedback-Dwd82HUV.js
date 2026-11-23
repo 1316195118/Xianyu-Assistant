@@ -1,0 +1,1 @@
+import{h as a}from"./index-V9q4wUl2.js";function f(i,n={}){return i?{label:n.label||"撤销",icon:n.icon||"undo",ttl:n.ttl||9e3,run:async()=>{await a.undo(i),n.after&&await n.after(),n.notify&&n.notify(n.doneText||"已撤销，数据已恢复")}}:null}export{f as u};

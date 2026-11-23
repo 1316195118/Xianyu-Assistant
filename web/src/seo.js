@@ -21,6 +21,11 @@ export const PAGE_META = {
     description: '分别管理寄卖人和委托人往来，记录寄卖、代采与结算，按归属人快速查账，不让垫付和分成遗漏。',
     robots: 'noindex, nofollow'
   },
+  operations: {
+    title: '经营中心｜鱼助手',
+    description: '集中完成经营数据体检、物流费用匹配、服务费核销、归属人对账、采购库龄与智能定价。',
+    robots: 'noindex, nofollow'
+  },
   settings: {
     title: '同步、备份与数据设置｜鱼助手',
     description: '配置闲鱼登录同步、本地或视觉 OCR、访问密码、自动备份和数据导入导出，让经营数据更安全可控。',

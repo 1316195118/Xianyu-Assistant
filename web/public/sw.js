@@ -11,6 +11,8 @@
  */
 const CACHE = 'xianyu-stat-v2';
 const BUILD_CACHE = 'xianyu-stat-build';
+const SHARE_CACHE = 'xianyu-share-v1';
+const SHARE_KEY = '/__xy-shared-image__';
 const BUILD_KEY = '/__xy-build__';
 // assets 已是内容哈希文件名（assets/index-<hash>.js），无法硬编码，
 // 改为从 index.html 解析实际引用后再预缓存。
@@ -89,7 +91,7 @@ self.addEventListener('install', (event) => {
 /* ---------- activate：清旧缓存 ---------- */
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    const keep = new Set([CACHE, BUILD_CACHE]);
+    const keep = new Set([CACHE, BUILD_CACHE, SHARE_CACHE]);
     const keys = await caches.keys();
     await Promise.all(keys.map((k) => (keep.has(k) ? Promise.resolve() : caches.delete(k))));
     if (!(await readBuild())) {
@@ -103,8 +105,12 @@ self.addEventListener('activate', (event) => {
 /* ---------- fetch：接口直连，哈希资源缓存优先，页面壳网络优先 ---------- */
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  if (req.method !== 'GET') return; // 非 GET 直接放行
   const url = new URL(req.url);
+  if (req.method === 'POST' && url.origin === self.location.origin && url.pathname === '/share-target') {
+    event.respondWith(handleShareTarget(req));
+    return;
+  }
+  if (req.method !== 'GET') return; // 其他非 GET 直接放行
   if (url.origin !== self.location.origin) return; // 仅处理同源
   // 接口与 SSE 保持直连，避免 Service Worker 在每次查询前多加一层调度。
   if (url.pathname.indexOf('/api/') === 0) return;
@@ -115,6 +121,28 @@ self.addEventListener('fetch', (event) => {
   }
   event.respondWith(networkFirst(req, url));
 });
+
+/* ---------- Android / Chromium Share Target：暂存系统分享来的截图 ---------- */
+async function handleShareTarget(req) {
+  try {
+    const form = await req.formData();
+    const file = form.get('image');
+    if (file && typeof file !== 'string' && file.size > 0) {
+      const cache = await caches.open(SHARE_CACHE);
+      await cache.put(SHARE_KEY, new Response(file, {
+        headers: {
+          'Content-Type': file.type || 'image/png',
+          'X-Image-Type': file.type || 'image/png',
+          'X-Image-Name': file.name || 'shared-order.png',
+          'Cache-Control': 'no-store'
+        }
+      }));
+    }
+  } catch (e) {
+    /* 分享内容异常时仍回到首页，用户可重新选择截图 */
+  }
+  return Response.redirect(new URL('/?share=1#overview', self.location.origin).href, 303);
+}
 
 // 仅对静态壳/资源做运行时回写，保持离线副本新鲜；/api/* 不写入缓存。
 function shouldCache(url) {

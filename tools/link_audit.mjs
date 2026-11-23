@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 const baseURL = process.env.XY_AUDIT_URL || 'http://127.0.0.1:18089'
-const routes = ['/', '/privacy', '/terms', '/not-a-page', '/#records', '/#groups', '/#consign', '/#settings']
+const routes = ['/', '/privacy', '/terms', '/not-a-page', '/#records', '/#groups', '/#consign', '/#operations', '/#settings']
 const outputDir = path.resolve('qa-artifacts/link-audit')
 await fs.mkdir(outputDir, { recursive: true })
 
@@ -48,7 +48,7 @@ for (const [href, link] of links) {
       await anchorPage.goto(href, { waitUntil: 'networkidle' })
       await anchorPage.waitForTimeout(400)
       missingAnchor = decodeURIComponent(url.hash.slice(1))
-      anchorOK = ['overview', 'records', 'groups', 'consign', 'settings'].includes(missingAnchor) ||
+      anchorOK = ['overview', 'records', 'groups', 'consign', 'operations', 'settings'].includes(missingAnchor) ||
         await anchorPage.evaluate((id) => !!document.getElementById(id) || !!document.querySelector(`[name="${CSS.escape(id)}"]`), missingAnchor)
       await anchorPage.close()
     }
