@@ -1257,8 +1257,6 @@ function onCardClick(r, e) {
                     <span class="meta-sep" aria-hidden="true">·</span>
                     <span class="cell-sub">{{ counterpartyOf(r) || '—' }}</span>
 
-                    <span v-if="isConsignment(r)" class="consign-tag" :title="'寄卖单' + (r.owner ? ' · 归属 ' + r.owner : '')">寄卖单</span>
-                    <span v-if="r.source === '代采' || r.source === '代买'" class="consign-tag daicai-tag" :title="'代采单' + (r.owner ? ' · 替 ' + r.owner + ' 买' : '')">代采单</span>
                     <span v-if="r.owner && !isExternalRecord(r)" class="owner-chip" :title="'归属：' + r.owner">{{ r.owner }}</span>
 
                   </div>
@@ -1277,7 +1275,9 @@ function onCardClick(r, e) {
                           :title="r.discarded_at ? '已弃单的记录不能加入联单' : '把这条记录加入联单'"
                           @click.stop="openGroupPicker(r.id)">＋</button>
                   <!-- 结算状态跟联单放在一起：都属于「这单归到哪、算没算完」 -->
-                  <div v-if="isDiscarded(r) || isExternalRecord(r) || groupSettled(r) || autoSettled(r) || (r.cost_free && !isExternalRecord(r))" class="group-tags">
+                  <div v-if="isDiscarded(r) || isExternalRecord(r) || groupSettled(r) || autoSettled(r) || (r.cost_free && !isExternalRecord(r)) || isConsignment(r) || r.source === '代采' || r.source === '代买'" class="group-tags">
+                    <span v-if="isConsignment(r)" class="consign-tag" :title="'寄卖单' + (r.owner ? ' · 归属 ' + r.owner : '')">寄卖单</span>
+                    <span v-else-if="r.source === '代采' || r.source === '代买'" class="consign-tag daicai-tag" :title="'代采单' + (r.owner ? ' · 替 ' + r.owner + ' 买' : '')">代采单</span>
                     <span v-if="isDiscarded(r)" class="discard-dot" title="已弃单：不占在库、不计成本与利润">已弃单</span>
                     <span v-else-if="isExternalRecord(r)" class="auto-settled-chip external-settled-chip" :title="externalSettleText(r)">外部结算</span>
                     <span v-else-if="groupSettled(r)" class="settled-dot" title="所在联单已完结">已完结</span>

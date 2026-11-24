@@ -6146,13 +6146,13 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
    列宽只写在 <colgroup> 上：table-layout:fixed 只认第一行的定宽，
    而第一行有「金额（元）」的 colspan，会把商品列算成窄条，
    所以必须用 colgroup —— 这是唯一「写多少就是多少」的地方。
-   勾选 34 | 商品 自动 | 联单 126 | 截图 58 | 金额 84×5 | 时间 108 | 操作 162
+   勾选 34 | 商品 自动 | 联单 168 | 截图 58 | 金额 84×5 | 时间 108 | 操作 162
    1128 宽下商品列 = 278（原来是 157）
    ============================================================ */
 @media (min-width: 901px) {
   .rec-table { table-layout: fixed; }
   .rec-table col.cg-check { width: 34px; }
-  .rec-table col.cg-group { width: 126px; }
+  .rec-table col.cg-group { width: 168px; }
   .rec-table col.cg-shot { width: 58px; }
   .rec-table col.cg-num { width: 84px; }
   .rec-table col.cg-time { width: 108px; }
@@ -6229,7 +6229,12 @@ html[data-theme="dark"] .auto-settled-chip { background: rgba(45, 212, 191, .16)
   }
   .rec-table td.col-group .group-tags {
     display: flex; flex-wrap: nowrap; align-items: center;
-    justify-content: center; gap: 3px; margin-top: 2px; height: 14px; overflow: hidden;
+    justify-content: center; gap: 3px; margin-top: 2px; height: 16px; overflow: hidden;
+  }
+  /* 寄卖 / 代采与结算状态同属「这单归到哪」，在联单标题下方排成一行。 */
+  .rec-table td.col-group .group-tags .consign-tag {
+    height: 14px; padding: 0 4px; border-width: 1px; border-radius: 4px;
+    font-size: 9px; line-height: 12px; transform: none;
   }
   .rec-table td.col-group .group-tags .settled-dot,
   .rec-table td.col-group .group-tags .discard-dot,
