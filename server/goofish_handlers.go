@@ -591,6 +591,42 @@ func handleGoofishPreview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, plan)
 }
 
+// gfRecentSyncResult 是「立即同步」按最近 N 天后台入库后的结果。
+// 与手动同步不同，它不生成同步计划，也不会把订单清单返回给前端。
+type gfRecentSyncResult struct {
+	Added      int    `json:"added"`
+	Refreshed  int    `json:"refreshed"`
+	KeptManual int    `json:"kept_manual"`
+	Unbilled   int    `json:"unbilled"`
+	Rows       int    `json:"rows"`
+	Window     int    `json:"window"`
+	Message    string `json:"message"`
+}
+
+var errGFSyncBusy = fmt.Errorf("正在同步中，请等这一次跑完再点")
+
+const gfManualPlanLifetime = 2 * time.Hour
+
+// handleGoofishSyncNow 按「只同步最近 N 天」立即执行一次后台自动同步。
+// 这里刻意不接收回溯月数：账单回溯只允许走手动同步，避免用户误点后串行拉取大量历史账单。
+func handleGoofishSyncNow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		writeError(w, 405, "方法不允许")
+		return
+	}
+	shop := shopID(r)
+	result, err := gfRunRecentSync(shop, true)
+	if err != nil {
+		if err == errGFSyncBusy {
+			writeError(w, 429, err.Error())
+			return
+		}
+		writeError(w, 502, gfExplainErr(err))
+		return
+	}
+	writeJSON(w, result)
+}
+
 // handleGoofishApply 把计划里选中的订单写进当前店铺
 func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -617,8 +653,8 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 409, "同步计划已失效，请重新拉取")
 		return
 	}
-	if time.Since(plan.MadeAt) > 30*time.Minute {
-		writeError(w, 409, "同步计划已过期（超过 30 分钟），请重新拉取")
+	if time.Since(plan.MadeAt) > gfManualPlanLifetime {
+		writeError(w, 409, "同步计划已过期（超过 2 小时），请重新拉取")
 		return
 	}
 	// 店铺级绑定：只允许写进本店，避免 A 店的账号把货导到 B 店
@@ -1203,65 +1239,86 @@ func gfAutoSyncOne(shop int64) {
 			}
 		}
 	}
+	if _, err := gfRunRecentSync(shop, false); err != nil && err != errGFSyncBusy {
+		fmt.Printf("[闲鱼自动同步] 店铺 %d 拉取失败: %v\n", shop, err)
+	}
+}
+
+// gfRunRecentSync 执行一次「拉取 + 只处理最近 N 天 + 自动新增 / 补正」。
+// interactive=true 表示用户点击了「立即同步」：忽略自动同步间隔，但不启用账单回溯。
+func gfRunRecentSync(shop int64, interactive bool) (gfRecentSyncResult, error) {
+	result := gfRecentSyncResult{Window: gfAutoWindow(shop)}
 	if !gfTryLockSync(shop) {
-		return
+		return result, errGFSyncBusy
 	}
 	defer gfUnlockSync(shop)
 
+	gfProgress(shop, 3, fmt.Sprintf("正在同步最近 %d 天的订单…", result.Window))
 	// 同步前静默换发并重新加载落库后的最新会话。
 	// 换发失败不直接判死：旧会话可能仍有效，最终以真实同步接口结果为准。
 	c, _ := gfRenewAndLoadClient(shop, gfRenewBeforeSync)
 	if c == nil {
-		gfSyncRetryOrFail(shop, "未找到可用的闲鱼登录态")
-		return
+		err := fmt.Errorf("未找到可用的闲鱼登录态")
+		if !interactive {
+			gfSyncRetryOrFail(shop, err.Error())
+		}
+		return result, err
 	}
-	plan, err := buildPlanWith(c, 0, 2, shop)
+	// backfillMonths=0 是硬约束：立即同步只处理最近 N 天，不拉历史账单。
+	plan, err := buildPlanWith(c, 0, 0, shop)
 	if err != nil {
 		msg := err.Error()
 		sessionGone := strings.Contains(msg, "SESSION_EXPIRED") || strings.Contains(msg, "Session过期") ||
 			strings.Contains(msg, "FAIL_SYS_SESSION_EXPIRED") || strings.Contains(msg, "FAIL_SYS_TOKEN_EXOIRED")
 		if sessionGone {
-			gfSyncRetryOrFail(shop, "Cookie 已失效")
+			if interactive {
+				_ = gfSet(gfKeyDead, shop, "1")
+				gfMarkSyncError(shop, "Cookie 已失效")
+			} else {
+				gfSyncRetryOrFail(shop, "Cookie 已失效")
+			}
 		}
-		fmt.Printf("[闲鱼自动同步] 店铺 %d 拉取失败: %v\n", shop, err)
-		return
+		return result, err
 	}
 	_ = gfSet(gfKeyCookie, shop, c.cookieString())
 	_ = gfSet(gfKeyCheck, shop, time.Now().Format("2006-01-02 15:04:05"))
 
 	// 只处理「最近 N 天」：自动同步每天跑，没必要把几个月前的单再对一遍账，
-	// 既省请求也避免历史数据被无谓地更新。漏掉的老单靠手动同步的「账单基准回溯」补。
-	window := gfAutoWindow(shop)
-	cutoff := time.Now().AddDate(0, 0, -window)
-	inWindow := func(t string) bool {
-		if window <= 0 {
-			return true
-		}
-		tm, e := time.ParseInLocation("2006-01-02 15:04:05", t, time.Local)
-		if e != nil {
-			return true // 时间解析不了就别拦，宁可多对一次
-		}
-		return !tm.Before(cutoff)
-	}
-	recent := make([]gfPlanRow, 0, len(plan.Rows))
-	for _, row := range plan.Rows {
-		if inWindow(row.Time) {
-			recent = append(recent, row)
-		}
-	}
+	// 既省请求也避免历史数据被无谓地更新。历史补建只允许由「手动同步」触发。
+	recent := gfFilterRecentPlanRows(plan.Rows, result.Window)
+	result.Rows = len(recent)
 
 	ts := nowStr()
-	added := gfAutoImportMissing(shop, recent, ts)
-	refreshed, _, _ := gfRefreshExisting(shop, recent, nil, true)
+	result.Added = gfAutoImportMissing(shop, recent, ts)
+	result.Refreshed, result.KeptManual, result.Unbilled = gfRefreshExisting(shop, recent, nil, true)
 	refreshPurchaseIndex()
 	_ = gfSet(gfKeyLast, shop, time.Now().Format("2006-01-02 15:04:05"))
 	gfClearSyncError(shop)
-	if added > 0 || refreshed > 0 {
-		msg := fmt.Sprintf("自动同步：新增 %d 条、补正 %d 条卖单金额", added, refreshed)
+	result.Message = fmt.Sprintf("最近 %d 天：新增 %d 条、补正 %d 条卖单金额", result.Window, result.Added, result.Refreshed)
+	if result.Added > 0 || result.Refreshed > 0 {
 		realtimeHub.publish("POST", "/api/goofish/auto", "",
-			msg, shop)
-		fmt.Printf("[闲鱼自动同步] 店铺 %d 新增 %d 条、补正 %d 条\n", shop, added, refreshed)
+			result.Message, shop)
 	}
+	realtimeHub.publish("POST", "/api/goofish/sync-now", "", result.Message, shop)
+	gfProgress(shop, 100, "同步完成")
+	return result, nil
+}
+
+// gfFilterRecentPlanRows 对自动同步计划应用「最近 N 天」规则。
+// 时间解析不了时保留，宁可多对一次也不因格式问题漏单。
+func gfFilterRecentPlanRows(rows []gfPlanRow, window int) []gfPlanRow {
+	if window <= 0 {
+		return rows
+	}
+	cutoff := time.Now().AddDate(0, 0, -window)
+	recent := make([]gfPlanRow, 0, len(rows))
+	for _, row := range rows {
+		tm, err := time.ParseInLocation("2006-01-02 15:04:05", row.Time, time.Local)
+		if err != nil || !tm.Before(cutoff) {
+			recent = append(recent, row)
+		}
+	}
+	return recent
 }
 
 // gfAutoImportMissing 只新增系统里没有的订单。

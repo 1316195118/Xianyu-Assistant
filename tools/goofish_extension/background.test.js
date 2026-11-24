@@ -6,7 +6,7 @@ const vm = require('node:vm')
 
 const source = fs.readFileSync(path.join(__dirname, 'background.js'), 'utf8')
 
-function makeBackground({ cookies, fetchImpl, config = {} }) {
+function makeBackground({ cookies, fetchImpl, config = {}, scripting = null }) {
   const store = {
     server: 'http://10.10.10.251:18083',
     shopId: 1,
@@ -43,6 +43,7 @@ function makeBackground({ cookies, fetchImpl, config = {} }) {
       onChanged: { addListener: noop }
     },
     permissions: { async contains() { return true } },
+    ...(scripting ? { scripting } : {}),
     alarms: {
       async create() {},
       async get() { return null },
@@ -77,7 +78,7 @@ function makeBackground({ cookies, fetchImpl, config = {} }) {
       onStartup: { addListener: noop },
       onMessage: { addListener: noop },
       async openOptionsPage() {},
-      getManifest() { return { version: '1.2.3' } }
+      getManifest() { return { version: '1.2.4' } }
     }
   }
   const context = vm.createContext({
@@ -342,7 +343,7 @@ test('从鱼助手服务器检查扩展新版并设置更新角标', async () =>
   })
   const result = await context.checkExtensionUpdate(true)
   assert.equal(result.ok, true)
-  assert.equal(result.currentVersion, '1.2.3')
+  assert.equal(result.currentVersion, '1.2.4')
   assert.equal(result.latestVersion, '1.3.0')
   assert.equal(result.updateAvailable, true)
   assert.equal(result.downloadUrl, 'http://10.10.10.251:18083/downloads/goofish-extension.zip')
@@ -384,6 +385,27 @@ test('官方扫码登录会打开闲鱼登录页并保存等待状态', async ()
   assert.equal(store.interactiveLoginState, 'waiting')
   assert.match(store.interactiveLoginMessage, /扫码/)
   assert.ok(store.interactiveLoginStartedAt > 0)
+})
+
+test('官方登录页二维码可在扩展内直接提取，后台标签保持不可见', async () => {
+  const qr = 'data:image/png;base64,' + 'a'.repeat(800)
+  const { context, store, tabs } = makeBackground({
+    cookies: { goofish: [] },
+    scripting: {
+      async executeScript() {
+        return [{ result: { ok: true, dataUrl: qr, source: 'canvas' } }]
+      }
+    },
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  })
+
+  const result = await context.openInteractiveLogin(false)
+  assert.equal(result.ok, true)
+  assert.equal(result.mode, 'inline')
+  assert.equal(result.qr, qr)
+  assert.equal(tabs.length, 1)
+  assert.equal(tabs[0].active, false)
+  assert.equal(store.interactiveLoginQr, qr)
 })
 
 test('官方登录链接由扩展页面直接打开时只记录登录起点', async () => {
@@ -460,7 +482,7 @@ test('扩展版本改变后会忽略当天旧缓存，重新检查服务器', as
   const result = await context.checkExtensionUpdate(false)
   assert.equal(checks, 1)
   assert.equal(result.updateAvailable, false)
-  assert.equal(store.extensionCheckedVersion, '1.2.3')
+  assert.equal(store.extensionCheckedVersion, '1.2.4')
 })
 
 test('版本号按数字段比较，不会把 1.1.10 误判低于 1.1.9', () => {

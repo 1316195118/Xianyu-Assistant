@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "鱼助手 · 闲鱼登录同步",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "后台续期并自动同步当前浏览器的闲鱼登录态到你自己指定的鱼助手，不上传第三方。",
   "icons": {
     "16": "icons/icon16.png",
@@ -11,6 +11,7 @@
   },
   "permissions": [
     "cookies",
+    "scripting",
     "storage",
     "alarms"
   ],

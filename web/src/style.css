@@ -4094,6 +4094,14 @@ html[data-theme="dark"] .upd-progress.bad {
 .gf-hint { font-size: 12px; line-height: 1.7; margin-bottom: 14px; }
 .gf-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
 .gf-actions .btn { min-width: 96px; }
+.gf-sync-guide {
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px; margin-top: 14px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface-2); font-size: 12px; line-height: 1.55;
+}
+.gf-sync-guide b { color: var(--text); white-space: nowrap; }
+.gf-sync-guide span { color: var(--text-2); }
 
 .gf-account {
   display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
@@ -4124,10 +4132,20 @@ html[data-theme="dark"] .upd-progress.bad {
 .gf-warn { margin-bottom: 10px; }
 
 .gf-toolbar {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
   gap: 10px; margin-bottom: 8px; font-size: var(--fs-sm);
 }
+.gf-toolbar-main { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .gf-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; }
+.gf-review-clock {
+  flex: none; padding: 3px 8px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--text-2); font-size: 11.5px; font-weight: 600;
+}
+.gf-review-clock.urgent {
+  background: var(--down-soft); border-color: color-mix(in srgb, var(--down) 35%, var(--border));
+  color: var(--down);
+}
 
 .gf-table-wrap {
   max-height: min(46vh, 420px); overflow: auto;
@@ -4203,6 +4221,10 @@ html[data-theme="dark"] .upd-progress.bad {
   .gf-table .c-st { padding-inline: 6px; }
   .gf-prod-name { max-width: 100%; }
   .gf-actions .btn { flex: 1; min-width: 0; }
+  .gf-sync-guide { grid-template-columns: 1fr; gap: 2px; padding: 9px 10px; }
+  .gf-sync-guide b { margin-top: 3px; }
+  .gf-toolbar { align-items: flex-start; }
+  .gf-review-clock { margin-left: 0; }
   .gf-steps { padding: 10px; }
   .gf-stat { gap: 6px; }
   .gf-chip { font-size: 11.5px; padding: 2px 8px; }
@@ -7154,9 +7176,9 @@ html[data-motion="reduce"] .upd-progress.bad {
     margin-inline: auto;
     padding: 26px 36px 56px;
   }
-  /* 首页两张重点卡保持常规桌面尺寸。大屏只放大内容区留白，
-     不再把卡内文案跟着全局字号一起撑高。 */
-  .kpi-grid .kpi-card { height: 118px; }
+  /* 首页 KPI 在大屏保持紧凑；用 min-height 而不是固定 height，
+     让「销售额」的周/月/总切换器和长脚注需要时自然撑开，不会裁切。 */
+  .kpi-grid .kpi-card { height: auto; min-height: 104px; padding-block: 14px; }
   .kpi-card .kpi-label { font-size: 13.5px; }
   .kpi-card .kpi-foot { font-size: 11px; }
   .settings-page { max-width: 1360px; }

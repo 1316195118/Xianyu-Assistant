@@ -1,6 +1,8 @@
 import json, urllib.request, sys
+from pathlib import Path
 
 API = 'http://10.10.10.251:18083'
+TOOLS = Path(__file__).resolve().parent
 
 def get(path, shop=3):
     req = urllib.request.Request(API + path, headers={'X-Shop-Id': str(shop)})
@@ -10,7 +12,7 @@ def get(path, shop=3):
 items = get('/api/records?type=sell&page_size=200&page=1')['items']
 print('卖单数:', len(items))
 
-fees = json.load(open(r'C:/Users/Administrator/WorkBuddy AI/咸鱼记录/tools/_fees_by_order.json', encoding='utf-8'))
+fees = json.load(open(TOOLS / '_fees_by_order.json', encoding='utf-8'))
 print('有费用明细的订单:', len(fees))
 
 hit, miss = [], []
@@ -40,4 +42,4 @@ print('\n--- 没费用的订单 ---')
 for r in miss:
     print('%s 价%-9s %s | %s' % (r['order'] or '(无单号)', r['price'], str(r['time'])[:10], (r['product'] or '')[:26]))
 
-json.dump({'hit': hit, 'miss': miss}, open(r'C:/Users/Administrator/WorkBuddy AI/咸鱼记录/tools/_sell_match.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+json.dump({'hit': hit, 'miss': miss}, open(TOOLS / '_sell_match.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=1)

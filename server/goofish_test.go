@@ -87,6 +87,34 @@ func TestGFFilterRecent(t *testing.T) {
 	}
 }
 
+// 立即同步必须严格只处理最近 N 天；账单回溯只属于手动同步。
+func TestGFFilterRecentPlanRows(t *testing.T) {
+	now := time.Now()
+	fmtT := "2006-01-02 15:04:05"
+	rows := []gfPlanRow{
+		{OrderNo: "OLD", Time: now.AddDate(0, 0, -10).Format(fmtT)},
+		{OrderNo: "NEW", Time: now.AddDate(0, 0, -1).Format(fmtT)},
+		{OrderNo: "BAD", Time: "not-a-time"},
+	}
+	got := gfFilterRecentPlanRows(rows, 3)
+	if len(got) != 2 || got[0].OrderNo != "NEW" || got[1].OrderNo != "BAD" {
+		t.Fatalf("window=3 rows=%v, want NEW/BAD", got)
+	}
+	if len(rows) != 3 {
+		t.Fatal("input rows should not be mutated")
+	}
+	if got := gfFilterRecentPlanRows(rows, 0); len(got) != 3 {
+		t.Fatalf("window=0 rows=%d, want 3", len(got))
+	}
+}
+
+// 手动同步清单需要留出足够时间逐条核对；前端倒计时与后端应用有效期共用这个口径。
+func TestGFManualPlanLifetime(t *testing.T) {
+	if gfManualPlanLifetime != 2*time.Hour {
+		t.Fatalf("manual plan lifetime = %s, want 2h", gfManualPlanLifetime)
+	}
+}
+
 // 卖单列表的成交价必须取买家实际成交金额 totalPrice，而不是商品挂牌单价 auctionPrice。
 func TestGFSoldOrderPriceUsesTransactionTotal(t *testing.T) {
 	got := gfSoldOrderPrice(map[string]interface{}{

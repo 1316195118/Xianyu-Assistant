@@ -404,6 +404,7 @@ func registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/goofish/logout", authWrap(handleGoofishLogout))
 	mux.HandleFunc("/api/goofish/preview", authWrap(handleGoofishPreview))
 	mux.HandleFunc("/api/goofish/apply", authWrap(handleGoofishApply))
+	mux.HandleFunc("/api/goofish/sync-now", authWrap(handleGoofishSyncNow))
 	mux.HandleFunc("/api/goofish/keepalive", authWrap(handleGoofishKeepAlive))
 	mux.HandleFunc("/api/goofish/ping", authWrap(handleGoofishPing))
 	mux.HandleFunc("/api/goofish/auto", authWrap(handleGoofishAuto))

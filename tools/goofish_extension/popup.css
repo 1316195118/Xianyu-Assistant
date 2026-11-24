@@ -186,6 +186,7 @@ h1 { margin: 0; font-size: 17px; letter-spacing: .02em; }
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
   min-height: 39px;
   border: 1px solid #2b2415;
   border-radius: 10px;
@@ -193,12 +194,66 @@ h1 { margin: 0; font-size: 17px; letter-spacing: .02em; }
   color: #fff5d3;
   font-size: 12px;
   font-weight: 760;
+  font-family: inherit;
   text-decoration: none;
   cursor: pointer;
   transition: transform .14s ease, background .14s ease;
 }
 .official-login-button:hover { background: #443817; }
 .official-login-button:active { transform: translateY(1px); }
+.login-qr-panel {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 11px;
+  border: 1px solid #dfbe63;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 72%);
+}
+.login-qr-panel[hidden] { display: none; }
+.login-qr-panel img {
+  display: block;
+  width: 194px;
+  height: 194px;
+  padding: 7px;
+  border-radius: 10px;
+  background: #fff;
+  object-fit: contain;
+}
+.login-qr-panel p {
+  margin: 0;
+  color: #614b12;
+  font-size: 11px;
+  font-weight: 650;
+}
+.login-qr-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.qr-action {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid #ceb264;
+  border-radius: 8px;
+  background: #fffaf0;
+  color: #5d4607;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.qr-action:hover { background: #fff2c4; }
+.qr-action.quiet { background: transparent; }
+.login-qr-error {
+  min-height: 13px;
+  color: var(--red);
+  font-size: 10px;
+  text-align: center;
+}
+body.showing-login-qr .official-login-button,
+body.showing-login-qr form,
+body.showing-login-qr footer { display: none; }
 .interactive-login-status {
   margin: 0;
   padding: 7px 9px;
@@ -490,6 +545,12 @@ footer {
   .official-login-icon { background: #745d1d; color: #ffe18b; }
   .official-login-button { border-color: #f1b91d; background: #f1b91d; color: #241b00; }
   .official-login-button:hover { background: #ffd35a; }
+  .login-qr-panel { border-color: #735c1d; background: rgb(10 14 21 / 62%); }
+  .login-qr-panel p { color: #f2d996; }
+  .login-qr-panel img { background: #fff; }
+  .qr-action { border-color: #735c1d; background: #2a2411; color: #ffe39a; }
+  .qr-action:hover { background: #3a3015; }
+  .qr-action.quiet { background: transparent; }
   .interactive-login-status { background: rgb(10 14 21 / 55%); color: #f2d996; }
   .interactive-login-status.success { background: #173b24; }
   .interactive-login-status.failed { background: #471f23; }

@@ -19,6 +19,12 @@ const goofishHealth = document.getElementById('goofishHealth')
 const officialLoginButton = document.getElementById('officialLogin')
 const officialLoginLabel = document.getElementById('officialLoginLabel')
 const interactiveLoginStatus = document.getElementById('interactiveLoginStatus')
+const loginQrPanel = document.getElementById('loginQrPanel')
+const loginQrImage = document.getElementById('loginQrImage')
+const refreshLoginQrButton = document.getElementById('refreshLoginQr')
+const openLoginTabButton = document.getElementById('openLoginTab')
+const hideLoginQrButton = document.getElementById('hideLoginQr')
+const loginQrError = document.getElementById('loginQrError')
 const updateBanner = document.getElementById('updateBanner')
 const updateTitle = document.getElementById('updateTitle')
 const updateHint = document.getElementById('updateHint')
@@ -27,6 +33,8 @@ const openOptionsLabel = document.getElementById('openOptionsLabel')
 const version = document.getElementById('version')
 let openingOptions = false
 let openingOfficialLogin = false
+let interactiveLoginTimer = null
+let loginQrCollapsed = false
 
 function normalizeServer(value) {
   return String(value || '').trim().replace(/\/+$/, '')
@@ -125,6 +133,7 @@ function renderRuntime(runtime) {
     version.textContent = '扩展 v' + runtime.currentExtensionVersion
   }
   renderInteractiveLogin(saved)
+  scheduleInteractiveLoginRefresh(saved)
   if (saved.extensionUpdateAvailable) {
     updateBanner.hidden = false
     updateTitle.textContent = '发现扩展新版 v' + saved.extensionLatestVersion
@@ -154,8 +163,16 @@ function renderRuntime(runtime) {
 
 function renderInteractiveLogin(saved) {
   const state = saved && saved.interactiveLoginState
+  const qr = state === 'waiting' ? String(saved.interactiveLoginQr || '') : ''
+  if (qr) loginQrImage.src = qr
+  loginQrPanel.hidden = !qr || loginQrCollapsed
+  document.body.classList.toggle('showing-login-qr', !!qr && !loginQrCollapsed)
+  loginQrError.textContent = saved && saved.interactiveLoginQrError
+    ? saved.interactiveLoginQrError
+    : ''
   if (!state || !saved.interactiveLoginMessage) {
     interactiveLoginStatus.hidden = true
+    if (!qr) document.body.classList.remove('showing-login-qr')
     return
   }
   interactiveLoginStatus.hidden = false
@@ -164,6 +181,25 @@ function renderInteractiveLogin(saved) {
   if (state === 'success' && saved.interactiveLoginNick) {
     interactiveLoginStatus.textContent = '登录成功：' + saved.interactiveLoginNick + '，登录态已上报并通过校验'
   }
+}
+
+function scheduleInteractiveLoginRefresh(saved) {
+  if (interactiveLoginTimer) clearInterval(interactiveLoginTimer)
+  interactiveLoginTimer = null
+  if (!saved || !['waiting', 'verifying'].includes(saved.interactiveLoginState)) return
+  interactiveLoginTimer = setInterval(async () => {
+    try {
+      const runtime = await chrome.runtime.sendMessage({ type: 'get-runtime-status' })
+      const latest = runtime && runtime.saved
+      renderInteractiveLogin(latest)
+      if (!latest || !['waiting', 'verifying'].includes(latest.interactiveLoginState)) {
+        clearInterval(interactiveLoginTimer)
+        interactiveLoginTimer = null
+      }
+    } catch (error) {
+      // 单次状态读取失败不打断当前扫码流程。
+    }
+  }, 2500)
 }
 
 let connectionRequest = null
@@ -283,10 +319,21 @@ async function openOfficialLogin() {
   interactiveLoginStatus.className = 'interactive-login-status waiting'
   interactiveLoginStatus.textContent = '正在当前浏览器打开闲鱼官方登录页…'
   try {
-    const result = await chrome.runtime.sendMessage({ type: 'arm-interactive-login' })
+    const result = await chrome.runtime.sendMessage({ type: 'open-interactive-login' })
     if (!result || !result.ok) throw new Error(result && result.message ? result.message : '无法打开官方登录页')
     interactiveLoginStatus.textContent = result.message || '请在官方页面完成扫码'
-    setMessage(result.message || '请在官方页面完成扫码', 'ok')
+    if (result.qr) {
+      loginQrCollapsed = false
+      renderInteractiveLogin({
+        interactiveLoginState: 'waiting',
+        interactiveLoginMessage: result.message || '二维码已显示',
+        interactiveLoginQr: result.qr
+      })
+      scheduleInteractiveLoginRefresh({ interactiveLoginState: 'waiting' })
+      setMessage('二维码已显示，直接用闲鱼 App 扫码', 'ok')
+    } else {
+      setMessage(result.message || '请在官方页面完成扫码', 'ok')
+    }
   } catch (error) {
     const text = error && error.message ? error.message : String(error)
     interactiveLoginStatus.className = 'interactive-login-status failed'
@@ -298,6 +345,43 @@ async function openOfficialLogin() {
     officialLoginButton.setAttribute('aria-disabled', 'false')
     officialLoginButton.classList.remove('loading')
     officialLoginLabel.textContent = '打开官方扫码登录'
+  }
+}
+
+async function refreshLoginQr() {
+  setBusy(refreshLoginQrButton, true)
+  loginQrError.textContent = '正在刷新官方二维码…'
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'refresh-interactive-qr' })
+    if (!result || !result.ok) throw new Error(result && result.message ? result.message : '二维码刷新失败')
+    loginQrCollapsed = false
+    renderInteractiveLogin({
+      interactiveLoginState: 'waiting',
+      interactiveLoginMessage: result.message || '二维码已刷新',
+      interactiveLoginQr: result.qr
+    })
+    setMessage(result.message || '二维码已刷新', 'ok')
+  } catch (error) {
+    const text = error && error.message ? error.message : String(error)
+    loginQrError.textContent = text
+    setMessage(text, 'error')
+  } finally {
+    setBusy(refreshLoginQrButton, false)
+  }
+}
+
+async function openLoginTab() {
+  setBusy(openLoginTabButton, true)
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'open-interactive-tab' })
+    if (!result || !result.ok) throw new Error(result && result.message ? result.message : '无法打开官方登录页')
+    setMessage(result.message || '已切换到官方登录页', 'ok')
+  } catch (error) {
+    const text = error && error.message ? error.message : String(error)
+    loginQrError.textContent = text
+    setMessage(text, 'error')
+  } finally {
+    setBusy(openLoginTabButton, false)
   }
 }
 
@@ -334,6 +418,13 @@ async function openOptionsPage() {
 form.addEventListener('submit', save)
 syncButton.addEventListener('click', syncNow)
 officialLoginButton.addEventListener('click', openOfficialLogin)
+refreshLoginQrButton.addEventListener('click', refreshLoginQr)
+openLoginTabButton.addEventListener('click', openLoginTab)
+hideLoginQrButton.addEventListener('click', () => {
+  loginQrCollapsed = true
+  loginQrPanel.hidden = true
+  document.body.classList.remove('showing-login-qr')
+})
 openOptionsButton.addEventListener('click', openOptionsPage)
 updateBanner.addEventListener('click', (event) => {
   event.preventDefault()

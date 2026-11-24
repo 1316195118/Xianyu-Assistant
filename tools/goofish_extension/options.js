@@ -232,7 +232,7 @@ async function openOfficialLogin() {
   interactiveLoginStatus.className = 'interactive-login-status waiting'
   interactiveLoginStatus.textContent = '正在当前浏览器打开闲鱼官方登录页…'
   try {
-    const result = await chrome.runtime.sendMessage({ type: 'arm-interactive-login' })
+    const result = await chrome.runtime.sendMessage({ type: 'open-interactive-tab' })
     if (!result || !result.ok) throw new Error(result && result.message ? result.message : '无法打开官方登录页')
     interactiveLoginStatus.textContent = result.message || '请在官方页面完成扫码'
     setMessage('已打开闲鱼官方登录页，请用闲鱼 App 扫码', 'ok')

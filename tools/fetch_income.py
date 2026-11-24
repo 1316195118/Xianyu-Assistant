@@ -1,5 +1,7 @@
 import json, sys, time
-sys.path.insert(0, r'C:/Users/Administrator/WorkBuddy AI/咸鱼记录/tools')
+from pathlib import Path
+TOOLS = Path(__file__).resolve().parent
+sys.path.insert(0, str(TOOLS))
 from mtop_client import call
 
 MONTHS = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12']
@@ -31,7 +33,7 @@ for m in MONTHS:
     print(m, len(rs))
     allrows.extend(rs)
 
-json.dump(allrows, open(r'C:/Users/Administrator/WorkBuddy AI/咸鱼记录/tools/_income_raw.json', 'w', encoding='utf-8'),
+json.dump(allrows, open(TOOLS / '_income_raw.json', 'w', encoding='utf-8'),
           ensure_ascii=False, indent=1)
 
 inc = {}
@@ -45,7 +47,7 @@ for r in allrows:
     a['auction'] += float(r.get('incomeAuctionPrice') or 0)
 
 print('\n收入订单数:', len(inc))
-json.dump(inc, open(r'C:/Users/Administrator/WorkBuddy AI/咸鱼记录/tools/_income_by_order.json', 'w', encoding='utf-8'),
+json.dump(inc, open(TOOLS / '_income_by_order.json', 'w', encoding='utf-8'),
           ensure_ascii=False, indent=1)
 tot = sum(v['actual'] for v in inc.values())
 print('真实成交合计: %.2f' % tot)

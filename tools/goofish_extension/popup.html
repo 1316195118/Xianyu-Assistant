@@ -45,14 +45,23 @@
         <span class="official-login-icon" aria-hidden="true">◉</span>
         <div>
           <b>官方扫码登录</b>
-          <small>在平时使用的浏览器中打开闲鱼官方登录页，扫码后自动上报</small>
+          <small>优先在快捷面板直接显示官方二维码；读取失败时再打开官方登录页</small>
         </div>
       </div>
-      <a id="officialLogin" class="official-login-button" href="https://www.goofish.com/login"
-         target="_blank" rel="noopener noreferrer" role="button">
+      <button id="officialLogin" class="official-login-button" type="button">
         <span id="officialLoginLabel">打开官方扫码登录</span>
         <span class="spinner" aria-hidden="true"></span>
-      </a>
+      </button>
+      <div id="loginQrPanel" class="login-qr-panel" hidden>
+        <img id="loginQrImage" alt="闲鱼官方登录二维码" width="194" height="194" decoding="async">
+        <p>使用闲鱼 App 扫码，并在手机上确认登录</p>
+        <div class="login-qr-actions">
+          <button id="refreshLoginQr" class="qr-action" type="button">刷新二维码</button>
+          <button id="openLoginTab" class="qr-action" type="button">在官方页面打开</button>
+          <button id="hideLoginQr" class="qr-action quiet" type="button">收起</button>
+        </div>
+        <small id="loginQrError" class="login-qr-error" role="status" aria-live="polite"></small>
+      </div>
       <p id="interactiveLoginStatus" class="interactive-login-status" role="status" aria-live="polite" hidden></p>
     </section>
 
@@ -105,7 +114,7 @@
     </a>
 
     <footer>
-      <span id="version">扩展 v1.2.3</span>
+      <span id="version">扩展 v1.2.4</span>
       <button id="openOptions" class="text-button" type="button"><span id="openOptionsLabel">高级设置</span> <span aria-hidden="true">↗</span></button>
     </footer>
   </main>

@@ -61,6 +61,7 @@ let statusTimer = null
 onUnmounted(() => {
   stopQR()
   clearInterval(statusTimer)
+  clearReviewTimer()
   if (offProgress) offProgress()
   document.removeEventListener('keydown', onKey)
 })
@@ -89,18 +90,24 @@ const refreshPicked = ref({})
 const plan = ref(null)
 // 历史补建：列表接口只回最近 40 单，这里可以按账单期往前补
 const backfillMonths = ref(12)
-// 立即同步时是否一并做账单回溯。值由后端按店铺持久化（status.backfill），
+// 手动同步时是否一并做账单回溯。值由后端按店铺持久化（status.backfill），
 // 刷新/退出再进都会保持上次的选择；默认开（沿用原行为）。
 const useBackfill = ref(true)
 const picked = ref({})
 const err = ref('')
 const busy = ref(false)
+// 立即同步走后台自动规则；只有手动同步才生成订单清单。
+const syncMode = ref('auto') // auto | manual
 // 「检测连接」单独一个 busy：它和「立即同步」并存，共用一个会把另一个按钮也带上假的「检测中」
 const pingBusy = ref(false)
 const result = ref(null)
 const bridgeToken = ref('')
 const bridgeTokenBusy = ref(false)
 const bridgeTokenCopied = ref(false)
+const MANUAL_REVIEW_TIMEOUT_MS = 2 * 60 * 60 * 1000
+const reviewDeadline = ref(0)
+const reviewRemaining = ref(0)
+let reviewTimer = null
 
 const rows = computed(() => (plan.value && plan.value.rows) || [])
 const stat = computed(() => (plan.value && plan.value.stat) || {})
@@ -118,10 +125,23 @@ const pickedCount = computed(() => pickedList.value.length)
 const doneTitle = computed(() => {
   const added = Number(result.value?.added || 0)
   const refreshed = Number(result.value?.refreshed || 0)
+  if (syncMode.value === 'auto') {
+    if (added > 0 && refreshed > 0) return `后台同步完成：新增 ${added} 条、补正 ${refreshed} 条`
+    if (added > 0) return `后台同步完成：新增 ${added} 条`
+    if (refreshed > 0) return `后台同步完成：补正 ${refreshed} 条卖单`
+    return '后台同步完成，没有需要变更的订单'
+  }
   if (added > 0) return `已导入 ${added} 条`
   if (refreshed > 0) return `已补正 ${refreshed} 条卖单`
   return '同步已核对，无需改动'
 })
+const reviewRemainingLabel = computed(() => {
+  const sec = Math.max(0, Math.ceil(reviewRemaining.value / 1000))
+  return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`
+})
+const loadingText = computed(() => syncMode.value === 'manual'
+  ? '正在拉取订单与账单并生成手动同步清单…'
+  : `正在后台同步最近 ${status.value.auto_window || 30} 天的订单…`)
 const allPicked = computed({
   get: () => {
     const list = rows.value.filter(importable)
@@ -320,7 +340,7 @@ async function changeWindow(e) {
   try {
     const r = await api.goofishAuto(status.value.auto_days || 0, w)
     status.value = { ...status.value, auto_window: r.window || w }
-    emit('notify', `最近 ${r.window || w} 天：自动同步、以及回溯关闭时的立即同步都按此过滤`)
+    emit('notify', `最近 ${r.window || w} 天：立即同步和后台自动同步都只处理这个范围`)
   } catch (err) {
     emit('notify', err.message || '设置失败', true)
   }
@@ -332,8 +352,8 @@ async function changeBackfill() {
   try {
     await api.goofishAuto(status.value.auto_days || 0, status.value.auto_window || 0, on)
     emit('notify', on
-      ? '立即同步将一并做账单回溯'
-      : `立即同步只处理最近 ${status.value.auto_window || 30} 天的订单（天数在「只同步最近」里改）`)
+      ? '手动同步将一并做账单回溯；立即同步始终只处理最近 N 天'
+      : '手动同步不再做账单回溯；立即同步始终只处理最近 N 天')
   } catch (err) {
     useBackfill.value = !on // 保存失败则回滚勾选状态
     emit('notify', err.message || '设置失败', true)
@@ -367,6 +387,8 @@ async function ping() {
 async function pull() {
   if (busy.value) return
   busy.value = true
+  syncMode.value = 'manual'
+  clearReviewTimer()
   err.value = ''
   step.value = 'loading'
   progress.value = { on: true, pct: 2, text: '准备中…' }
@@ -383,11 +405,42 @@ async function pull() {
     else refreshPicked.value = {}
     progress.value = { on: true, pct: 100, text: '完成' }
     step.value = 'review'
+    startReviewTimer(p.made_at)
   } catch (e) {
     progress.value = { on: false, pct: 0, text: '' }
     err.value = e.message || '拉取失败'
     step.value = 'idle'
     // 令牌失效 / 被风控 / 网络不通，都在这里弹出来，避免只看到一句红字
+    emit('notify', err.value, true)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function syncNow() {
+  if (busy.value) return
+  busy.value = true
+  syncMode.value = 'auto'
+  clearReviewTimer()
+  err.value = ''
+  plan.value = null
+  picked.value = {}
+  refreshPicked.value = {}
+  result.value = null
+  step.value = 'loading'
+  progress.value = { on: true, pct: 2, text: '准备同步…' }
+  try {
+    const r = await api.goofishSyncNow()
+    await loadStatus()
+    result.value = r
+    progress.value = { on: true, pct: 100, text: '同步完成' }
+    step.value = 'done'
+    emit('refresh')
+    emit('notify', r.message || `最近 ${r.window || status.value.auto_window || 30} 天同步完成`)
+  } catch (e) {
+    progress.value = { on: false, pct: 0, text: '' }
+    err.value = e.message || '同步失败'
+    step.value = 'idle'
     emit('notify', err.value, true)
   } finally {
     busy.value = false
@@ -407,6 +460,7 @@ async function apply() {
       refresh_order_nos: Object.keys(refreshPicked.value).filter((k) => refreshPicked.value[k])
     })
     result.value = r
+    clearReviewTimer()
     step.value = 'done'
     emit('refresh')
     if (r.added) emit('notify', `已导入 ${r.added} 条到「${shopName.value}」`)
@@ -419,7 +473,35 @@ async function apply() {
   }
 }
 
+function clearReviewTimer() {
+  if (reviewTimer) {
+    clearInterval(reviewTimer)
+    reviewTimer = null
+  }
+  reviewDeadline.value = 0
+  reviewRemaining.value = 0
+}
+
+function tickReviewTimer() {
+  if (!reviewDeadline.value) return
+  reviewRemaining.value = Math.max(0, reviewDeadline.value - Date.now())
+  if (reviewRemaining.value > 0 || step.value !== 'review' || busy.value) return
+  clearReviewTimer()
+  backToIdle()
+  emit('notify', '手动同步清单已超过 2 小时，已自动返回；需要继续筛选时请重新点击手动同步')
+}
+
+function startReviewTimer(madeAt) {
+  const made = Date.parse(madeAt || '')
+  const base = Number.isFinite(made) ? made : Date.now()
+  reviewDeadline.value = base + MANUAL_REVIEW_TIMEOUT_MS
+  tickReviewTimer()
+  if (reviewRemaining.value <= 0 || step.value !== 'review') return
+  reviewTimer = setInterval(tickReviewTimer, 1000)
+}
+
 function backToIdle() {
+  clearReviewTimer()
   plan.value = null
   picked.value = {}
   refreshPicked.value = {}
@@ -661,7 +743,7 @@ onMounted(async () => {
 
             <div class="gf-row">
               <div class="gf-field gf-field-inline">
-                <label>账单基准回溯<HelpTip text="闲鱼「订单管理」只覆盖近 3 个月（列表接口固定回 40 单），历史订单以收入 / 支出账单为准：按账单期往前翻，把这段时间已成交、系统里还没有的订单补进预览。&#10;取消下方的勾选则不翻账单，只取「只同步最近」选的天数。" /></label>
+                <label>账单基准回溯（仅手动同步）<HelpTip text="闲鱼「订单管理」只覆盖近 3 个月（列表接口固定回 40 单），历史订单以收入 / 支出账单为准。这里只在点击「手动同步」时生效，不会影响「立即同步」或后台自动同步。" /></label>
                 <select class="gf-select" v-model.number="backfillMonths">
                   <option :value="0">只看订单列表</option>
                   <option :value="6">近 6 个月</option>
@@ -675,8 +757,8 @@ onMounted(async () => {
             <label class="gf-overwrite gf-backfill-toggle">
               <input type="checkbox" v-model="useBackfill" @change="changeBackfill" />
               <span>
-                <b>立即同步时一并做账单回溯</b>
-                <HelpTip text="默认开启。取消勾选后，立即同步只处理「只同步最近」里选的天数（不翻历史账单），上面选的回溯月数会保留。此开关按店铺保存，退出再进仍保持上次选择。" />
+                <b>手动同步时一并做账单回溯</b>
+                <HelpTip text="这个开关只控制手动同步生成的订单清单。立即同步和后台自动同步始终只处理「只同步最近」里选的天数，永不回溯历史账单。此开关按店铺保存。" />
               </span>
             </label>
 
@@ -686,9 +768,10 @@ onMounted(async () => {
                 只绑定「{{ shopName }}」这一家店，其他店铺各自独立绑定、互不影响。<br />
                 <b>订单列表</b>：闲鱼只给最近 3 个月（接口固定返回 40 单），所以它只用来抓「刚成交」的单；
                 「已发货 / 待发货」也算成交（钱已付）会一起导入，只有退款、交易关闭、取消、待付款才跳过。<br />
-                <b>账单</b>：收入 / 支出账单按账单期逐月对账，成交价取<b>实收金额</b>、服务费取<b>实际扣款</b>
+                <b>立即同步</b>：按「只同步最近」选的天数直接新增订单并按订单号补正已有卖单，不显示清单，也不做账单回溯。<br />
+                <b>手动同步</b>：只有点击后才生成订单清单。账单回溯只在这里生效：收入 / 支出账单按账单期逐月对账，成交价取<b>实收金额</b>、服务费取<b>实际扣款</b>
                 （软件 1% + 基础 0.6%，命中无忧卖再按类目加收），到手价 = 成交价 − 服务费 − 无忧卖 − 卖运费。
-                上面的「账单基准回溯」就是用来补 3 个月以前的历史订单的。<br />
+                上面的「账单基准回溯」就是用来补 3 个月以前的历史订单的；清单超过 2 小时会自动返回。<br />
                 同单号不会重复导入（写库前按「店铺 + 订单号」再查一次）；
                 <b>自动同步会按订单号更新已有卖单的成交价、软件服务费和无忧卖服务费</b>，
                 备注、商品、买家、运费、联单关联和状态保持不动。手动同步仍可逐条选择是否补正。
@@ -698,12 +781,20 @@ onMounted(async () => {
             <div v-if="pingMsg" class="tip">{{ pingMsg }}</div>
             <div v-if="err" class="tip err">{{ err }}</div>
 
+            <div class="gf-sync-guide" role="note">
+              <b>立即同步</b><span>按最近 {{ status.auto_window || 30 }} 天后台入库，速度快，不显示清单。</span>
+              <b>手动同步</b><span>生成订单清单逐条筛选；只有这里能用账单回溯补历史订单。</span>
+            </div>
+
             <div class="gf-actions">
               <button class="btn btn-quiet" :disabled="busy || pingBusy" @click="ping">
                 <span v-if="pingBusy" class="spin"></span>{{ pingBusy ? '检测中…' : '检测连接' }}
               </button>
-              <button class="btn btn-primary" :disabled="busy" @click="pull">
-                <span v-if="busy" class="spin"></span>{{ busy ? '拉取中' : '立即同步' }}
+              <button class="btn" :disabled="busy" @click="pull">
+                <span v-if="busy && syncMode === 'manual'" class="spin"></span>{{ busy && syncMode === 'manual' ? '拉取清单中' : '手动同步' }}
+              </button>
+              <button class="btn btn-primary" :disabled="busy" @click="syncNow">
+                <span v-if="busy && syncMode === 'auto'" class="spin"></span>{{ busy && syncMode === 'auto' ? '同步中' : '立即同步' }}
               </button>
             </div>
           </template>
@@ -712,9 +803,12 @@ onMounted(async () => {
           <template v-else-if="step === 'loading'">
             <div class="gf-loading">
               <span class="spin big"></span>
-              <div class="gf-loading-text">{{ progress.text || '正在拉取订单与账单…' }}</div>
+              <div class="gf-loading-text">{{ progress.text || loadingText }}</div>
               <div class="gf-progress"><i :style="{ width: Math.max(2, progress.pct) + '%' }"></i></div>
-              <div class="muted gf-acc-sub">订单列表 → 账单核对 → 生成预览，通常 10 秒左右（{{ Math.round(progress.pct) }}%）</div>
+              <div class="muted gf-acc-sub">
+                {{ syncMode === 'manual' ? '订单列表 → 账单核对 → 生成清单' : `仅处理最近 ${status.auto_window || 30} 天，不回溯历史账单` }}
+                · {{ Math.round(progress.pct) }}%
+              </div>
             </div>
           </template>
 
@@ -742,10 +836,15 @@ onMounted(async () => {
             </div>
 
             <div class="gf-toolbar">
-              <label class="gf-check">
-                <input type="checkbox" v-model="allPicked" /> 全选可导入项
-              </label>
-              <span class="muted">共 {{ rows.length }} 条</span>
+              <div class="gf-toolbar-main">
+                <label class="gf-check">
+                  <input type="checkbox" v-model="allPicked" /> 全选可导入项
+                </label>
+                <span class="muted">共 {{ rows.length }} 条</span>
+              </div>
+              <span class="gf-review-clock" :class="{ urgent: reviewRemaining < 2 * 60 * 1000 }">
+                清单将在 {{ reviewRemainingLabel }} 后自动返回
+              </span>
             </div>
 
             <div class="gf-table-wrap">

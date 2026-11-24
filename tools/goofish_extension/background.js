@@ -17,6 +17,8 @@ const LOGIN_REFRESH_SETTLE_MS = 350
 const LOGIN_REFRESH_URL = 'https://www.goofish.com/?xy_ext_refresh=1'
 const INTERACTIVE_LOGIN_URL = 'https://www.goofish.com/login'
 const INTERACTIVE_LOGIN_WINDOW_MS = 10 * 60 * 1000
+const INTERACTIVE_QR_RETRIES = 16
+const INTERACTIVE_QR_RETRY_MS = 650
 const AUTH_COOKIE_NAMES = new Set([
   'cookie2', 'sgcookie', 'unb', 'cna', 't', '_tb_token_', '_m_h5_tk',
   'cookie17', 'lgc', 'tracknick', '_nk_', 'havana_lgc_exp',
@@ -118,6 +120,122 @@ function needsBinding(status) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function extractLoginQr(tabId) {
+  if (!chrome.scripting || typeof chrome.scripting.executeScript !== 'function') {
+    return { ok: false, message: '当前浏览器不支持扩展内提取二维码' }
+  }
+  let results
+  try {
+    results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => {
+        const dataUrl = (value) => typeof value === 'string' && /^data:image\//i.test(value) && value.length > 500
+
+        function canvasUrl(canvas) {
+          if (!canvas) return ''
+          const width = Number(canvas.width || canvas.clientWidth || 0)
+          const height = Number(canvas.height || canvas.clientHeight || 0)
+          if (width < 80 || height < 80) return ''
+          try {
+            const value = canvas.toDataURL('image/png')
+            return dataUrl(value) ? value : ''
+          } catch (error) {
+            return ''
+          }
+        }
+
+        function imageUrl(img) {
+          if (!img) return ''
+          const width = Number(img.naturalWidth || img.clientWidth || 0)
+          const height = Number(img.naturalHeight || img.clientHeight || 0)
+          if (width < 80 || height < 80) return ''
+          const src = String(img.currentSrc || img.src || '')
+          if (dataUrl(src)) return src
+          try {
+            const canvas = document.createElement('canvas')
+            canvas.width = width
+            canvas.height = height
+            const context = canvas.getContext('2d')
+            context.drawImage(img, 0, 0, width, height)
+            const value = canvas.toDataURL('image/png')
+            return dataUrl(value) ? value : ''
+          } catch (error) {
+            return ''
+          }
+        }
+
+        function backgroundUrl(node) {
+          const background = getComputedStyle(node).backgroundImage || ''
+          const match = background.match(/url\(["']?(data:image\/[^"')]+)["']?\)/i)
+          return match && dataUrl(match[1]) ? match[1] : ''
+        }
+
+        const candidates = [...document.querySelectorAll('canvas, img, svg, [style*="background-image"]')]
+        candidates.sort((left, right) => {
+          const a = left.getBoundingClientRect()
+          const b = right.getBoundingClientRect()
+          const score = (rect) => Math.min(rect.width, rect.height) *
+            (Math.abs(rect.width - rect.height) < Math.max(rect.width, rect.height) * 0.2 ? 2 : 1)
+          return score(b) - score(a)
+        })
+        for (const node of candidates) {
+          let value = ''
+          if (node.tagName === 'CANVAS') value = canvasUrl(node)
+          else if (node.tagName === 'IMG') value = imageUrl(node)
+          else if (node.tagName === 'svg' || node.tagName === 'SVG') {
+            const rect = node.getBoundingClientRect()
+            if (rect.width >= 80 && rect.height >= 80) {
+              try {
+                const xml = new XMLSerializer().serializeToString(node)
+                value = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml)
+              } catch (error) {}
+            }
+          }
+          if (!value) value = backgroundUrl(node)
+          if (dataUrl(value)) {
+            return { ok: true, dataUrl: value, source: node.tagName.toLowerCase() }
+          }
+        }
+        return {
+          ok: false,
+          message: document.querySelector('iframe')
+            ? '官方登录页仍在加载二维码'
+            : '没有在官方登录页找到二维码元素'
+        }
+      }
+    })
+  } catch (error) {
+    return { ok: false, message: error && error.message ? error.message : String(error) }
+  }
+  for (const item of results || []) {
+    if (item && item.result && item.result.ok && item.result.dataUrl) return item.result
+  }
+  const first = (results || []).find((item) => item && item.result && item.result.message)
+  return { ok: false, message: first ? first.result.message : '没有找到闲鱼登录二维码' }
+}
+
+async function captureInteractiveQr(tabId) {
+  for (let attempt = 0; attempt < INTERACTIVE_QR_RETRIES; attempt++) {
+    if (attempt > 0) await delay(INTERACTIVE_QR_RETRY_MS)
+    const result = await extractLoginQr(tabId)
+    if (result && result.ok && result.dataUrl) {
+      await chrome.storage.local.set({
+        interactiveLoginQr: result.dataUrl,
+        interactiveLoginQrCapturedAt: Date.now(),
+        interactiveLoginQrError: ''
+      })
+      return result
+    }
+  }
+  const message = '没有读取到官方二维码，已切换到官方登录页'
+  await chrome.storage.local.set({
+    interactiveLoginQr: '',
+    interactiveLoginQrCapturedAt: 0,
+    interactiveLoginQrError: message
+  })
+  return { ok: false, message }
 }
 
 function compareVersions(left, right) {
@@ -441,9 +559,12 @@ async function completeInteractiveLogin(ok, message, nick = '') {
   if (ok) {
     await setInteractiveLoginState('success', message || '扫码登录成功，登录态已上报并通过校验', {
       interactiveLoginNick: nick,
-      interactiveLoginFinishedAt: Date.now()
+      interactiveLoginFinishedAt: Date.now(),
+      interactiveLoginQr: '',
+      interactiveLoginQrError: ''
     })
     await setBadge(true, message || '扫码登录成功')
+    await closeTrackedInteractiveLoginTab()
     return
   }
   if (!saved.interactiveLoginCookieChangedAt) return
@@ -482,6 +603,22 @@ async function verifyInteractiveLogin() {
   }
 }
 
+async function closeTrackedInteractiveLoginTab() {
+  const saved = await chrome.storage.local.get({ interactiveLoginTabId: 0 })
+  const tabId = Number(saved.interactiveLoginTabId || 0)
+  if (tabId) {
+    try {
+      const tab = await chrome.tabs.get(tabId)
+      if (tab && /^https:\/\/(?:www\.)?goofish\.com\/login(?:[?#]|$)/i.test(tab.url || '')) {
+        await chrome.tabs.remove(tabId)
+      }
+    } catch (error) {
+      // 标签已经关闭时只清理记录。
+    }
+  }
+  await chrome.storage.local.set({ interactiveLoginTabId: 0 })
+}
+
 async function noteInteractiveLoginCookieChange() {
   const saved = await chrome.storage.local.get({
     interactiveLoginStartedAt: 0,
@@ -503,6 +640,9 @@ async function armInteractiveLogin() {
     interactiveLoginCookieChangedAt: 0,
     interactiveLoginFinishedAt: 0,
     interactiveLoginNick: '',
+    interactiveLoginQr: '',
+    interactiveLoginQrCapturedAt: 0,
+    interactiveLoginQrError: '',
     interactiveLoginBaselineFingerprint: baselineFingerprint
   })
   await setBadge(true, '已打开闲鱼官方登录页，等待扫码完成')
@@ -533,14 +673,14 @@ async function openInteractiveLogin(scheduleVerification = true) {
     try {
       const existing = await chrome.tabs.get(existingTabId)
       if (existing && /^https:\/\/(?:www\.)?goofish\.com\/login(?:[?#]|$)/i.test(existing.url || '')) {
-        tab = await chrome.tabs.update(existingTabId, { active: true })
+        tab = existing
       }
     } catch (error) {
       // 标签页已关闭时直接新建。
     }
   }
   if (!tab || !tab.id) {
-    tab = await chrome.tabs.create({ url: INTERACTIVE_LOGIN_URL, active: true })
+    tab = await chrome.tabs.create({ url: INTERACTIVE_LOGIN_URL, active: false })
   }
 
   await chrome.storage.local.set({ interactiveLoginTabId: Number(tab.id) || 0 })
@@ -549,10 +689,62 @@ async function openInteractiveLogin(scheduleVerification = true) {
     clearTimeout(interactiveLoginTimer)
     interactiveLoginTimer = null
   }
+  const qr = await captureInteractiveQr(tab.id)
+  if (qr.ok) {
+    await setInteractiveLoginState('waiting', '二维码已显示，请用闲鱼 App 扫码并确认')
+    return {
+      ...armed,
+      tabId: Number(tab.id) || 0,
+      mode: 'inline',
+      qr: qr.dataUrl,
+      message: '二维码已显示，请用闲鱼 App 扫码并确认'
+    }
+  }
+  try {
+    await chrome.tabs.update(tab.id, { active: true })
+  } catch (error) {
+    // 官方登录页已创建但激活失败时仍把具体原因交给快捷面板显示。
+  }
   return {
     ...armed,
     tabId: Number(tab.id) || 0,
-    message: '已打开闲鱼官方登录页，请用闲鱼 App 扫码并确认'
+    mode: 'tab',
+    qr: '',
+    message: (qr.message || '未能读取二维码') + '，请直接在官方登录页扫码'
+  }
+}
+
+async function refreshInteractiveQr() {
+  const saved = await chrome.storage.local.get({ interactiveLoginTabId: 0 })
+  const tabId = Number(saved.interactiveLoginTabId || 0)
+  if (!tabId) return { ok: false, message: '官方登录页已关闭，请重新打开扫码登录' }
+  try {
+    await chrome.tabs.get(tabId)
+  } catch (error) {
+    return { ok: false, message: '官方登录页已关闭，请重新打开扫码登录' }
+  }
+  const qr = await captureInteractiveQr(tabId)
+  if (!qr.ok) return { ok: false, message: qr.message }
+  await setInteractiveLoginState('waiting', '二维码已刷新，请用闲鱼 App 扫码并确认')
+  return { ok: true, qr: qr.dataUrl, message: '二维码已刷新' }
+}
+
+async function openInteractiveLoginTab() {
+  const saved = await chrome.storage.local.get({ interactiveLoginTabId: 0 })
+  const tabId = Number(saved.interactiveLoginTabId || 0)
+  if (!tabId) {
+    const result = await openInteractiveLogin(false)
+    const openedTabId = Number(result && result.tabId) || 0
+    if (openedTabId) {
+      try { await chrome.tabs.update(openedTabId, { active: true }) } catch (error) {}
+    }
+    return { ...result, ok: true, mode: 'tab', message: '已打开闲鱼官方登录页' }
+  }
+  try {
+    await chrome.tabs.update(tabId, { active: true })
+    return { ok: true, mode: 'tab', tabId, message: '已切换到官方登录页' }
+  } catch (error) {
+    return openInteractiveLogin(false)
   }
 }
 
@@ -714,7 +906,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         extensionLatestSha256: '', extensionUpdateError: '',
         interactiveLoginStartedAt: 0, interactiveLoginState: '',
         interactiveLoginMessage: '', interactiveLoginNick: '',
-        interactiveLoginUpdatedAt: '', interactiveLoginFinishedAt: 0
+        interactiveLoginUpdatedAt: '', interactiveLoginFinishedAt: 0,
+        interactiveLoginQr: '', interactiveLoginQrCapturedAt: 0,
+        interactiveLoginQrError: ''
       }),
       getConfig()
     ]).then(([saved, cfg]) => sendResponse({
@@ -741,6 +935,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message && message.type === 'open-interactive-login') {
     openInteractiveLogin().then(sendResponse).catch((error) => {
+      sendResponse({ ok: false, message: error && error.message ? error.message : String(error) })
+    })
+    return true
+  }
+  if (message && message.type === 'refresh-interactive-qr') {
+    refreshInteractiveQr().then(sendResponse).catch((error) => {
+      sendResponse({ ok: false, message: error && error.message ? error.message : String(error) })
+    })
+    return true
+  }
+  if (message && message.type === 'open-interactive-tab') {
+    openInteractiveLoginTab().then(sendResponse).catch((error) => {
       sendResponse({ ok: false, message: error && error.message ? error.message : String(error) })
     })
     return true

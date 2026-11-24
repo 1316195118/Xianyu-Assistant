@@ -1,11 +1,13 @@
 import json, urllib.request
+from pathlib import Path
 
 API = 'http://10.10.10.251:18083'
+TOOLS = Path(__file__).resolve().parent
 req = urllib.request.Request(API + '/api/records?type=sell&page_size=200',
                              headers={'X-Shop-Id': '3'})
 items = json.loads(urllib.request.urlopen(req).read())['items']
-inc = json.load(open(r'C:/Users/Administrator/WorkBuddy AI/咸鱼记录/tools/_income_by_order.json', encoding='utf-8'))
-fee = json.load(open(r'C:/Users/Administrator/WorkBuddy AI/咸鱼记录/tools/_fees_by_order.json', encoding='utf-8'))
+inc = json.load(open(TOOLS / '_income_by_order.json', encoding='utf-8'))
+fee = json.load(open(TOOLS / '_fees_by_order.json', encoding='utf-8'))
 
 plan = []
 for it in sorted(items, key=lambda x: x.get('sell_time') or ''):
@@ -37,4 +39,4 @@ print('\n有收入明细: %d | 有费用明细: %d | 两者都有: %d / %d' % (
     sum(1 for p in plan if p['has_inc'] and p['has_fee']), len(plan)))
 print('价格变化条数:', sum(1 for p in plan if abs(p['p_new'] - p['p_old']) > 0.005))
 print('到手合计 旧 %.2f -> 新 %.2f' % (sum(p['n_old'] for p in plan), sum(p['n_new'] for p in plan)))
-json.dump(plan, open(r'C:/Users/Administrator/WorkBuddy AI/咸鱼记录/tools/_sell_plan.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+json.dump(plan, open(TOOLS / '_sell_plan.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=1)

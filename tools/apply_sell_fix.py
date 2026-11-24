@@ -1,8 +1,10 @@
 import json, urllib.request, sys
+from pathlib import Path
 
 API = 'http://10.10.10.251:18083'
 SHOP = '3'
 DRY = '--apply' not in sys.argv
+TOOLS = Path(__file__).resolve().parent
 
 def call(method, path, body=None):
     data = json.dumps(body, ensure_ascii=False).encode('utf-8') if body is not None else None
@@ -14,7 +16,7 @@ def call(method, path, body=None):
     except urllib.error.HTTPError as e:
         return {'_err': e.code, '_body': e.read().decode('utf-8', 'replace')[:300]}
 
-plan = json.load(open(r'C:/Users/Administrator/WorkBuddy AI/咸鱼记录/tools/_sell_plan.json', encoding='utf-8'))
+plan = json.load(open(TOOLS / '_sell_plan.json', encoding='utf-8'))
 
 ok = 0
 for p in plan:

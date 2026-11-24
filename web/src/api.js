@@ -379,6 +379,9 @@ export const api = {
       body: JSON.stringify({ months, backfill_months: backfillMonths || 0 })
     })
   },
+  goofishSyncNow() {
+    return req('/api/goofish/sync-now', { method: 'POST' })
+  },
   goofishApply(payload) {
     return req('/api/goofish/apply', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
