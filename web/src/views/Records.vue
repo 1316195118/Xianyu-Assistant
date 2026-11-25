@@ -1590,7 +1590,7 @@ function onCardClick(r, e) {
           <button class="btn btn-quiet" @click="emit('batch')">批量导入截图</button>
         </div>
       </div>
-      <div v-else-if="loading && !items.length" class="skel-list" aria-label="正在加载">
+      <div v-else-if="loading && !items.length" class="skel-list" role="status" aria-live="polite" aria-label="正在加载">
         <div v-for="i in 4" :key="i" class="skel-row">
           <span class="skeleton skel-block"></span>
           <div class="skel-lines"><span class="skeleton skel-line w70"></span><span class="skeleton skel-line w40"></span></div>

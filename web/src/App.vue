@@ -449,6 +449,9 @@ const focusType = ref('')            // 非空 = 跳过去时直接按类型过�
 const focusNonce = ref(0)            // 每次跳转自增：明细页挂载时也能收到，且连点同一商品仍会重新过滤
 const consignTab = ref('sell')       // 从外部订单跳寄卖页时，直接打开对应账本
 const consignFocusNonce = ref(0)
+const operationsTab = ref('health')  // 设置页快捷入口可直接落到经营中心对应页签
+const settingsFocusPanel = ref('')   // 待办跳设置时，直接打开同步或备份面板
+const settingsFocusNonce = ref(0)
 const editing = ref(null)
 const sharedFile = ref(null)         // 分享目标 / 粘贴截图带入录入弹窗
 const refreshKey = ref(0)
@@ -769,6 +772,15 @@ function gotoConsign(source) {
   consignFocusNonce.value++
   switchView('consign')
 }
+function gotoOperations(tab = 'health') {
+  operationsTab.value = tab || 'health'
+  switchView('operations')
+}
+function gotoSettings(panel = '') {
+  settingsFocusPanel.value = panel || ''
+  settingsFocusNonce.value++
+  switchView('settings')
+}
 // 旧页面在入场动画结束后才挂载、高度才稳定，此时恢复滚动位置；
 // applyScroll 内部再短轮询，兜住数据异步加载导致的高度变化。
 // 现在没有 Transition 的 after-enter 钩子，改为视图切换后 nextTick 触发。
@@ -908,8 +920,8 @@ function goSettingsFromModal() {
           <Records v-else-if="view === 'records'" :key="'rc-' + activeShopId" :refreshKey="refreshKey" :highlightId="highlightId" :focusQuery="focusQuery" :focusNorm="focusNorm" :focusType="focusType" :focusNonce="focusNonce" @add="openAdd" @edit="openEdit" @refresh="bump" @notify="notify" @goto-group="gotoGroup" @goto-consign="gotoConsign" @batch="openBatch" />
           <Groups v-else-if="view === 'groups'" :key="'gp-' + activeShopId" :refreshKey="refreshKey" :focusGroupId="focusGroupId" @notify="notify" @edit="openEdit" @view="openViewRecord" @focused="focusGroupId = null" />
           <Consign v-else-if="view === 'consign'" :key="'cs-' + activeShopId" :refreshKey="refreshKey" :initialTab="consignTab" :focusNonce="consignFocusNonce" @notify="notify" />
-          <Operations v-else-if="view === 'operations'" :key="'op-' + activeShopId" :refreshKey="refreshKey" :globalAdmin="globalSession" @notify="notify" @refresh="bump" @goto-records="gotoRecords" @goto-record="gotoRecord" @goto-consign="gotoConsign" @use-price="openAdd" />
-          <Settings v-else :key="'st-' + activeShopId" :refreshKey="refreshKey" @notify="notify" @refresh="bump" />
+          <Operations v-else-if="view === 'operations'" :key="'op-' + activeShopId" :refreshKey="refreshKey" :globalAdmin="globalSession" :initialTab="operationsTab" @notify="notify" @refresh="bump" @goto-records="gotoRecords" @goto-record="gotoRecord" @goto-group="gotoGroup" @goto-consign="gotoConsign" @goto-settings="gotoSettings" @use-price="openAdd" />
+          <Settings v-else :key="'st-' + activeShopId" :refreshKey="refreshKey" :focusPanel="settingsFocusPanel" :focusNonce="settingsFocusNonce" @notify="notify" @refresh="bump" @open-report="reportOpen = true" @goto-operations="gotoOperations" />
         </KeepAlive>
         <SiteFooter />
       </div>

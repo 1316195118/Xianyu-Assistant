@@ -133,6 +133,8 @@ func pushEvent(c *rtClient, ev rtEvent) {
 // publish 记录一次数据变更，只广播给同一店铺的在线客户端。
 // 别的店铺的变更与本店无关，推过去只会造成无意义的自动刷新和错误提示。
 func (h *rtHub) publish(method, path, actor, summary string, shopID int64) rtEvent {
+	// 后台同步不一定经过 HTTP 写中间件；所有业务变更都在这里统一清一次读缓存。
+	apiReadCache.clearAll()
 	h.mu.Lock()
 	h.rev++
 	h.seq++

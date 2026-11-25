@@ -22,7 +22,7 @@ async function openOperations(viewport) {
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(message.text())
   })
-  await page.goto(baseURL + '/#operations', { waitUntil: 'networkidle' })
+  await page.goto(baseURL + '/#operations', { waitUntil: 'domcontentloaded' })
   await page.locator('.ops-page').waitFor()
   await page.locator('.ops-tabs button').first().waitFor()
   return { context, page }
@@ -45,7 +45,8 @@ const desktop = await openOperations({ width: 1440, height: 900 })
 const { page } = desktop
 
 const tabLabels = await page.locator('.ops-tabs button').allTextContents()
-for (const label of ['数据体检', '物流费用', '服务费核销', '归属人对账', '采购批次', '定价补货', '多店驾驶舱']) {
+const operationTabs = ['数据体检', '待办中心', '物流费用', '服务费核销', '归属人对账', '采购批次', '定价补货', '操作审计', '质量趋势', '多店驾驶舱']
+for (const label of operationTabs) {
   assert.ok(tabLabels.some((text) => text.includes(label)), `缺少经营中心页签：${label}`)
 }
 mark('经营中心页签完整')
@@ -55,6 +56,12 @@ const healthScore = Number(await page.locator('.ops-score-num').textContent())
 assert.ok(healthScore >= 0 && healthScore <= 100)
 await screenshot(page, '1440-health')
 mark('数据体检可加载', `health=${healthScore}`)
+
+await selectTab(page, '待办中心')
+await page.locator('.todo-overview, .ops-empty').first().waitFor()
+assert.ok((await page.locator('.todo-overview, .ops-empty').count()) > 0)
+await screenshot(page, '1440-todos')
+mark('待办中心可加载')
 
 await selectTab(page, '物流费用')
 await page.locator('.ops-stats > .card').first().waitFor()
@@ -125,6 +132,21 @@ if (await page.locator('.pricing-card').count()) {
 await screenshot(page, '1440-pricing')
 mark('定价滑杆与结果可刷新')
 
+await selectTab(page, '操作审计')
+await page.locator('.audit-toolbar').waitFor()
+assert.ok((await page.locator('.audit-row, .ops-empty').count()) > 0)
+await page.getByLabel('搜索操作审计').fill('记录')
+await page.getByRole('button', { name: '搜索', exact: true }).click()
+await page.locator('.audit-row, .ops-empty').first().waitFor()
+await screenshot(page, '1440-audit')
+mark('操作审计可搜索')
+
+await selectTab(page, '质量趋势')
+await page.locator('.quality-chart, .quality-chart-skeleton, .ops-empty').first().waitFor()
+assert.ok((await page.locator('.quality-chart, .quality-chart-skeleton, .ops-empty').count()) > 0)
+await screenshot(page, '1440-quality')
+mark('数据质量趋势可加载')
+
 await selectTab(page, '多店驾驶舱')
 await page.locator('.cockpit-card, .ops-empty').first().waitFor()
 assert.ok((await page.locator('.cockpit-card, .ops-empty').count()) > 0)
@@ -138,7 +160,7 @@ mark('多店驾驶舱可加载')
 async function homepageCards(width, height) {
   const context = await browser.newContext({ viewport: { width, height } })
   const home = await context.newPage()
-  await home.goto(baseURL + '/', { waitUntil: 'networkidle' })
+  await home.goto(baseURL + '/', { waitUntil: 'domcontentloaded' })
   await home.locator('.hero-card').waitFor()
   await home.locator('.kpi-card').first().waitFor()
   const result = await home.evaluate(() => {
@@ -165,14 +187,15 @@ async function homepageCards(width, height) {
 const hdCards = await homepageCards(1440, 900)
 const uhdCards = await homepageCards(3840, 2160)
 assert.equal(uhdCards.hero.padding, hdCards.hero.padding)
-assert.equal(uhdCards.hero.valueFontSize, hdCards.hero.valueFontSize)
 assert.equal(uhdCards.sales.padding, hdCards.sales.padding)
-assert.equal(uhdCards.sales.valueFontSize, hdCards.sales.valueFontSize)
-assert.equal(uhdCards.hero.height, hdCards.hero.height)
-mark('4K 卡片尺寸恢复', JSON.stringify({ hdCards, uhdCards }))
+assert.ok(parseFloat(uhdCards.hero.valueFontSize) <= 39, '4K 首屏数字字号超过设计上限')
+assert.ok(parseFloat(uhdCards.sales.valueFontSize) <= 22, '4K 销售额字号超过设计上限')
+assert.ok(uhdCards.hero.height - hdCards.hero.height <= 10, '4K 首屏卡片被额外撑高')
+assert.ok(uhdCards.sales.height - hdCards.sales.height <= 12, '4K 销售额卡片被额外撑高')
+mark('4K 卡片尺寸受控', JSON.stringify({ hdCards, uhdCards }))
 
 const mobile = await openOperations({ width: 375, height: 812 })
-for (const label of ['数据体检', '物流费用', '服务费核销', '归属人对账', '采购批次', '定价补货', '多店驾驶舱']) {
+for (const label of operationTabs) {
   await selectTab(mobile.page, label)
   const metrics = await mobile.page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { api } from '../api'
-import { localRecognize } from '../ocr'
+import { localRecognize, releaseOCR } from '../ocr'
 import { fmtMoney, fmtMoneyPlain } from '../utils'
 import { activeShop } from '../shopStore'
 import ImageViewer from './ImageViewer.vue'
@@ -357,7 +357,12 @@ onMounted(async () => {
   await nextTick()
   maskEl.value?.focus?.()
 })
-onUnmounted(() => { try { lastFocus?.focus?.() } catch (e) { /* ignore */ } })
+onUnmounted(() => {
+  try { lastFocus?.focus?.() } catch (e) { /* ignore */ }
+  // 本地 OCR 的 worker 和语言数据占用明显，关闭录入弹窗后释放；
+  // 下次识别会按需重新初始化，不会影响已填入的识别结果。
+  releaseOCR()
+})
 function onModalKey(e) {
   if (e.key !== 'Tab' || !maskEl.value) return
   const root = maskEl.value

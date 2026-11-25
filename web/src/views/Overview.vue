@@ -686,7 +686,7 @@ const chart = computed(() => {
         <div class="empty-sub">上传一张买进或卖出截图开始记账</div>
         <button class="btn btn-primary" @click="emit('add')">上传截图录入</button>
       </div>
-      <div v-else class="skel-list" aria-label="正在加载">
+      <div v-else class="skel-list" role="status" aria-live="polite" aria-label="正在加载">
         <div v-for="i in 4" :key="i" class="skel-row">
           <span class="skeleton skel-block"></span>
           <div class="skel-lines"><span class="skeleton skel-line w70"></span><span class="skeleton skel-line w40"></span></div>

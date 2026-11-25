@@ -47,6 +47,38 @@ func TestGFBackfillRanges(t *testing.T) {
 	}
 }
 
+func TestGFBackfillBatch(t *testing.T) {
+	rs, next, remaining := gfBackfillBatch(36, 0)
+	if len(rs) != gfBackfillBatchSize || next != gfBackfillBatchSize || remaining != 33 {
+		t.Fatalf("first batch ranges=%d next=%d remaining=%d", len(rs), next, remaining)
+	}
+	if rs[0][0] <= rs[len(rs)-1][0] {
+		t.Fatalf("批次应从近到远，got first=%v last=%v", rs[0], rs[len(rs)-1])
+	}
+
+	rs, next, remaining = gfBackfillBatch(36, 33)
+	if len(rs) != 3 || next != 36 || remaining != 0 {
+		t.Fatalf("last batch ranges=%d next=%d remaining=%d", len(rs), next, remaining)
+	}
+
+	rs, next, remaining = gfBackfillBatch(36, 36)
+	if len(rs) != 0 || next != 36 || remaining != 0 {
+		t.Fatalf("exhausted batch ranges=%d next=%d remaining=%d", len(rs), next, remaining)
+	}
+	if got := gfClampBackfillMonths(-1); got != gfBackfillMaxMonths {
+		t.Fatalf("全部历史 target=%d want=%d", got, gfBackfillMaxMonths)
+	}
+	var from, to string
+	rs, next, remaining, from, to = gfBackfillBatchCustom("2023-01", "2025-12", 0)
+	if len(rs) != 3 || next != 3 || remaining != 33 || from != "2023-01" || to != "2025-12" {
+		t.Fatalf("自定义范围 ranges=%d next=%d remaining=%d from=%s to=%s",
+			len(rs), next, remaining, from, to)
+	}
+	if rs, _, _, _, _ = gfBackfillBatchCustom("2022-12", "2025-12", 0); len(rs) != 0 {
+		t.Fatal("自定义范围超过 3 年仍生成了批次")
+	}
+}
+
 // 回溯关闭时，立即同步只取「最近 N 天」：老单被过滤、解析不了的时间保留、原 slice 不被改动。
 func TestGFFilterRecent(t *testing.T) {
 	now := time.Now()

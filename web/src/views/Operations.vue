@@ -7,19 +7,26 @@ import AlipayImport from '../components/AlipayImport.vue'
 
 const props = defineProps({
   refreshKey: { type: Number, default: 0 },
-  globalAdmin: { type: Boolean, default: false }
+  globalAdmin: { type: Boolean, default: false },
+  initialTab: { type: String, default: 'health' }
 })
-const emit = defineEmits(['notify', 'goto-records', 'goto-record', 'goto-consign', 'use-price', 'refresh'])
+const emit = defineEmits([
+  'notify', 'goto-records', 'goto-record', 'goto-group', 'goto-consign',
+  'goto-settings', 'use-price', 'refresh'
+])
 
-const tab = ref('health')
+const tab = ref(props.initialTab || 'health')
 const tabs = computed(() => {
   const list = [
     { key: 'health', label: '数据体检', icon: 'M4 20V10M10 20V4M16 20v-7M22 20H2' },
+    { key: 'todo', label: '待办中心', icon: 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' },
     { key: 'transport', label: '物流费用', icon: 'M3 7h11v10H3zM14 10h4l3 3v4h-7zM6 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM18 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
     { key: 'fees', label: '服务费核销', icon: 'M20 12V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h6M16 3v18M8 8h4M8 12h3' },
     { key: 'owners', label: '归属人对账', icon: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6' },
     { key: 'lots', label: '采购批次', icon: 'M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8' },
-    { key: 'pricing', label: '定价补货', icon: 'M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' }
+    { key: 'pricing', label: '定价补货', icon: 'M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
+    { key: 'audit', label: '操作审计', icon: 'M12 8v5l3 2M21 12a9 9 0 1 1-3-6.7M21 3v6h-6' },
+    { key: 'quality', label: '质量趋势', icon: 'M3 3v18h18M7 15l3-4 3 2 4-6' }
   ]
   if (props.globalAdmin) list.push({ key: 'multi', label: '多店驾驶舱', icon: 'M3 21V8l7-4 7 4v13M10 21v-5h4v5M3 13h4M17 13h4' })
   return list
@@ -32,9 +39,15 @@ const ownerBook = ref(null)
 const lots = ref(null)
 const pricing = ref(null)
 const multi = ref(null)
+const todoCenter = ref(null)
+const auditRows = ref([])
+const qualityTrend = ref(null)
 const loading = ref({})
 const errors = ref({})
 const alipayOpen = ref(false)
+const auditQuery = ref('')
+const auditLimit = ref(100)
+const expandedAuditId = ref(0)
 
 const tabLabel = computed(() => tabs.value.find((x) => x.key === tab.value)?.label || '经营中心')
 const isBusy = computed(() => !!loading.value[tab.value])
@@ -136,18 +149,63 @@ async function loadMulti() {
   }
 }
 
+async function loadTodoCenter() {
+  if (loading.value.todo) return
+  loading.value = { ...loading.value, todo: true }
+  errors.value = { ...errors.value, todo: '' }
+  try {
+    todoCenter.value = await api.operationsTodos()
+  } catch (e) {
+    errors.value = { ...errors.value, todo: e.message || '待办中心加载失败' }
+  } finally {
+    loading.value = { ...loading.value, todo: false }
+  }
+}
+
+async function loadAudit() {
+  if (loading.value.audit) return
+  loading.value = { ...loading.value, audit: true }
+  errors.value = { ...errors.value, audit: '' }
+  try {
+    const r = await api.operationsAudit({ limit: auditLimit.value, q: auditQuery.value.trim() })
+    auditRows.value = r.items || []
+  } catch (e) {
+    errors.value = { ...errors.value, audit: e.message || '操作审计加载失败' }
+  } finally {
+    loading.value = { ...loading.value, audit: false }
+  }
+}
+
+async function loadQualityTrend() {
+  if (loading.value.quality) return
+  loading.value = { ...loading.value, quality: true }
+  errors.value = { ...errors.value, quality: '' }
+  try {
+    qualityTrend.value = await api.operationsQualityTrend(84)
+  } catch (e) {
+    errors.value = { ...errors.value, quality: e.message || '质量趋势加载失败' }
+  } finally {
+    loading.value = { ...loading.value, quality: false }
+  }
+}
+
 const loaders = {
   health: loadHealth, transport: loadTransport, fees: loadFees,
-  owners: loadOwnerBook, lots: loadLots, pricing: loadPricing, multi: loadMulti
+  todo: loadTodoCenter, owners: loadOwnerBook, lots: loadLots, pricing: loadPricing,
+  audit: loadAudit, quality: loadQualityTrend, multi: loadMulti
 }
 function ensureTab(key = tab.value) {
   loaders[key]?.()
 }
 function selectTab(key) {
+  if (!tabs.value.some((item) => item.key === key)) return
   tab.value = key
   ensureTab(key)
 }
 onMounted(() => ensureTab())
+watch(() => props.initialTab, (key) => {
+  if (key) selectTab(key)
+})
 watch(() => props.refreshKey, () => {
   health.value = null
   transport.value = null
@@ -156,6 +214,9 @@ watch(() => props.refreshKey, () => {
   lots.value = null
   pricing.value = null
   multi.value = null
+  todoCenter.value = null
+  auditRows.value = []
+  qualityTrend.value = null
   ensureTab()
 })
 
@@ -175,6 +236,10 @@ function issueAction(issue) {
     selectTab(issue.filter || 'fees')
     return
   }
+  if (issue.action === 'settings') {
+    emit('goto-settings', issue.filter || '')
+    return
+  }
   if (issue.action === 'consign') {
     emit('goto-consign', '寄卖')
     return
@@ -185,6 +250,76 @@ function openIssueItem(item) {
   if (!item?.id) return
   emit('goto-record', item.id)
 }
+
+const auditEntityLabels = {
+  record: '交易记录', group: '联单', operations: '经营数据', sync: '同步',
+  bill_import: '账单导入', settings: '设置', dataset: '数据', system: '系统'
+}
+function auditEntityLabel(row) {
+  const label = auditEntityLabels[row?.entity_type] || row?.entity_type || '系统'
+  return row?.entity_id ? `${label} #${row.entity_id}` : label
+}
+function auditCanOpen(row) {
+  return !!row?.entity_id && (row.entity_type === 'record' || row.entity_type === 'group')
+}
+function openAuditEntity(row) {
+  if (!auditCanOpen(row)) return
+  if (row.entity_type === 'group') emit('goto-group', row.entity_id)
+  else emit('goto-record', row.entity_id)
+}
+function auditChanges(row) {
+  const changes = row?.detail?.changes
+  if (!changes || typeof changes !== 'object') return []
+  return Object.entries(changes).map(([key, value]) => ({
+    key,
+    before: value && typeof value === 'object' && 'before' in value ? value.before : '—',
+    after: value && typeof value === 'object' && 'after' in value ? value.after : value
+  }))
+}
+function auditValue(value) {
+  if (value === null || value === undefined || value === '') return '空'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+function searchAudit() {
+  expandedAuditId.value = 0
+  loadAudit()
+}
+const qualityPoints = computed(() => qualityTrend.value?.items || [])
+const qualityStats = computed(() => {
+  const points = qualityPoints.value
+  if (!points.length) return null
+  const current = points[points.length - 1]
+  const first = points[0]
+  const previous = points.length > 1 ? points[points.length - 2] : null
+  const best = points.reduce((a, b) => Number(b.score) > Number(a.score) ? b : a)
+  const worst = points.reduce((a, b) => Number(b.score) < Number(a.score) ? b : a)
+  return {
+    current,
+    delta: Number(current.score) - Number(first.score),
+    dayDelta: previous ? Number(current.score) - Number(previous.score) : 0,
+    best,
+    worst
+  }
+})
+const qualityPath = computed(() => {
+  const points = qualityPoints.value
+  if (points.length < 2) return ''
+  return points.map((point, index) => {
+    const x = 22 + index * (676 / Math.max(1, points.length - 1))
+    const y = 22 + (100 - Math.max(0, Math.min(100, Number(point.score) || 0))) * 1.36
+    return `${index ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+})
+const qualityDots = computed(() => {
+  const points = qualityPoints.value
+  if (!points.length) return []
+  return points.map((point, index) => ({
+    ...point,
+    x: 22 + index * (676 / Math.max(1, points.length - 1)),
+    y: 22 + (100 - Math.max(0, Math.min(100, Number(point.score) || 0))) * 1.36
+  }))
+})
 
 // ---------- 物流 CSV ----------
 const transportRows = ref([])
@@ -375,7 +510,7 @@ const lotBusy = ref(false)
 function editLot(row) {
   lotEdit.value = {
     item_id: row.id, batch_no: row.batch_no || '', supplier: row.supplier || '', note: row.note || '',
-    product: row.product
+    product: row.product, expected_updated_at: row.updated_at || ''
   }
 }
 async function saveLot() {
@@ -387,6 +522,12 @@ async function saveLot() {
     lotEdit.value = null
     await loadLots()
   } catch (e) {
+    if (e?.status === 409 && e?.data?.code === 'conflict') {
+      emit('notify', '批次已被其他人修改，已刷新为最新内容，请核对后再保存', true)
+      lotEdit.value = null
+      await loadLots()
+      return
+    }
     emit('notify', e.message || '批次信息保存失败', true)
   } finally {
     lotBusy.value = false
@@ -485,6 +626,46 @@ function openShop(row) {
           </div>
         </article>
       </div>
+    </section>
+
+    <section v-else-if="tab === 'todo'" class="ops-section" aria-live="polite">
+      <div class="ops-section-head">
+        <div><h3>经营待办中心</h3><p>把异常、同步失败与备份风险收在一处，做完一项就少一项。</p></div>
+        <button class="btn btn-sm btn-quiet" :disabled="loading.todo" @click="loadTodoCenter">
+          <span v-if="loading.todo" class="spin"></span>{{ loading.todo ? '正在刷新…' : '刷新待办' }}
+        </button>
+      </div>
+      <div v-if="loading.todo && !todoCenter" class="ops-skeleton">
+        <div v-for="i in 4" :key="'todo-skel-' + i" class="card skeleton ops-skel"></div>
+      </div>
+      <template v-else-if="todoCenter">
+        <div class="todo-overview">
+          <article class="card todo-score" :class="todoCenter.health.score >= 85 ? 'good' : todoCenter.health.score >= 65 ? 'warn' : 'bad'">
+            <div class="todo-score-ring" :style="{ '--score': todoCenter.health.score + '%' }"><b>{{ todoCenter.health.score }}</b><small>分</small></div>
+            <div><span>今日账本健康度</span><b>{{ todoCenter.health.score >= 85 ? '状态良好' : todoCenter.health.score >= 65 ? '需要留意' : '优先处理' }}</b><small>{{ todoCenter.health.checked_count }} 条记录已检查</small></div>
+          </article>
+          <article class="card todo-kpi"><span>待办合计</span><b>{{ todoCenter.total }}</b><small>{{ todoCenter.items.length }} 类问题</small></article>
+          <article class="card todo-kpi"><span>影响金额</span><b class="num">{{ money(todoCenter.amount) }}</b><small>用于排优先级</small></article>
+          <article class="card todo-kpi"><span>最近同步</span><b class="todo-time">{{ todoCenter.last_sync ? shortTime(todoCenter.last_sync) : '尚未同步' }}</b><small :class="{ neg: todoCenter.sync_error }">{{ todoCenter.sync_error ? '同步需要处理' : '连接状态正常' }}</small></article>
+        </div>
+        <div v-if="!todoCenter.items.length" class="card ops-empty todo-clean">
+          <span class="ops-empty-ico">✓</span>
+          <b>今天没有待处理事项</b>
+          <p>账本、同步和备份都没有发现风险。新的异常出现时会在这里提醒。</p>
+        </div>
+        <div v-else class="todo-list">
+          <article v-for="(issue, i) in todoCenter.items" :key="issue.key" class="card todo-item" :class="'lv-' + issue.severity" :style="{ '--delay': i * 40 + 'ms' }">
+            <span class="todo-severity" aria-hidden="true"></span>
+            <div class="todo-copy"><div><b>{{ issue.title }}</b><span class="todo-count">{{ issue.count }} 项</span></div><p>{{ issue.description }}</p><small v-if="issue.amount">{{ money(issue.amount) }} 受影响</small></div>
+            <button class="btn btn-sm btn-primary todo-action" @click="issueAction(issue)">现在处理</button>
+          </article>
+        </div>
+        <div v-if="todoCenter.sync_error" class="card todo-alert">
+          <div><b>最近一次同步错误</b><p>{{ todoCenter.sync_error }}</p></div>
+          <button class="btn btn-sm btn-quiet" @click="emit('goto-settings', 'goofish')">打开同步设置</button>
+        </div>
+        <p class="todo-generated">数据生成于 {{ shortTime(todoCenter.generated_at) }} · 每日首次体检会保存质量快照</p>
+      </template>
     </section>
 
     <section v-else-if="tab === 'transport'" class="ops-section">
@@ -620,14 +801,14 @@ function openShop(row) {
           <div v-else-if="!statement" class="ops-empty"><span class="ops-empty-ico">账</span><b>选择一位归属人</b><p>生成后可直接打印或保存为 PDF。</p></div>
           <div v-else class="statement-print">
             <header class="statement-head">
-              <div><span class="ops-eyebrow">鱼助手 · {{ statement.kind === 'buy' ? '代采' : '寄卖' }}</span><h2>{{ statement.owner }} 对账单</h2><p>期间：{{ statement.from || '全部' }} 至 {{ statement.to || '今天' }} · 生成 {{ shortTime(statement.generated_at) }}</p></div>
+              <div class="statement-title"><span class="ops-eyebrow">鱼助手 · {{ statement.kind === 'buy' ? '代采' : '寄卖' }}</span><h2>{{ statement.owner }} 对账单</h2><p>期间：{{ statement.from || '全部' }} 至 {{ statement.to || '今天' }} · 生成 {{ shortTime(statement.generated_at) }}</p></div>
               <div class="statement-actions ops-nonprint"><button class="btn btn-sm btn-quiet" @click="copyStatement">复制摘要</button><button class="btn btn-sm btn-primary" @click="printStatement">打印 / 存 PDF</button></div>
             </header>
             <div class="statement-totals">
-              <div><span>本期往来</span><b class="num">{{ money(statement.summary.period_total) }}</b></div>
-              <div><span>累计往来</span><b class="num">{{ money(statement.summary.cumulative_total) }}</b></div>
-              <div><span>累计已结</span><b class="num">{{ money(statement.summary.settled) }}</b></div>
-              <div><span>当前待结</span><b class="num pos">{{ money(statement.summary.pending) }}</b></div>
+              <div class="statement-total is-period"><span>本期往来</span><b class="num">{{ money(statement.summary.period_total) }}</b><small>当前筛选期间</small></div>
+              <div class="statement-total"><span>累计往来</span><b class="num">{{ money(statement.summary.cumulative_total) }}</b><small>全部业务记录</small></div>
+              <div class="statement-total"><span>累计已结</span><b class="num">{{ money(statement.summary.settled) }}</b><small>已完成结算</small></div>
+              <div class="statement-total is-pending"><span>当前待结</span><b class="num pos">{{ money(statement.summary.pending) }}</b><small>仍需核对</small></div>
             </div>
             <div class="statement-table" role="region" aria-label="对账单明细，可横向滚动" tabindex="0">
               <table>
@@ -713,6 +894,89 @@ function openShop(row) {
       <div v-if="pricing && !shownPricing.length" class="card ops-empty"><b>没有可用于定价的商品</b><p>需要有采购成本或历史成交价。</p></div>
     </section>
 
+    <section v-else-if="tab === 'audit'" class="ops-section" aria-live="polite">
+      <div class="ops-section-head">
+        <div><h3>长期操作审计</h3><p>保留新增、修改、删除和关键金额变化，便于多人协作时追溯。</p></div>
+        <button class="btn btn-sm btn-quiet" :disabled="loading.audit" @click="loadAudit"><span v-if="loading.audit" class="spin"></span>{{ loading.audit ? '读取中…' : '刷新记录' }}</button>
+      </div>
+      <form class="card audit-toolbar" @submit.prevent="searchAudit">
+        <label class="audit-search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
+          <input v-model="auditQuery" class="input" placeholder="搜索操作者、操作内容或实体类型" aria-label="搜索操作审计" />
+        </label>
+        <select v-model.number="auditLimit" class="select" aria-label="显示条数" @change="loadAudit">
+          <option :value="50">最近 50 条</option>
+          <option :value="100">最近 100 条</option>
+          <option :value="300">最近 300 条</option>
+        </select>
+        <button class="btn btn-primary" :disabled="loading.audit" type="submit">搜索</button>
+      </form>
+      <div v-if="loading.audit && !auditRows.length" class="ops-skeleton">
+        <div v-for="i in 4" :key="'audit-skel-' + i" class="card skeleton ops-skel"></div>
+      </div>
+      <div v-else-if="!auditRows.length" class="card ops-empty">
+        <span class="ops-empty-ico">录</span><b>{{ auditQuery ? '没有匹配的审计记录' : '暂时还没有写操作' }}</b>
+        <p>{{ auditQuery ? '换个关键词，或清空搜索后再看。' : '修改订单、联单、批次或设置后，会自动记录在这里。' }}</p>
+      </div>
+      <div v-else class="audit-list">
+        <article v-for="row in auditRows" :key="row.id" class="card audit-row" :class="{ open: expandedAuditId === row.id }">
+          <button class="audit-summary" type="button" :aria-expanded="expandedAuditId === row.id" @click="expandedAuditId = expandedAuditId === row.id ? 0 : row.id">
+            <span class="audit-time"><b>{{ shortTime(row.created_at) }}</b><small>{{ row.actor || '未知操作者' }}</small></span>
+            <span class="audit-main-copy"><b>{{ row.summary || row.action }}</b><small>{{ auditEntityLabel(row) }} · {{ row.action }}</small></span>
+            <span class="audit-open-mark">{{ expandedAuditId === row.id ? '收起' : '查看' }}<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"/></svg></span>
+          </button>
+          <div v-if="expandedAuditId === row.id" class="audit-detail">
+            <div v-if="auditChanges(row).length" class="audit-changes">
+              <div v-for="change in auditChanges(row)" :key="change.key"><span>{{ change.key }}</span><del>{{ auditValue(change.before) }}</del><b>{{ auditValue(change.after) }}</b></div>
+            </div>
+            <p v-else>本次操作没有可展开的字段差异。</p>
+            <button v-if="auditCanOpen(row)" class="btn btn-sm btn-quiet" @click="openAuditEntity(row)">打开对应{{ row.entity_type === 'group' ? '联单' : '记录' }}</button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section v-else-if="tab === 'quality'" class="ops-section quality-section" aria-live="polite">
+      <div class="ops-section-head">
+        <div><h3>数据质量趋势</h3><p>观察最近 84 天健康分与待补数量，确认问题是在收敛还是反复出现。</p></div>
+        <button class="btn btn-sm btn-quiet" :disabled="loading.quality" @click="loadQualityTrend"><span v-if="loading.quality" class="spin"></span>{{ loading.quality ? '读取中…' : '刷新趋势' }}</button>
+      </div>
+      <div v-if="loading.quality && !qualityTrend" class="card skeleton quality-chart-skeleton"></div>
+      <template v-else-if="qualityStats">
+        <div class="ops-stats quality-kpis">
+          <div class="card"><span>今日健康分</span><b :class="qualityStats.current.score >= 85 ? 'pos' : qualityStats.current.score >= 65 ? 'warn-text' : 'neg'">{{ qualityStats.current.score }}</b><small>较昨日 {{ qualityStats.dayDelta >= 0 ? '+' : '' }}{{ qualityStats.dayDelta }}</small></div>
+          <div class="card"><span>区间变化</span><b :class="qualityStats.delta >= 0 ? 'pos' : 'neg'">{{ qualityStats.delta >= 0 ? '+' : '' }}{{ qualityStats.delta }}</b><small>最近一次检查有 {{ qualityStats.current.affected }} 处待关注</small></div>
+          <div class="card"><span>最好水平</span><b>{{ qualityStats.best.score }}</b><small>{{ qualityStats.best.date }}</small></div>
+          <div class="card"><span>最低水平</span><b>{{ qualityStats.worst.score }}</b><small>{{ qualityStats.worst.date }}</small></div>
+        </div>
+        <div class="card quality-chart">
+          <div class="quality-chart-head"><div><b>健康度走势</b><span>纵轴 0–100 分，连续查看 84 天</span></div><span class="quality-legend"><i></i>健康分</span></div>
+          <svg viewBox="0 0 720 180" role="img" aria-label="最近数据质量健康分趋势折线图">
+            <defs>
+              <linearGradient id="quality-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--brand)" stop-opacity=".24"/><stop offset="1" stop-color="var(--brand)" stop-opacity="0"/></linearGradient>
+            </defs>
+            <g class="quality-grid"><path d="M22 22H698M22 56H698M22 90H698M22 124H698M22 158H698"/><text x="2" y="26">100</text><text x="6" y="94">75</text><text x="6" y="162">50</text></g>
+            <path v-if="qualityPath && qualityDots.length > 1" :d="qualityPath + ` L${qualityDots[qualityDots.length - 1].x},158 L${qualityDots[0].x},158 Z`" fill="url(#quality-fill)" stroke="none"/>
+            <path v-if="qualityPath" :d="qualityPath" class="quality-line"/>
+            <g v-for="point in qualityDots" :key="point.date" class="quality-dot"><circle :cx="point.x" :cy="point.y" r="4"><title>{{ point.date }}：{{ point.score }} 分，{{ point.issue_count }} 项问题</title></circle></g>
+          </svg>
+          <div class="quality-chart-foot"><span>{{ qualityPoints[0]?.date }}</span><b>{{ qualityPoints.length }} 个检查日</b><span>{{ qualityPoints[qualityPoints.length - 1]?.date }}</span></div>
+        </div>
+        <div class="card quality-history">
+          <div class="ops-table-head"><h3>每日检查记录</h3><span class="muted">最新在前</span></div>
+          <div class="quality-history-list">
+            <div v-for="point in [...qualityPoints].reverse().slice(0, 12)" :key="'history-' + point.date">
+              <span>{{ point.date }}</span><b :class="point.score >= 85 ? 'pos' : point.score >= 65 ? 'warn-text' : 'neg'">{{ point.score }} 分</b><small>{{ point.issue_count }} 类 · {{ point.affected }} 处</small><em class="num">{{ money(point.impact) }}</em>
+            </div>
+          </div>
+        </div>
+      </template>
+      <div v-else class="card ops-empty">
+        <span class="ops-empty-ico">质</span><b>还没有质量快照</b><p>先刷新一次待办中心，系统会把今天的体检结果记录为趋势起点。</p>
+        <button class="btn btn-sm btn-primary" @click="selectTab('todo')">去待办中心生成快照</button>
+      </div>
+    </section>
+
     <section v-else-if="tab === 'multi'" class="ops-section">
       <div class="ops-section-head"><div><h3>多店经营驾驶舱</h3><p>仅全局管理员可见；店铺密码会话不会读取其他店铺。</p></div><button class="btn btn-sm btn-quiet" @click="loadMulti">刷新</button></div>
       <div v-if="multi" class="shop-cockpit">
@@ -726,7 +990,7 @@ function openShop(row) {
       <div v-if="multi && !multi.items.length" class="card ops-empty"><b>还没有店铺</b></div>
     </section>
 
-    <div v-if="isBusy && !((tab === 'health' && health) || (tab === 'transport' && transport) || (tab === 'fees' && fees) || (tab === 'owners' && ownerBook) || (tab === 'lots' && lots) || (tab === 'pricing' && pricing) || (tab === 'multi' && multi))" class="card ops-loading"><span class="spin"></span><span>正在加载{{ tabLabel }}…</span></div>
+    <div v-if="isBusy && !((tab === 'health' && health) || (tab === 'todo' && todoCenter) || (tab === 'transport' && transport) || (tab === 'fees' && fees) || (tab === 'owners' && ownerBook) || (tab === 'lots' && lots) || (tab === 'pricing' && pricing) || (tab === 'audit' && auditRows.length) || (tab === 'quality' && qualityTrend) || (tab === 'multi' && multi))" class="card ops-loading"><span class="spin"></span><span>正在加载{{ tabLabel }}…</span></div>
 
     <AlipayImport v-if="alipayOpen" @close="alipayOpen = false" @notify="(...args) => emit('notify', ...args)" @refresh="onAlipayRefresh" />
   </div>
@@ -764,7 +1028,7 @@ html[data-theme="dark"] .ops-score.warn .ops-score-num { color: #fbbf24; }
 .ops-tabs button:hover { border-color: var(--brand-deep); color: var(--text); transform: translateY(-1px); }
 .ops-tabs button.on { background: var(--brand-soft); border-color: rgba(245,181,0,.42); color: var(--brand-ink); box-shadow: 0 4px 14px rgba(245,181,0,.13); }
 .ops-section { display: flex; flex-direction: column; gap: 14px; animation: opsIn .28s ease both; }
-@keyframes opsIn { from { opacity: 0; transform: translateY(5px); } }
+@keyframes opsIn { from { transform: translateY(5px); } }
 .ops-section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .ops-section-head h3 { margin: 0; font-size: 18px; }
 .ops-section-head p { margin: 4px 0 0; color: var(--text-3); font-size: 12.5px; }
@@ -862,26 +1126,101 @@ html[data-theme="dark"] .lv-warn .health-dot { background: #fbbf24; box-shadow: 
 .owner-name { flex: 1; min-width: 0; display: grid; }
 .owner-name small, .owner-money small { color: var(--text-3); font-size: 10.5px; }
 .owner-money { text-align: right; display: grid; }
-.statement-sheet { min-height: 540px; padding: 22px; }
-.statement-head { display: flex; justify-content: space-between; gap: 18px; padding-bottom: 15px; border-bottom: 1px solid var(--border); }
-.statement-head h2 { margin: 5px 0 3px; font-size: 22px; }
-.statement-head p { margin: 0; color: var(--text-3); font-size: 11.5px; }
+.statement-sheet {
+  min-height: 540px;
+  padding: 24px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--brand-soft) 48%, transparent), transparent 30%),
+    var(--surface);
+}
+.statement-print { position: relative; }
+.statement-head {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 19px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--brand-deep) 22%, var(--border));
+  border-radius: 15px;
+  background:
+    linear-gradient(116deg,
+      color-mix(in srgb, var(--brand-soft) 62%, var(--surface)) 0%,
+      var(--surface) 58%,
+      color-mix(in srgb, var(--blue-soft) 32%, var(--surface)) 100%);
+}
+.statement-head::after {
+  content: "";
+  position: absolute;
+  right: -45px;
+  bottom: -75px;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--brand-soft) 62%, transparent);
+  pointer-events: none;
+}
+.statement-title { position: relative; z-index: 1; min-width: 0; }
+.statement-title .ops-eyebrow { color: var(--brand-ink); letter-spacing: .12em; }
+.statement-head h2 { margin: 6px 0 4px; font-size: 23px; line-height: 1.25; letter-spacing: -.3px; }
+.statement-head p { margin: 0; color: var(--text-2); font-size: 11.5px; }
 .statement-actions { display: flex; align-items: flex-start; gap: 7px; }
-.statement-totals { padding: 16px 0; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }
-.statement-totals > div { padding: 10px; border-radius: 10px; background: var(--surface-2); display: grid; gap: 2px; }
+.statement-actions { position: relative; z-index: 1; }
+.statement-totals { padding: 16px 0; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; }
+.statement-totals > div,
+.statement-total {
+  min-width: 0;
+  padding: 11px 12px 10px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-2);
+  display: grid;
+  gap: 2px;
+}
+.statement-total.is-period {
+  border-color: color-mix(in srgb, var(--brand-deep) 26%, var(--border));
+  background: color-mix(in srgb, var(--brand-soft) 46%, var(--surface));
+}
+.statement-total.is-pending {
+  border-color: color-mix(in srgb, var(--up) 22%, var(--border));
+  background: color-mix(in srgb, var(--up-soft) 44%, var(--surface));
+}
 .statement-totals span { color: var(--text-3); font-size: 10.5px; }
 .statement-totals b { font-size: 17px; }
-.statement-table { overflow-x: auto; }
+.statement-totals small { color: var(--text-3); font-size: 9.5px; }
+.statement-table {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
 .statement-table table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
-.statement-table th { padding: 8px 9px; color: var(--text-3); text-align: left; border-bottom: 1px solid var(--border-strong); }
-.statement-table td { padding: 8px 9px; border-bottom: 1px solid var(--border); }
+.statement-table th {
+  padding: 9px 10px;
+  color: var(--text-3);
+  text-align: left;
+  border-bottom: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--surface-2) 76%, var(--surface));
+  white-space: nowrap;
+}
+.statement-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); }
+.statement-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--surface-2) 52%, var(--surface)); }
+.statement-table tbody tr:hover { background: var(--blue-soft); }
+.statement-table tbody tr:last-child td { border-bottom: 0; }
 .statement-table td small { display: block; color: var(--text-3); }
 .statement-table .ta-r { text-align: right; }
-.statement-history { margin-top: 17px; }
+.statement-history {
+  margin-top: 17px;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-2) 52%, var(--surface));
+}
 .statement-history h3 { margin: 0 0 7px; font-size: 13px; }
 .statement-history > div > div { padding: 6px 0; display: flex; justify-content: space-between; border-bottom: 1px dashed var(--border); font-size: 11.5px; }
 .statement-history p { margin: 0; font-size: 12px; }
-.statement-foot { margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--text-3); font-size: 10.5px; text-align: center; }
+.statement-foot { margin-top: 20px; padding-top: 11px; border-top: 1px solid var(--border); color: var(--text-3); font-size: 10.5px; text-align: center; }
 .lot-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(250px,1fr)); gap: 11px; }
 .lot-card { padding: 15px; display: flex; flex-direction: column; gap: 8px; }
 .lot-card.sold { opacity: .7; }
@@ -933,10 +1272,106 @@ html[data-theme="dark"] .lv-warn .health-dot { background: #fbbf24; box-shadow: 
 .ops-skeleton.compact { padding: 12px; }
 .ops-skel { min-height: 74px; }
 
+/* 待办、审计与质量趋势 */
+.todo-overview { display: grid; grid-template-columns: minmax(260px, 1.45fr) repeat(3, minmax(150px, 1fr)); gap: 10px; }
+.todo-overview > .card { min-height: 112px; padding: 15px 16px; }
+.todo-score { display: flex; align-items: center; gap: 15px; background: linear-gradient(145deg, var(--surface), var(--surface-2)); }
+.todo-score-ring {
+  --ring: var(--down);
+  position: relative; flex: 0 0 auto; width: 70px; height: 70px; display: grid; place-content: center;
+  text-align: center; border-radius: 50%;
+  background: conic-gradient(var(--ring) var(--score), var(--border) 0);
+}
+.todo-score-ring::after { content: ""; position: absolute; inset: 6px; border-radius: inherit; background: var(--surface); }
+.todo-score-ring b, .todo-score-ring small { position: relative; z-index: 1; }
+.todo-score-ring b { font-size: 22px; line-height: 1; }
+.todo-score-ring small { color: var(--text-3); font-size: 9px; }
+.todo-score.warn { --ring: #d99410; }
+.todo-score.bad { --ring: var(--up); }
+.todo-score > div:last-child, .todo-kpi { display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+.todo-score span, .todo-kpi span { color: var(--text-3); font-size: 10.5px; font-weight: 700; }
+.todo-score > div:last-child > b { font-size: 16px; }
+.todo-score small, .todo-kpi small { color: var(--text-3); font-size: 10.5px; }
+.todo-kpi b { font-size: 24px; line-height: 1.15; letter-spacing: -.5px; }
+.todo-kpi .todo-time { font-size: 14px; letter-spacing: 0; line-height: 1.35; }
+.todo-list { display: grid; gap: 9px; }
+.todo-item {
+  --tone: var(--text-3);
+  padding: 14px 16px; display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 13px;
+  animation: opsIn .32s ease both; animation-delay: var(--delay); border-left: 3px solid var(--tone);
+}
+.todo-item.lv-danger { --tone: var(--up); }
+.todo-item.lv-warn { --tone: #d99410; }
+.todo-item.lv-info { --tone: var(--blue); }
+.todo-severity { width: 8px; height: 8px; border-radius: 50%; background: var(--tone); box-shadow: 0 0 0 5px color-mix(in srgb, var(--tone) 13%, transparent); }
+.todo-copy { min-width: 0; }
+.todo-copy > div { display: flex; align-items: center; gap: 8px; }
+.todo-copy b { font-size: 13.5px; }
+.todo-copy p { margin: 4px 0 0; color: var(--text-2); font-size: 11.5px; line-height: 1.5; }
+.todo-copy > small { display: block; margin-top: 4px; color: var(--text-3); font-size: 10.5px; }
+.todo-count { padding: 2px 7px; border-radius: 999px; background: var(--surface-2); color: var(--text-3); font-size: 10px; font-weight: 700; }
+.todo-action { min-width: 88px; }
+.todo-alert { padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-color: rgba(197,60,38,.24); background: linear-gradient(135deg,var(--surface),var(--up-soft)); }
+.todo-alert b { color: var(--up); font-size: 12.5px; }
+.todo-alert p { margin: 4px 0 0; color: var(--text-2); font-size: 11.5px; overflow-wrap: anywhere; }
+.todo-generated { margin: -4px 2px 0; color: var(--text-3); font-size: 10.5px; text-align: right; }
+.todo-clean { min-height: 190px; }
+
+.audit-toolbar { padding: 12px; display: grid; grid-template-columns: minmax(0,1fr) 140px auto; gap: 8px; }
+.audit-search { position: relative; display: flex; align-items: center; }
+.audit-search svg { position: absolute; left: 12px; color: var(--text-3); pointer-events: none; }
+.audit-search .input { width: 100%; padding-left: 36px; }
+.audit-list { display: grid; gap: 7px; }
+.audit-row { overflow: hidden; transition: border-color .18s ease, box-shadow .18s ease; }
+.audit-row.open { border-color: color-mix(in srgb, var(--brand-deep) 34%, var(--border)); box-shadow: var(--shadow-sm); }
+.audit-summary { width: 100%; min-height: 66px; padding: 11px 14px; border: 0; background: transparent; color: var(--text); display: grid; grid-template-columns: 150px minmax(0,1fr) auto; align-items: center; gap: 14px; text-align: left; cursor: pointer; }
+.audit-summary:hover { background: var(--surface-2); }
+.audit-time { display: grid; gap: 2px; padding-right: 12px; border-right: 1px solid var(--border); }
+.audit-time b { font-size: 11px; font-weight: 650; color: var(--text-2); white-space: nowrap; }
+.audit-time small, .audit-main-copy small { color: var(--text-3); font-size: 10px; }
+.audit-main-copy { min-width: 0; display: grid; gap: 3px; }
+.audit-main-copy b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.audit-open-mark { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); font-size: 10.5px; }
+.audit-row.open .audit-open-mark svg { transform: rotate(180deg); }
+.audit-open-mark svg { transition: transform .18s ease; }
+.audit-detail { padding: 0 14px 13px 178px; }
+.audit-detail > p { margin: 0 0 9px; color: var(--text-3); font-size: 11px; }
+.audit-changes { display: grid; gap: 5px; margin-bottom: 9px; }
+.audit-changes > div { display: grid; grid-template-columns: 120px minmax(0,.8fr) minmax(0,1fr); gap: 8px; align-items: center; padding: 7px 9px; border-radius: 8px; background: var(--surface-2); font-size: 10.5px; }
+.audit-changes span { color: var(--text-3); font-weight: 700; }
+.audit-changes del { color: var(--up); overflow-wrap: anywhere; }
+.audit-changes b { color: var(--down); overflow-wrap: anywhere; }
+
+.quality-kpis .warn-text { color: #aa6b00; }
+html[data-theme="dark"] .quality-kpis .warn-text { color: #fbbf24; }
+.quality-chart { padding: 16px 18px 12px; overflow: hidden; }
+.quality-chart-skeleton { height: 260px; }
+.quality-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.quality-chart-head > div { display: grid; gap: 3px; }
+.quality-chart-head b { font-size: 13.5px; }
+.quality-chart-head span { color: var(--text-3); font-size: 10.5px; }
+.quality-legend { display: inline-flex; align-items: center; gap: 5px; }
+.quality-legend i { width: 9px; height: 9px; border-radius: 50%; background: var(--brand); }
+.quality-chart svg { display: block; width: 100%; height: auto; min-height: 150px; max-height: 240px; overflow: visible; }
+.quality-grid path { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 5; }
+.quality-grid text { fill: var(--text-3); font-size: 9px; }
+.quality-line { fill: none; stroke: var(--brand-deep); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 3px 5px rgba(245,181,0,.22)); }
+.quality-dot circle { fill: var(--surface); stroke: var(--brand-deep); stroke-width: 2.5; }
+.quality-dot:hover circle { fill: var(--brand); r: 6; }
+.quality-chart-foot { display: flex; justify-content: space-between; gap: 10px; color: var(--text-3); font-size: 10px; }
+.quality-chart-foot b { color: var(--text-2); font-weight: 650; }
+.quality-history { overflow: hidden; }
+.quality-history-list > div { min-height: 39px; padding: 8px 16px; display: grid; grid-template-columns: 120px 76px minmax(0,1fr) auto; align-items: center; gap: 10px; border-top: 1px solid var(--border); font-size: 11px; }
+.quality-history-list > div:first-child { border-top: 0; }
+.quality-history-list small { color: var(--text-3); }
+.quality-history-list em { font-style: normal; color: var(--text-2); font-size: 11px; }
+
 @media (max-width: 1000px) {
   .ops-stats, .ops-stats.five { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .owner-layout { grid-template-columns: 1fr; }
   .owner-list { max-height: 300px; }
+  .todo-overview { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .audit-detail { padding-left: 14px; }
 }
 @media (max-width: 650px) {
   .ops-hero { padding: 18px; align-items: flex-start; flex-direction: column; gap: 14px; }
@@ -969,6 +1404,28 @@ html[data-theme="dark"] .lv-warn .health-dot { background: #fbbf24; box-shadow: 
   .pricing-note { flex-wrap: wrap; }
   .pricing-note .input { width: 100%; }
   .ops-table { min-width: 720px; }
+  .todo-overview { grid-template-columns: 1fr 1fr; }
+  .todo-score { grid-column: 1 / -1; }
+  .todo-overview > .card { min-height: 92px; padding: 12px; }
+  .todo-kpi b { font-size: 19px; }
+  .todo-kpi .todo-time { font-size: 11.5px; }
+  .todo-item { grid-template-columns: 7px minmax(0,1fr); padding: 13px; }
+  .todo-action { grid-column: 2; justify-self: start; min-height: 44px; }
+  .todo-alert { align-items: flex-start; flex-direction: column; }
+  .todo-alert .btn { min-height: 44px; }
+  .audit-toolbar { grid-template-columns: 1fr 110px; }
+  .audit-search { grid-column: 1 / -1; }
+  .audit-toolbar .btn { min-height: 44px; }
+  .audit-summary { min-height: 76px; grid-template-columns: 1fr auto; gap: 8px; padding: 11px 12px; }
+  .audit-time { grid-column: 1 / -1; grid-template-columns: 1fr auto; padding: 0 0 6px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .audit-time small { text-align: right; }
+  .audit-main-copy b { white-space: normal; }
+  .audit-open-mark { min-width: 44px; min-height: 44px; justify-content: flex-end; }
+  .audit-changes > div { grid-template-columns: 1fr; gap: 3px; }
+  .quality-chart { padding: 13px 11px 10px; }
+  .quality-chart svg { min-height: 130px; }
+  .quality-history-list > div { grid-template-columns: 94px 66px 1fr; padding-inline: 12px; }
+  .quality-history-list em { grid-column: 2 / -1; }
 }
 @media print {
   :global(body) { background: #fff; }
@@ -981,6 +1438,29 @@ html[data-theme="dark"] .lv-warn .health-dot { background: #fbbf24; box-shadow: 
   .ops-section { display: block; }
   .owner-layout { display: block; }
   .statement-sheet { border: 0; box-shadow: none; min-height: 0; padding: 0; }
-  .statement-print { color: #111; }
+  .statement-print {
+    --surface: #fff;
+    --surface-2: #f7f7f5;
+    --text: #171717;
+    --text-2: #363636;
+    --text-3: #666;
+    --border: #deded8;
+    --border-strong: #c9c9c1;
+    --brand-soft: #fff8e2;
+    --brand-deep: #c18b00;
+    --brand-ink: #6b5100;
+    --blue-soft: #eef3ff;
+    --up-soft: #eaf7ef;
+    --up: #146b3b;
+    color: #111;
+    color-scheme: light;
+  }
+  .statement-head,
+  .statement-total.is-period,
+  .statement-total.is-pending {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .statement-table tr { break-inside: avoid; }
 }
 </style>

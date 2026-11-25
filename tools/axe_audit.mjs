@@ -29,7 +29,8 @@ for (const viewport of viewports) {
   const page = await context.newPage()
 
   for (const route of routes) {
-    await page.goto(baseURL + route, { waitUntil: 'networkidle' })
+    process.stderr.write(`[axe] ${viewport.width}px ${theme} ${route}\n`)
+    await page.goto(baseURL + route, { waitUntil: 'domcontentloaded' })
     await page.waitForTimeout(700)
     await page.addStyleTag({ content: '*,*::before,*::after{animation:none!important;transition:none!important}' })
     await page.evaluate(() => {

@@ -45,7 +45,13 @@ func initDB() error {
 	if err := createSchema(); err != nil {
 		return err
 	}
-	return migrateLegacy()
+	if err := migrateLegacy(); err != nil {
+		return err
+	}
+	// 同一进程可能切换数据库（测试与本地工具都会这样做）。
+	// 缓存键只含店铺与 URL，不换库清空会把上一份数据库的响应带进新库。
+	apiReadCache.clearAll()
+	return nil
 }
 
 func createSchema() error {
@@ -203,6 +209,12 @@ CREATE TABLE IF NOT EXISTS settings (
 		return err
 	}
 	if err := createOperationsTables(); err != nil {
+		return err
+	}
+	if err := createAuditTable(); err != nil {
+		return err
+	}
+	if err := createTodoCenterTables(); err != nil {
 		return err
 	}
 	// link_groups 表已确保存在，再补 settled_at 列（旧库升级用，幂等）
@@ -379,6 +391,12 @@ func migrateLegacy() error {
 
 func nowStr() string {
 	return time.Now().Format("2006-01-02 15:04:05")
+}
+
+// versionStr 用于乐观锁。普通时间戳精确到秒，同一秒内两人保存会拿到相同
+// updated_at，第二个人的冲突检查就无法发现覆盖；毫秒版本仍可被现有时间解析兼容。
+func versionStr() string {
+	return time.Now().Format("2006-01-02 15:04:05.000")
 }
 
 // backfillProductNorm：给历史记录补归一化商品名，只处理空值，幂等。

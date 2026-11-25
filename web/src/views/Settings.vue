@@ -26,9 +26,22 @@ function preloadPanel(name) {
   settingsPanelLoaders[name]?.().catch(() => {})
 }
 
-const props = defineProps({ refreshKey: { type: Number, default: 0 } })
-const emit = defineEmits(['notify', 'refresh'])
+const props = defineProps({
+  refreshKey: { type: Number, default: 0 },
+  focusPanel: { type: String, default: '' },
+  focusNonce: { type: Number, default: 0 }
+})
+const emit = defineEmits(['notify', 'refresh', 'open-report'])
 const canManageGlobals = computed(() => globalSession.value)
+
+function openFocusedPanel() {
+  if (props.focusPanel === 'goofish') {
+    preloadPanel('goofish')
+    gfOpen.value = true
+  } else if (props.focusPanel === 'backup') {
+    backupOpen.value = true
+  }
+}
 
 const themeOptions = [
   { v: 'system', t: '跟随系统', icon: 'M3 4h18v12H3zM8 20h8M12 16v4' },
@@ -182,6 +195,8 @@ const backupBusy = ref(false)
 const verifyBusy = ref(false)
 const backupMsg = ref(null)
 const backupError = ref('')   // 读取备份状态失败的原因（与「真的没备份」区分开）
+
+watch(() => [props.focusPanel, props.focusNonce], openFocusedPanel, { immediate: true })
 
 // ---------- 数据导入导出 ----------
 const dataOpen = ref(false)
@@ -691,9 +706,37 @@ async function test() {
     <div v-if="!canManageGlobals" class="notice-box settings-scope-note" role="status">
       当前使用店铺密码登录，可管理本店订单、同步与数据；识别引擎、访问密码、自动备份和在线更新仅全局管理员可修改。
     </div>
+
+    <section class="settings-hero" aria-labelledby="settings-hero-title">
+      <div class="settings-hero-copy">
+        <span class="settings-kicker"><i aria-hidden="true"></i>系统设置中心</span>
+        <h2 id="settings-hero-title">把账号、数据与安全放在一处</h2>
+        <p>常用操作在前，高级能力按需展开。所有设置只保存在你的服务器。</p>
+      </div>
+      <div class="settings-hero-status" aria-label="当前配置状态">
+        <div>
+          <span>闲鱼同步</span>
+          <b :class="{ ok: gfStatus.order_api_valid, warn: !gfStatus.order_api_valid }">
+            {{ gfStatus.order_api_valid ? '连接可用' : (gfStatus.logged_in ? '需恢复登录' : '等待绑定') }}
+          </b>
+        </div>
+        <div>
+          <span>访问保护</span>
+          <b :class="{ ok: auth.enabled, warn: !auth.enabled }">{{ auth.enabled ? '已开启' : '未开启' }}</b>
+        </div>
+        <div>
+          <span>当前版本</span>
+          <b class="mono">{{ versionLabel }}</b>
+        </div>
+      </div>
+    </section>
+
     <!-- 常用 -->
-    <section class="set-group">
-      <div class="set-group-head"><b>常用</b><span>绑定账号、导入账单、设定目标</span></div>
+    <section class="set-group set-group--common">
+      <div class="set-group-head">
+        <span class="set-group-symbol" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="4"/></svg></span>
+        <div><b>常用</b><span>绑定账号、导入账单、生成报告、设定目标</span></div>
+      </div>
       <div class="card set-group-items">
         <button class="set-row" @mouseenter="preloadPanel('goofish')" @focus="preloadPanel('goofish')" @click="gfOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg></span>
@@ -711,12 +754,21 @@ async function test() {
           <span class="set-row-main"><b>月度利润目标</b><small>首页显示本月完成进度</small></span>
           <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
         </button>
+        <button class="set-row" @click="emit('open-report')">
+          <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-3"/><path d="M8 3v4M16 3v4M4 9h16"/><path d="M9 14l2 2 4-4"/></svg></span>
+          <span class="set-row-main"><b>经营报告</b><small>一键生成周报 / 月报，直接复制分享</small></span>
+          <span class="badge badge-pending">推荐</span>
+          <svg class="set-row-arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
       </div>
     </section>
 
     <!-- 外观与识别 -->
-    <section class="set-group">
-      <div class="set-group-head"><b>外观与识别</b><span>界面显示与截图识别方式</span></div>
+    <section class="set-group set-group--appearance">
+      <div class="set-group-head">
+        <span class="set-group-symbol" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg></span>
+        <div><b>外观与识别</b><span>界面显示与截图识别方式</span></div>
+      </div>
       <div class="card set-group-items">
         <button class="set-row" @click="appearanceOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg></span>
@@ -744,8 +796,11 @@ async function test() {
     </section>
 
     <!-- 店铺与安全 -->
-    <section class="set-group">
-      <div class="set-group-head"><b>店铺与安全</b><span>多店铺隔离与访问权限</span></div>
+    <section class="set-group set-group--security">
+      <div class="set-group-head">
+        <span class="set-group-symbol" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.4 8-8 9-4.6-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg></span>
+        <div><b>店铺与安全</b><span>多店铺隔离与访问权限</span></div>
+      </div>
       <div class="card set-group-items">
         <button class="set-row" @mouseenter="preloadPanel('shop')" @focus="preloadPanel('shop')" @click="shopOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16l-1 11H5L4 9z"/><path d="M8 9V6a4 4 0 0 1 8 0v3"/></svg></span>
@@ -768,8 +823,11 @@ async function test() {
     </section>
 
     <!-- 数据与维护 -->
-    <section class="set-group">
-      <div class="set-group-head"><b>数据与维护</b><span>备份、迁移与误删恢复</span></div>
+    <section class="set-group set-group--data">
+      <div class="set-group-head">
+        <span class="set-group-symbol" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
+        <div><b>数据与维护</b><span>备份、迁移与误删恢复</span></div>
+      </div>
       <div class="card set-group-items">
         <button v-if="canManageGlobals" class="set-row" @click="backupOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
@@ -791,8 +849,11 @@ async function test() {
     </section>
 
     <!-- 关于 -->
-    <section class="set-group">
-      <div class="set-group-head"><b>关于</b><span>版本与版权信息</span></div>
+    <section class="set-group set-group--about">
+      <div class="set-group-head">
+        <span class="set-group-symbol" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></span>
+        <div><b>关于</b><span>版本与版权信息</span></div>
+      </div>
       <div class="card set-group-items">
         <button class="set-row" @mouseenter="preloadPanel('version')" @focus="preloadPanel('version')" @click="versionOpen = true">
           <span class="set-row-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>

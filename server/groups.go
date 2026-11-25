@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -196,6 +197,31 @@ func hydrateGroup(g *LinkGroup, shopID int64) {
 	g.ItemIDs = ids
 	g.Externals = loadGroupExternals(g.ID, shopID)
 	g.Stats = computeGroupStats(items, g.Externals)
+}
+
+func loadLinkGroup(id, sid int64) (LinkGroup, error) {
+	var g LinkGroup
+	err := db.QueryRow("SELECT id,title,note,settled_at,created_at,updated_at FROM link_groups WHERE id=? AND shop_id=?", id, sid).
+		Scan(&g.ID, &g.Title, &g.Note, &g.SettledAt, &g.CreatedAt, &g.UpdatedAt)
+	if err != nil {
+		return g, err
+	}
+	hydrateGroup(&g, sid)
+	return g, nil
+}
+
+func writeGroupConflict(w http.ResponseWriter, id, sid int64) {
+	g, err := loadLinkGroup(id, sid)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "联单不存在")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusConflict)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"error": "这张联单已被其他人修改，请载入最新内容后再保存",
+		"code":  "conflict", "current": g,
+	})
 }
 
 // fillGroupItemIDs 一次查询把本店所有联单的成员 id 填好（brief 模式用）。
@@ -534,7 +560,7 @@ func mergeGroupsTx(tx *sql.Tx, target int64, sources, ids []int64, shopID int64,
 			return fmt.Errorf("联单 %d 删除失败", sourceID)
 		}
 	}
-	ts := nowStr()
+	ts := versionStr()
 	var res sql.Result
 	var err error
 	if newTitle != "" {
@@ -630,21 +656,20 @@ func handleGroupByID(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case "GET":
-		var g LinkGroup
-		if err := db.QueryRow("SELECT id,title,note,settled_at,created_at,updated_at FROM link_groups WHERE id=? AND shop_id=?", id, shopID(r)).
-			Scan(&g.ID, &g.Title, &g.Note, &g.SettledAt, &g.CreatedAt, &g.UpdatedAt); err != nil {
+		g, err := loadLinkGroup(id, shopID(r))
+		if err != nil {
 			writeError(w, 404, "联单不存在")
 			return
 		}
-		hydrateGroup(&g, shopID(r))
 		writeJSON(w, g)
 	case "PUT":
 		var in struct {
-			Title     string          `json:"title"`
-			Note      string          `json:"note"`
-			ItemIDs   []int64         `json:"item_ids"`
-			Externals []GroupExternal `json:"externals"`     // 外部卖出
-			ExtBuys   []GroupExternal `json:"externals_buy"` // 外部买入
+			Title             string          `json:"title"`
+			Note              string          `json:"note"`
+			ItemIDs           []int64         `json:"item_ids"`
+			Externals         []GroupExternal `json:"externals"`     // 外部卖出
+			ExtBuys           []GroupExternal `json:"externals_buy"` // 外部买入
+			ExpectedUpdatedAt string          `json:"expected_updated_at"`
 		}
 		if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 			return
@@ -665,8 +690,19 @@ func handleGroupByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer tx.Rollback()
+		var currentUpdatedAt string
+		if err := tx.QueryRow("SELECT updated_at FROM link_groups WHERE id=? AND shop_id=?", id, shopID(r)).
+			Scan(&currentUpdatedAt); err != nil {
+			writeError(w, 404, "联单不存在")
+			return
+		}
+		if in.ExpectedUpdatedAt != "" && in.ExpectedUpdatedAt != currentUpdatedAt {
+			_ = tx.Rollback()
+			writeGroupConflict(w, id, shopID(r))
+			return
+		}
 		if _, err := tx.Exec("UPDATE link_groups SET title=?, note=?, updated_at=? WHERE id=? AND shop_id=?",
-			in.Title, in.Note, nowStr(), id, shopID(r)); err != nil {
+			in.Title, in.Note, versionStr(), id, shopID(r)); err != nil {
 			writeError(w, 500, "更新失败: "+err.Error())
 			return
 		}
@@ -687,12 +723,11 @@ func handleGroupByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "提交失败: "+err.Error())
 			return
 		}
+		setAudit(r, "修改联单", "group", id, "修改联单："+in.Title,
+			map[string]interface{}{"item_ids": ids, "external_sales": len(in.Externals), "external_buys": len(in.ExtBuys)})
 		mergeAfterMutation(shopID(r))
 		id = resolveGroupAfterMerge(id, ids, shopID(r))
-		var g LinkGroup
-		db.QueryRow("SELECT id,title,note,settled_at,created_at,updated_at FROM link_groups WHERE id=? AND shop_id=?", id, shopID(r)).
-			Scan(&g.ID, &g.Title, &g.Note, &g.SettledAt, &g.CreatedAt, &g.UpdatedAt)
-		hydrateGroup(&g, shopID(r))
+		g, _ := loadLinkGroup(id, shopID(r))
 		writeJSON(w, g)
 	case "DELETE":
 		// 删除前取快照（独立查询，须在开启事务前完成，避免连接池里挂着 rows）
@@ -743,8 +778,9 @@ func handleGroupExternalsSave(w http.ResponseWriter, r *http.Request, id int64) 
 		return
 	}
 	var in struct {
-		Kind  string          `json:"kind"`
-		Items []GroupExternal `json:"items"`
+		Kind              string          `json:"kind"`
+		Items             []GroupExternal `json:"items"`
+		ExpectedUpdatedAt string          `json:"expected_updated_at"`
 	}
 	if !decodeJSONBody(w, r, &in, maxNormalJSONBody) {
 		return
@@ -753,9 +789,15 @@ func handleGroupExternalsSave(w http.ResponseWriter, r *http.Request, id int64) 
 	if in.Kind == "buy" {
 		kind = "buy"
 	}
-	var title, settledAt string
-	if err := db.QueryRow("SELECT title, settled_at FROM link_groups WHERE id=? AND shop_id=?", id, shopID(r)).
-		Scan(&title, &settledAt); err != nil {
+	tx, err := db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "开启事务失败")
+		return
+	}
+	defer tx.Rollback()
+	var title, settledAt, currentUpdatedAt string
+	if err := tx.QueryRow("SELECT title, settled_at, updated_at FROM link_groups WHERE id=? AND shop_id=?", id, shopID(r)).
+		Scan(&title, &settledAt, &currentUpdatedAt); err != nil {
 		writeError(w, 404, "联单不存在")
 		return
 	}
@@ -763,14 +805,30 @@ func handleGroupExternalsSave(w http.ResponseWriter, r *http.Request, id int64) 
 		writeSettledBlock(w, title, "修改")
 		return
 	}
-	if err := saveGroupExternals(id, shopID(r), in.Items, kind); err != nil {
+	if in.ExpectedUpdatedAt != "" && in.ExpectedUpdatedAt != currentUpdatedAt {
+		_ = tx.Rollback()
+		writeGroupConflict(w, id, shopID(r))
+		return
+	}
+	if err := saveGroupExternalsTx(tx, id, shopID(r), in.Items, kind); err != nil {
 		writeError(w, 500, "保存失败: "+err.Error())
 		return
 	}
-	var g LinkGroup
-	db.QueryRow("SELECT id,title,note,settled_at,created_at,updated_at FROM link_groups WHERE id=? AND shop_id=?", id, shopID(r)).
-		Scan(&g.ID, &g.Title, &g.Note, &g.SettledAt, &g.CreatedAt, &g.UpdatedAt)
-	hydrateGroup(&g, shopID(r))
+	if _, err := tx.Exec("UPDATE link_groups SET updated_at=? WHERE id=? AND shop_id=?", versionStr(), id, shopID(r)); err != nil {
+		writeError(w, 500, "保存失败: "+err.Error())
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeError(w, 500, "保存失败: "+err.Error())
+		return
+	}
+	setAudit(r, "保存外部成交", "group", id, title+" · 外部"+map[bool]string{true: "买入", false: "卖出"}[kind == "buy"],
+		map[string]interface{}{"kind": kind, "count": len(in.Items)})
+	g, err := loadLinkGroup(id, shopID(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取联单失败")
+		return
+	}
 	writeJSON(w, g)
 }
 
@@ -1012,7 +1070,7 @@ func handleGroupSettle(w http.ResponseWriter, r *http.Request, id int64) {
 		val = nowStr()
 	}
 	if _, err := db.Exec("UPDATE link_groups SET settled_at=?, updated_at=? WHERE id=? AND shop_id=?",
-		val, nowStr(), id, shopID(r)); err != nil {
+		val, versionStr(), id, shopID(r)); err != nil {
 		writeError(w, 500, "更新失败")
 		return
 	}

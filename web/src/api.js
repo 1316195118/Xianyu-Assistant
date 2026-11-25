@@ -27,6 +27,19 @@ async function req(url, opts = {}) {
   return p
 }
 
+async function fetchWithTimeout(url, opts = {}, timeoutMs = 15000) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal })
+  } catch (e) {
+    if (e && e.name === 'AbortError') throw new Error('请求超时，请检查网络或刷新重试')
+    throw new Error('网络连接失败，请检查网络后重试')
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function doReq(url, opts = {}) {
   // 每个请求带上客户端标识，实时同步事件据此区分「谁改的」
   const { timeoutMs = 15000, ...rest } = opts
@@ -37,17 +50,12 @@ async function doReq(url, opts = {}) {
   if (sid) headers['X-Shop-Id'] = String(sid)
   // 请求超时：服务重启、网络半断时 fetch 会一直挂着，页面就永远停在「正在加载…」。
   // 15 秒还没响应就当作失败往上抛，让页面能显示错误而不是无限转圈。
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   let res
   try {
-    res = await fetch(url, { ...rest, headers, signal: ctrl.signal })
+    res = await fetchWithTimeout(url, { ...rest, headers }, timeoutMs)
   } catch (e) {
-    clearTimeout(timer)
-    if (e && e.name === 'AbortError') throw new Error('请求超时，请检查网络或刷新重试')
-    throw new Error('网络连接失败，请检查网络后重试')
+    throw e
   }
-  clearTimeout(timer)
   let data
   try {
     data = await res.json()
@@ -189,10 +197,10 @@ export const api = {
     })
   },
   // 只保存外部成交那一块（kind: sell | buy）
-  saveGroupExternals(id, kind, items) {
+  saveGroupExternals(id, kind, items, expectedUpdatedAt = '') {
     return req('/api/groups/' + id + '/externals', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, items })
+      body: JSON.stringify({ kind, items, expected_updated_at: expectedUpdatedAt })
     })
   },
   settleGroup(id, settled) {
@@ -227,7 +235,7 @@ export const api = {
     const h = { 'X-Client-Id': clientId }
     const sid = currentShopId()
     if (sid) h['X-Shop-Id'] = String(sid)
-    const res = await fetch('/api/recognize', { method: 'POST', headers: h, body: fd })
+    const res = await fetchWithTimeout('/api/recognize', { method: 'POST', headers: h, body: fd }, 120000)
     let data
     try {
       data = await res.json()
@@ -373,10 +381,17 @@ export const api = {
       body: JSON.stringify({ on: !!on })
     })
   },
-  goofishPreview(months, backfillMonths) {
+  goofishPreview(months, backfillMonths, backfillOffset = 0, backfillFrom = '', backfillTo = '') {
     return req('/api/goofish/preview', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ months, backfill_months: backfillMonths || 0 })
+      timeoutMs: 30 * 60 * 1000,
+      body: JSON.stringify({
+        months,
+        backfill_months: backfillMonths === 0 ? 0 : (backfillMonths || 0),
+        backfill_offset: Math.max(0, Number(backfillOffset) || 0),
+        backfill_from: backfillFrom || '',
+        backfill_to: backfillTo || ''
+      })
     })
   },
   goofishSyncNow() {
@@ -449,6 +464,14 @@ export const api = {
   health() { return req('/api/health') },
   // ---------- 经营中心 ----------
   operationsHealth() { return req('/api/operations/health') },
+  operationsTodos() { return req('/api/operations/todos') },
+  operationsAudit(params = {}) {
+    const q = new URLSearchParams(params).toString()
+    return req('/api/operations/audit' + (q ? '?' + q : ''))
+  },
+  operationsQualityTrend(days = 84) {
+    return req('/api/operations/quality-trend?days=' + encodeURIComponent(days))
+  },
   operationsTransport() { return req('/api/operations/transport') },
   operationsTransportImport(rows, apply = false, force = false, source = 'CSV') {
     return req('/api/operations/transport/import', {
@@ -497,7 +520,7 @@ export const api = {
     const headers = { 'X-Client-Id': clientId }
     const sid = currentShopId()
     if (sid) headers['X-Shop-Id'] = String(sid)
-    return fetch('/api/records/' + id + '/attachment', { method: 'POST', headers, body: fd })
+    return fetchWithTimeout('/api/records/' + id + '/attachment', { method: 'POST', headers, body: fd }, 120000)
       .then(async (r) => {
         const d = await r.json().catch(() => ({}))
         if (!r.ok) throw new Error(d.error || '上传失败')
@@ -515,7 +538,7 @@ export const api = {
  * 明细几十 KB，一次性读进内存没有压力。
  */
 export async function downloadFile(url, fallbackName = 'download') {
-  const res = await fetch(url, { credentials: 'same-origin' })
+  const res = await fetchWithTimeout(url, { credentials: 'same-origin' }, 120000)
   if (!res.ok) {
     let msg = `导出失败（${res.status}）`
     try {

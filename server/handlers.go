@@ -322,7 +322,7 @@ func registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/records/estimate-cost", authWrap(handleEstimateCost))
 	mux.HandleFunc("/api/records/price-hint", authWrap(handlePriceHint))
 	mux.HandleFunc("/api/monthly-target", authWrap(handleMonthlyTarget))
-	mux.HandleFunc("/api/records/todo-count", authWrap(handleTodoCount))
+	mux.HandleFunc("/api/records/todo-count", authWrap(cachedGET(45*time.Second, handleTodoCount)))
 	// 必须在 /api/records/ 前缀之前更具体，ServeMux 按最长前缀匹配，这里显式注册
 	mux.HandleFunc("/api/records/exists", authWrap(handleRecordsExists))
 	mux.HandleFunc("/api/undo", authWrap(handleUndo))
@@ -330,11 +330,11 @@ func registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/purchases", authWrap(handlePurchases))
 	mux.HandleFunc("/api/shops", authWrap(handleShops))
 	mux.HandleFunc("/api/shops/", authWrap(handleShopByID))
-	mux.HandleFunc("/api/stats", authWrap(handleStats))
-	mux.HandleFunc("/api/trend", authWrap(handleTrend))
+	mux.HandleFunc("/api/stats", authWrap(cachedGET(45*time.Second, handleStats)))
+	mux.HandleFunc("/api/trend", authWrap(cachedGET(45*time.Second, handleTrend)))
 	mux.HandleFunc("/api/product-profit", authWrap(handleProductProfit))
 	mux.HandleFunc("/api/product-profit/export", authWrap(handleProductProfitExport))
-	mux.HandleFunc("/api/groups", authWrap(handleGroups))
+	mux.HandleFunc("/api/groups", authWrap(cachedGET(45*time.Second, handleGroups)))
 	mux.HandleFunc("/api/groups/candidates", authWrap(handleGroupCandidates))
 	mux.HandleFunc("/api/groups/by-item/", authWrap(handleGroupsByItem))
 	mux.HandleFunc("/api/groups/link-sale", authWrap(handleLinkSale))
@@ -367,8 +367,8 @@ func registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/update/apply", authWrap(handleUpdateApply))
 	mux.HandleFunc("/api/update/progress", authWrap(handleUpdateProgress))
 	mux.HandleFunc("/api/update/config", authWrap(handleUpdateConfig))
-	mux.HandleFunc("/api/stats/extras", authWrap(handleStatsExtras))
-	mux.HandleFunc("/api/consign/stats", authWrap(handleConsignStats))
+	mux.HandleFunc("/api/stats/extras", authWrap(cachedGET(45*time.Second, handleStatsExtras)))
+	mux.HandleFunc("/api/consign/stats", authWrap(cachedGET(45*time.Second, handleConsignStats)))
 	mux.HandleFunc("/api/consign/owners", authWrap(handleConsignOwners))
 	mux.HandleFunc("/api/consign/assign-owner", authWrap(handleConsignAssignOwner))
 	mux.HandleFunc("/api/consign/settle", authWrap(handleConsignSettle))
@@ -377,15 +377,18 @@ func registerAPI(mux *http.ServeMux) {
 	mux.HandleFunc("/api/ocr-feedback", authWrap(handleOCRFeedback))
 	mux.HandleFunc("/api/backup/verify", authWrap(handleBackupVerify))
 	// 经营中心：体检、物流账单、服务费核销、归属人对账、批次、定价与多店驾驶舱
-	mux.HandleFunc("/api/operations/health", authWrap(handleOperationsHealth))
+	mux.HandleFunc("/api/operations/todos", authWrap(cachedGET(45*time.Second, handleOperationsTodos)))
+	mux.HandleFunc("/api/operations/audit", authWrap(handleOperationsAudit))
+	mux.HandleFunc("/api/operations/quality-trend", authWrap(cachedGET(45*time.Second, handleOperationsQualityTrend)))
+	mux.HandleFunc("/api/operations/health", authWrap(cachedGET(45*time.Second, handleOperationsHealth)))
 	mux.HandleFunc("/api/operations/transport", authWrap(handleOperationsTransport))
 	mux.HandleFunc("/api/operations/transport/import", authWrap(handleOperationsTransportImport))
 	mux.HandleFunc("/api/operations/fees", authWrap(handleOperationsFees))
 	mux.HandleFunc("/api/operations/fees/reconcile", authWrap(handleOperationsFeeReconcile))
 	mux.HandleFunc("/api/operations/owners/", authWrap(handleOperationsOwnerStatement))
-	mux.HandleFunc("/api/operations/lots", authWrap(handleOperationsLots))
+	mux.HandleFunc("/api/operations/lots", authWrap(cachedGET(45*time.Second, handleOperationsLots)))
 	mux.HandleFunc("/api/operations/lots/meta", authWrap(handleOperationsLotMeta))
-	mux.HandleFunc("/api/operations/pricing", authWrap(handleOperationsPricing))
+	mux.HandleFunc("/api/operations/pricing", authWrap(cachedGET(45*time.Second, handleOperationsPricing)))
 	mux.HandleFunc("/api/operations/multi-shop", authWrap(handleOperationsMultiShop))
 
 	// 多人实时同步：SSE 变更流 + 在线状态
@@ -1400,6 +1403,7 @@ func handleRecordByID(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		before := it
 		// 编辑是全量覆盖：把两侧都替换
 		it.Product = strings.TrimSpace(in.Product)
 		it.BuyPrice, it.BuyShipping, it.BuyShipTag = in.BuyPrice, in.BuyShipping, in.BuyShipTag
@@ -1439,6 +1443,7 @@ func handleRecordByID(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "更新失败")
 			return
 		}
+		auditItemChanges(r, before, it)
 		writeJSON(w, it)
 	case "DELETE":
 		if gid, gtitle := settledGroupOf(id, shopID(r)); gid > 0 {
@@ -1795,7 +1800,7 @@ func getItem(id int64, shopID int64) (Item, error) {
 }
 
 func updateItem(it *Item, shopID int64) error {
-	now := nowStr()
+	now := versionStr()
 	it.UpdatedAt = now // 回写，保证响应里的 updated_at 可用于下一次乐观锁比较
 	_, err := db.Exec(`UPDATE items SET
         product=?, product_norm=?, parent_id=?, quantity=?, unit_cost=?,

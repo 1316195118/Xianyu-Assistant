@@ -9,7 +9,18 @@ const viewports = [
   { width: 1440, height: 900 },
   { width: 390, height: 844 }
 ]
-const tabs = ['数据体检', '物流费用', '服务费核销', '归属人对账', '采购批次', '定价补货', '多店驾驶舱']
+const tabs = [
+  { label: '数据体检', ready: '.health-list, .ops-empty, .ops-skeleton' },
+  { label: '待办中心', ready: '.todo-overview, .ops-empty, .ops-skeleton' },
+  { label: '物流费用', ready: '.transport-import' },
+  { label: '服务费核销', ready: '.ops-stats.five, .ops-skeleton, .ops-empty' },
+  { label: '归属人对账', ready: '.owner-layout' },
+  { label: '采购批次', ready: '.lot-grid, .ops-empty, .ops-skeleton' },
+  { label: '定价补货', ready: '.pricing-grid, .ops-empty, .ops-skeleton' },
+  { label: '操作审计', ready: '.audit-toolbar' },
+  { label: '质量趋势', ready: '.quality-chart, .ops-empty, .ops-skeleton' },
+  { label: '多店驾驶舱', ready: '.shop-cockpit, .ops-empty, .ops-skeleton' }
+]
 
 await fs.mkdir(outputDir, { recursive: true })
 const browser = await chromium.launch({ channel: 'msedge', headless: true })
@@ -24,22 +35,23 @@ for (const viewport of viewports) {
     })
     await context.addInitScript((mode) => localStorage.setItem('xy-theme', mode), theme)
     const page = await context.newPage()
-    await page.goto(baseURL + '/#operations', { waitUntil: 'networkidle' })
+    await page.goto(baseURL + '/#operations', { waitUntil: 'domcontentloaded' })
     await page.locator('.ops-page').waitFor()
 
-    for (const tab of tabs) {
-      await page.locator('.ops-tabs button').filter({ hasText: tab }).click()
-      await page.locator('.ops-section').waitFor()
-      await page.waitForTimeout(500)
-      await page.addStyleTag({ content: '*,*::before,*::after{animation:none!important;transition:none!important}' })
+    for (const item of tabs) {
+      process.stderr.write(`[axe] ${viewport.width}px ${theme} ${item.label}\n`)
+      await page.locator('.ops-tabs button').filter({ hasText: item.label }).click()
+      await page.locator(item.ready).first().waitFor({ state: 'visible', timeout: 15000 })
+      await page.waitForTimeout(350)
       const analysis = await new AxeBuilder({ page })
         .include('.ops-page')
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+        .options({ preload: false })
         .analyze()
       results.push({
         viewport,
         theme,
-        tab,
+        tab: item.label,
         violations: analysis.violations.map((violation) => ({
           id: violation.id,
           impact: violation.impact,

@@ -90,9 +90,24 @@ const refreshPicked = ref({})
 const plan = ref(null)
 // 历史补建：列表接口只回最近 40 单，这里可以按账单期往前补
 const backfillMonths = ref(12)
+function monthInputValue(offsetMonths) {
+  const d = new Date()
+  d.setDate(1)
+  d.setMonth(d.getMonth() + offsetMonths)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+function monthSpan(from, to) {
+  const [fy, fm] = String(from || '').split('-').map(Number)
+  const [ty, tm] = String(to || '').split('-').map(Number)
+  if (!fy || !fm || !ty || !tm) return 0
+  return (ty - fy) * 12 + (tm - fm) + 1
+}
+const backfillStart = ref(monthInputValue(-12))
+const backfillEnd = ref(monthInputValue(-1))
 // 手动同步时是否一并做账单回溯。值由后端按店铺持久化（status.backfill），
 // 刷新/退出再进都会保持上次的选择；默认开（沿用原行为）。
 const useBackfill = ref(true)
+const customBackfill = computed(() => useBackfill.value && backfillMonths.value === -2)
 const picked = ref({})
 const err = ref('')
 const busy = ref(false)
@@ -205,7 +220,13 @@ async function loadStatus() {
     }
     // 恢复上次保存的账单回溯开关（后端按店铺持久化）
     useBackfill.value = s.backfill !== false
-    step.value = s.logged_in ? 'idle' : 'bind'
+    // 状态轮询和实时事件只负责更新连接信息，不能重置用户正在进行的流程。
+    // 以前每 30 秒调用一次 loadStatus 都会把 review 强制切回 idle，
+    // 导致手动同步清单在浏览过程中突然消失。
+    const keepCurrentFlow = rebinding.value || ['loading', 'review', 'done'].includes(step.value)
+    if (!keepCurrentFlow) {
+      step.value = s.logged_in ? 'idle' : 'bind'
+    }
     pingMsg.value = ''
     // 自动同步失败会存 sync_error，页面一打开就能看到具体原因（不用等手动同步）
     const bridgeHint = s.bridge_online
@@ -385,7 +406,23 @@ async function ping() {
 }
 
 async function pull() {
+  await runPull()
+}
+
+async function runPull() {
   if (busy.value) return
+  if (customBackfill.value && (!backfillStart.value || !backfillEnd.value || backfillStart.value > backfillEnd.value)) {
+    err.value = '自定义账单范围无效：起始月份不能晚于结束月份'
+    step.value = status.value.logged_in ? 'idle' : 'bind'
+    emit('notify', err.value, true)
+    return
+  }
+  if (customBackfill.value && monthSpan(backfillStart.value, backfillEnd.value) > 36) {
+    err.value = '自定义账单范围最多 3 年，请缩短起止月份'
+    step.value = status.value.logged_in ? 'idle' : 'bind'
+    emit('notify', err.value, true)
+    return
+  }
   busy.value = true
   syncMode.value = 'manual'
   clearReviewTimer()
@@ -394,7 +431,13 @@ async function pull() {
   progress.value = { on: true, pct: 2, text: '准备中…' }
   try {
     const months = useBackfill.value ? backfillMonths.value : 0
-    const p = await api.goofishPreview(0, months)
+    const p = await api.goofishPreview(
+      0,
+      months,
+      0,
+      customBackfill.value ? backfillStart.value : '',
+      customBackfill.value ? backfillEnd.value : ''
+    )
     plan.value = p
     const next = {}
     for (const r of p.rows) {
@@ -743,15 +786,27 @@ onMounted(async () => {
 
             <div class="gf-row">
               <div class="gf-field gf-field-inline">
-                <label>账单基准回溯（仅手动同步）<HelpTip text="闲鱼「订单管理」只覆盖近 3 个月（列表接口固定回 40 单），历史订单以收入 / 支出账单为准。这里只在点击「手动同步」时生效，不会影响「立即同步」或后台自动同步。" /></label>
+                <label>账单基准回溯（仅手动同步）<HelpTip text="可选择近 6 / 12 / 24 个月、全部历史，或最多 3 年的任意起止月份。系统会自动按 3 个月一组串行下载，组间停顿；任一批失败就立即停止，避免连续重试触发风控。" /></label>
                 <select class="gf-select" v-model.number="backfillMonths">
                   <option :value="0">只看订单列表</option>
                   <option :value="6">近 6 个月</option>
                   <option :value="12">近 12 个月</option>
                   <option :value="24">近 24 个月</option>
+                  <option :value="-1">全部可查历史（自动分批）</option>
+                  <option :value="-2">自定义月份范围</option>
                 </select>
               </div>
 
+              <template v-if="customBackfill">
+                <div class="gf-field gf-field-inline">
+                  <label for="gf-backfill-start">起始月份</label>
+                  <input id="gf-backfill-start" v-model="backfillStart" class="gf-select" type="month" :max="backfillEnd" />
+                </div>
+                <div class="gf-field gf-field-inline">
+                  <label for="gf-backfill-end">结束月份</label>
+                  <input id="gf-backfill-end" v-model="backfillEnd" class="gf-select" type="month" :max="monthInputValue(-1)" />
+                </div>
+              </template>
             </div>
 
             <label class="gf-overwrite gf-backfill-toggle">
@@ -761,6 +816,10 @@ onMounted(async () => {
                 <HelpTip text="这个开关只控制手动同步生成的订单清单。立即同步和后台自动同步始终只处理「只同步最近」里选的天数，永不回溯历史账单。此开关按店铺保存。" />
               </span>
             </label>
+            <div class="gf-cap muted">
+              账单按自然月、每批 <b>3 个月</b> 串行查询，批次间自动停顿；自定义范围最多 <b>3 年</b>。
+              任一批失败会立即停止，不会连续猛拉。平台仍可能调整风控策略，失败后请暂停，不要连续重试。
+            </div>
 
             <details class="gf-why gf-rules">
               <summary>同步规则说明</summary>
@@ -821,6 +880,11 @@ onMounted(async () => {
               <span class="gf-chip muted-chip">已扣费 {{ stat.billed }}</span>
               <span class="gf-chip muted-chip">待结算 {{ stat.unbilled }}</span>
               <span v-if="keptManual" class="gf-chip muted-chip">手动保留 {{ keptManual }}</span>
+            </div>
+
+            <div v-if="plan && plan.backfill_target" class="gf-cap">
+              <b>账单回溯范围：{{ plan.backfill_range_from }} 至 {{ plan.backfill_range_to }}</b>；
+              已自动分批完成，最后核对到 {{ plan.backfill_from }} 至 {{ plan.backfill_to }}。
             </div>
 
             <!-- 闲鱼卖单列表接口固定只回最近 40 单，更早的订单拿不到。
@@ -943,10 +1007,14 @@ onMounted(async () => {
               <div class="muted" v-if="result && result.refreshed">另按最新闲鱼数据补正了 {{ result.refreshed }} 条卖单</div>
               <div class="muted" v-if="result && result.kept_manual">有 {{ result.kept_manual }} 条手动录入的记录，按你的设置原样保留</div>
               <div class="muted" v-if="result && result.message">{{ result.message }}</div>
+              <div class="muted" v-if="result && result.backfill_target">
+                账单范围 {{ result.backfill_range_from }} 至 {{ result.backfill_range_to }}；
+                已自动分批处理到 {{ result.backfill_from }} 至 {{ result.backfill_to }}。
+              </div>
               <div class="muted">导入到「{{ shopName }}」</div>
             </div>
             <div class="gf-actions">
-              <button class="btn btn-quiet" @click="backToIdle">再同步一次</button>
+              <button class="btn btn-quiet" @click="backToIdle">重新选范围</button>
               <button class="btn btn-primary" @click="emit('close')">完成</button>
             </div>
           </template>

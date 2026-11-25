@@ -391,12 +391,19 @@ func authWrap(fn http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		r = withShop(r, sid)
-		if isWriteMethod(r.Method) && shouldBroadcast(r.Method, r.URL.Path) {
+		if isWriteMethod(r.Method) {
+			r, _ = withAuditCapture(r)
 			cap := &statusCapture{ResponseWriter: w, status: 200}
 			fn(cap, r)
 			if cap.status >= 200 && cap.status < 300 {
-				realtimeHub.publish(r.Method, r.URL.Path, clientID(r),
-					summarizeChange(r.Method, r.URL.Path), sid)
+				// 任一写入都先让重型只读缓存失效，再记长期审计和广播。
+				// 后台同步等不经过 authWrap 的写入也会在 realtimeHub.publish 中清缓存。
+				apiReadCache.clearAll()
+				writeRequestAudit(r, cap.status)
+				if shouldBroadcast(r.Method, r.URL.Path) {
+					realtimeHub.publish(r.Method, r.URL.Path, clientID(r),
+						summarizeChange(r.Method, r.URL.Path), sid)
+				}
 			}
 			return
 		}

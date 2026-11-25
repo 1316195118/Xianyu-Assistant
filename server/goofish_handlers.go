@@ -556,7 +556,10 @@ func handleGoofishPreview(w http.ResponseWriter, r *http.Request) {
 	defer gfUnlockSync(shop)
 
 	var in struct {
-		BackfillMonths int `json:"backfill_months"`
+		BackfillMonths int    `json:"backfill_months"`
+		BackfillOffset int    `json:"backfill_offset"`
+		BackfillFrom   string `json:"backfill_from"`
+		BackfillTo     string `json:"backfill_to"`
 	}
 	if !decodeOptionalJSONBody(w, r, &in, maxTinyJSONBody) {
 		return
@@ -568,9 +571,13 @@ func handleGoofishPreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 401, "这家店还没有绑定闲鱼账号，请先绑定")
 		return
 	}
-	plan, err := buildPlanWith(c, 0, in.BackfillMonths, shop)
+	plan, err := buildPlanWithBatch(c, 0, in.BackfillMonths, in.BackfillOffset, in.BackfillFrom, in.BackfillTo, shop)
 	if err != nil {
 		msg := err.Error()
+		if strings.Contains(msg, "自定义账单") {
+			writeError(w, 400, msg)
+			return
+		}
 		sessionGone := strings.Contains(msg, "SESSION_EXPIRED") || strings.Contains(msg, "Session过期") ||
 			strings.Contains(msg, "FAIL_SYS_SESSION_EXPIRED")
 		if sessionGone {
@@ -606,6 +613,19 @@ type gfRecentSyncResult struct {
 var errGFSyncBusy = fmt.Errorf("正在同步中，请等这一次跑完再点")
 
 const gfManualPlanLifetime = 2 * time.Hour
+
+func gfPlanBatchResult(plan *gfPlan) map[string]interface{} {
+	return map[string]interface{}{
+		"backfill_target":      plan.BackfillTarget,
+		"backfill_offset":      plan.BackfillOffset,
+		"backfill_next_offset": plan.BackfillNextOffset,
+		"backfill_remaining":   plan.BackfillRemaining,
+		"backfill_range_from":  plan.BackfillRangeFrom,
+		"backfill_range_to":    plan.BackfillRangeTo,
+		"backfill_from":        plan.BackfillFrom,
+		"backfill_to":          plan.BackfillTo,
+	}
+}
 
 // handleGoofishSyncNow 按「只同步最近 N 天」立即执行一次后台自动同步。
 // 这里刻意不接收回溯月数：账单回溯只允许走手动同步，避免用户误点后串行拉取大量历史账单。
@@ -683,8 +703,10 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 		if refreshed > 0 {
 			refreshPurchaseIndex()
 			_ = gfSet(gfKeyLast, shop, time.Now().Format("2006-01-02 15:04:05"))
-			writeJSON(w, map[string]interface{}{"ok": true, "added": 0, "skipped": 0,
-				"refreshed": refreshed, "kept_manual": keptManual, "unbilled": unbilled})
+			out := gfPlanBatchResult(plan)
+			out["ok"], out["added"], out["skipped"] = true, 0, 0
+			out["refreshed"], out["kept_manual"], out["unbilled"] = refreshed, keptManual, unbilled
+			writeJSON(w, out)
 			return
 		}
 		if in.Refresh {
@@ -695,8 +717,11 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 			if unbilled > 0 {
 				msg = fmt.Sprintf("有 %d 条账单尚未生成，已按闲鱼订单列表核对；金额与当前记录一致", unbilled)
 			}
-			writeJSON(w, map[string]interface{}{"ok": true, "added": 0, "skipped": 0,
-				"refreshed": 0, "kept_manual": keptManual, "unbilled": unbilled, "message": msg})
+			out := gfPlanBatchResult(plan)
+			out["ok"], out["added"], out["skipped"] = true, 0, 0
+			out["refreshed"], out["kept_manual"], out["unbilled"] = 0, keptManual, unbilled
+			out["message"] = msg
+			writeJSON(w, out)
 			return
 		}
 		writeError(w, 400, "没有选中任何订单")
@@ -737,9 +762,12 @@ func handleGoofishApply(w http.ResponseWriter, r *http.Request) {
 	if added == 0 && duplicate > 0 {
 		msg = fmt.Sprintf("有 %d 条订单已在库，未重复导入，也没有改动已有金额", duplicate)
 	}
-	writeJSON(w, map[string]interface{}{"ok": true, "added": added, "skipped": skipped,
-		"duplicate": duplicate, "message": msg,
-		"refreshed": refreshed, "kept_manual": keptManual, "unbilled": unbilled, "ids": ids})
+	out := gfPlanBatchResult(plan)
+	out["ok"], out["added"], out["skipped"] = true, added, skipped
+	out["duplicate"], out["message"] = duplicate, msg
+	out["refreshed"], out["kept_manual"], out["unbilled"] = refreshed, keptManual, unbilled
+	out["ids"] = ids
+	writeJSON(w, out)
 }
 
 // gfExistingOrders 一次取出本店所有已入库的订单号（买/卖两侧）。

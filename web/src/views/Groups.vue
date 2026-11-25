@@ -17,11 +17,18 @@ function profitRateLabel(stats) {
   const sales = Number(stats?.sales) || 0
   return sales > 0 ? (Number(stats?.profit_rate) || 0).toFixed(1) + '%' : '—'
 }
+function profitRateTone(stats) {
+  const sales = Number(stats?.sales) || 0
+  const rate = Number(stats?.profit_rate) || 0
+  if (!(sales > 0) || Math.abs(rate) < 0.01) return 'flat'
+  return rate > 0 ? 'pos' : 'neg'
+}
 
 const groups = ref([])
 const loading = ref(false)
 const error = ref('')
 const editingId = ref(null)
+const expectedGroupUpdatedAt = ref('')
 const showEditor = ref(false)
 const saving = ref(false)
 const focusedId = ref(null)   // 从明细联动过来时高亮 + 展开全部关联记录
@@ -160,6 +167,7 @@ const counterpartyOf = (it) => String((it.has_sell ? it.sell_counterparty : it.b
 
 function openCreate() {
   editingId.value = null
+  expectedGroupUpdatedAt.value = ''
   form.title = ''; form.note = ''; form.item_ids = []
   q.value = ''; side.value = ''; selectedMap.value = {}; pickedInfo.value = {}
   externals.value = []
@@ -182,6 +190,7 @@ async function scrollToEditor() {
 async function openEdit(g) {
   if (blockIfSettled(g, '修改')) return
   editingId.value = g.id
+  expectedGroupUpdatedAt.value = g.updated_at || ''
   form.title = g.title; form.note = g.note || ''
   // 外部成交单独一块维护：它们只活在这个联单里，不占候选、不进明细
   applyExternals(g.externals)
@@ -278,18 +287,21 @@ async function saveExtBlock(key) {
         externals: normExternals(externals.value), externals_buy: normExternals(externalsBuy.value)
       })
       editingId.value = g.id
+      expectedGroupUpdatedAt.value = g.updated_at || ''
       applyExternals(g.externals)
       extDirty.value = { sell: false, buy: false }
       emit('notify', '联单已创建，外部成交已保存')
       load()
       return
     }
-    const g = await api.saveGroupExternals(editingId.value, kind, normExternals(extList(key)))
+    const g = await api.saveGroupExternals(editingId.value, kind, normExternals(extList(key)), expectedGroupUpdatedAt.value)
+    expectedGroupUpdatedAt.value = g.updated_at || ''
     applyExternalBlock(g.externals, kind)
     extDirty.value[kind === 'buy' ? 'buy' : 'sell'] = false
     emit('notify', kind === 'buy' ? '外部买入已保存' : '外部卖出已保存')
     load()
   } catch (err) {
+    if (await handleGroupConflict(err)) return
     emit('notify', err.message || '保存失败', true)
   } finally {
     extSaving.value = ''
@@ -406,12 +418,36 @@ async function save() {
       title: form.title.trim(), note: form.note.trim(),
       item_ids: form.item_ids, externals: exts, externals_buy: extBuys
     }
-    if (editingId.value) await api.updateGroup(editingId.value, payload)
+    if (editingId.value) {
+      payload.expected_updated_at = expectedGroupUpdatedAt.value
+      const g = await api.updateGroup(editingId.value, payload)
+      expectedGroupUpdatedAt.value = g.updated_at || ''
+      editingId.value = g.id || editingId.value
+    }
     else await api.createGroup(payload)
     emit('notify', editingId.value ? '联单已更新' : '联单已创建')
     closeEditor(); load()
-  } catch (e) { emit('notify', e.message || '保存失败', true) }
+  } catch (e) {
+    if (await handleGroupConflict(e)) return
+    emit('notify', e.message || '保存失败', true)
+  }
   finally { saving.value = false }
+}
+
+async function handleGroupConflict(err) {
+  if (err?.status !== 409 || err?.data?.code !== 'conflict') return false
+  const ok = await confirm({
+    title: '这张联单刚被别人改过',
+    message: err.message || '继续保存会覆盖对方刚写的内容。',
+    detail: ['重新载入后会保留对方的最新标题、成员和外部成交。', '请核对差异后再保存你的修改。'],
+    confirmText: '载入最新内容'
+  })
+  if (ok) {
+    const latest = err.data?.current || (editingId.value ? await api.group(editingId.value).catch(() => null) : null)
+    await load()
+    if (latest) await openEdit(latest)
+  }
+  return true
 }
 async function del(g) {
   if (blockIfSettled(g, '删除')) return
@@ -433,6 +469,11 @@ async function del(g) {
   } catch (e) { emit('notify', '删除失败：' + e.message, true) }
 }
 const isSettled = (g) => !!g.settled_at
+const heroStats = computed(() => {
+  let settled = 0
+  for (const g of groups.value) if (g.settled_at) settled++
+  return { total: groups.value.length, open: groups.value.length - settled, settled }
+})
 // 已完结联单是已对过账的快照：只能先「重新开启」，再改标题或增减成员
 function blockIfSettled(g, action = '修改') {
   if (!isSettled(g)) return false
@@ -459,16 +500,36 @@ async function toggleSettle(g) {
   <div class="page">
     <div v-if="error" class="alert-err">{{ error }} <button class="btn btn-sm" @click="load">重试</button></div>
 
-    <section class="card groups-hero">
-      <div>
-        <div class="gh-label">联动单 · 哪个商品好卖、利润高<HelpTip text="把同一批货的多个买单 / 卖单挂到一个联单，自动汇总净利润、服务费与运费" /></div>
+    <section class="card groups-hero" aria-labelledby="groups-hero-title">
+      <div class="gh-main">
+        <span class="gh-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.1.1l2.1-2.1a5 5 0 0 0-7.1-7.1L11 5"/>
+            <path d="M14 11a5 5 0 0 0-7.1-.1l-2.1 2.1A5 5 0 0 0 11.9 20l1.1-1.1"/>
+          </svg>
+        </span>
+        <div class="gh-copy">
+          <span class="gh-eyebrow"><span>联单核算</span><i aria-hidden="true"></i><span>按批汇总</span></span>
+          <div class="gh-title-row">
+            <h2 id="groups-hero-title">每批货，赚了多少一眼看清</h2>
+            <HelpTip text="把同一批货的多个买单 / 卖单挂到一个联单，自动汇总净利润、利润率、服务费与运费" />
+          </div>
+          <p>把同批买卖记录归入一张联单，销售额、成本、在库占用和最终利润自动汇总。</p>
+        </div>
       </div>
-      <div class="hero-actions">
-        <button class="btn btn-primary" @click="openCreate"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新建联单</button>
-        <button class="btn btn-ghost" @click="openMerge">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M8 12h8"/></svg>
-          合并建议
-        </button>
+      <div class="gh-side">
+        <div class="gh-metrics" aria-label="联单概览">
+          <div class="gh-metric"><span>全部联单</span><b>{{ heroStats.total }}</b></div>
+          <div class="gh-metric is-open"><span>进行中</span><b>{{ heroStats.open }}</b></div>
+          <div class="gh-metric is-done"><span>已完结</span><b>{{ heroStats.settled }}</b></div>
+        </div>
+        <div class="hero-actions">
+          <button class="btn btn-primary" @click="openCreate"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新建联单</button>
+          <button class="btn btn-ghost" @click="openMerge">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M8 12h8"/></svg>
+            合并建议
+          </button>
+        </div>
       </div>
     </section>
 
@@ -619,14 +680,32 @@ async function toggleSettle(g) {
                :class="{ focused: focusedId === g.id, settled: isSettled(g) }"
                :data-group-id="g.id" @click="openDetail(g)">
         <div class="gc-head">
-          <button type="button" class="gc-title gc-open" :title="'查看联单：' + g.title" @click.stop="openDetail(g)">
-            <span v-if="groupSource(g)" class="src-tag" :class="'src-' + groupSource(g)">{{ groupSource(g) }}</span>{{ g.title }}
+          <button type="button" class="gc-title gc-open" :title="'查看联单：' + g.title"
+                  @click.stop="openDetail(g)">
+            <span class="gc-title-mark" aria-hidden="true">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.1.1l2.1-2.1a5 5 0 0 0-7.1-7.1L11 5"/>
+                <path d="M14 11a5 5 0 0 0-7.1-.1l-2.1 2.1A5 5 0 0 0 11.9 20l1.1-1.1"/>
+              </svg>
+            </span>
+            <span class="gc-title-copy">
+              <span class="gc-title-eyebrow">
+                <span class="gc-title-kind">联单</span>
+                <span v-if="groupSource(g)" class="src-tag" :class="'src-' + groupSource(g)">{{ groupSource(g) }}</span>
+              </span>
+              <span class="gc-title-text">{{ g.title || '未命名联单' }}</span>
+            </span>
+            <span class="gc-title-arrow" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m9 18 6-6-6-6"/>
+              </svg>
+            </span>
           </button>
         </div>
 
         <div class="gc-line">
           <b class="gc-profit num" :class="(g.stats.profit || 0) >= 0 ? 'pos' : 'neg'">{{ fmtMoney(g.stats.profit || 0) }}</b>
-          <span class="gc-sub">净利润<span class="gc-rate-i">利润率 {{ profitRateLabel(g.stats) }}</span></span>
+          <span class="gc-sub">净利润<span class="gc-margin" :class="profitRateTone(g.stats)">利润率 {{ profitRateLabel(g.stats) }}</span></span>
         </div>
 
         <div class="gc-facts">
@@ -673,7 +752,10 @@ async function toggleSettle(g) {
         <div class="gd-panel" role="dialog" aria-modal="true">
           <div class="gd-head">
             <span class="gc-state" :class="isSettled(detailGroup) ? 'done' : 'open'">{{ isSettled(detailGroup) ? '已完结' : '进行中' }}</span>
-            <span class="gd-title" :title="detailGroup.title">{{ detailGroup.title }}</span>
+            <span class="gd-title-block">
+              <span class="gd-title-kicker">联单详情</span>
+              <span class="gd-title" :title="detailGroup.title">{{ detailGroup.title }}</span>
+            </span>
             <button class="icon-btn" aria-label="关闭" @click="detailGroup = null">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
             </button>
@@ -681,7 +763,7 @@ async function toggleSettle(g) {
           <div class="gd-body">
             <div class="gd-profit" :class="(detailGroup.stats.profit || 0) >= 0 ? 'pos' : 'neg'">
               <b class="num">{{ fmtMoney(detailGroup.stats.profit || 0) }}</b>
-              <span>净利润 · 利润率 {{ profitRateLabel(detailGroup.stats) }}</span>
+              <span>净利润 · <em class="gc-margin" :class="profitRateTone(detailGroup.stats)">利润率 {{ profitRateLabel(detailGroup.stats) }}</em></span>
             </div>
             <div class="gc-metrics">
               <div><span>销售额</span><b class="num">{{ fmtMoney(detailGroup.stats.sales) }}</b></div>

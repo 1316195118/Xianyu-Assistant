@@ -26,8 +26,8 @@ async function auditViewport(width, height, routes) {
   })
 
   for (const route of routes) {
-    await page.goto(baseURL + route, { waitUntil: 'networkidle' })
-    await page.waitForTimeout(500)
+    await page.goto(baseURL + route, { waitUntil: 'domcontentloaded' })
+    await page.waitForTimeout(900)
     const metrics = await page.evaluate(() => {
       const root = document.documentElement
       const body = document.body

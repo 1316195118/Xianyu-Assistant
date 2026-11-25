@@ -23,6 +23,8 @@ const loadedAt = ref(null)
 const q = ref('')
 const searchOpen = ref(false)
 const searchIndex = ref(0)
+const searchDropUp = ref(false)
+const ownerSearchEl = ref(null)
 const filterOpen = ref(false)
 const active = ref('')
 const from = ref('')
@@ -121,6 +123,8 @@ async function load() {
 
 onMounted(() => {
   document.addEventListener('keydown', onOverlayKeydown)
+  window.addEventListener('resize', updateSearchPlacement, { passive: true })
+  window.visualViewport?.addEventListener('resize', updateSearchPlacement, { passive: true })
   if (props.initialTab === 'buy' || props.initialTab === 'sell') tab.value = props.initialTab
   applyRange('month')
 })
@@ -136,6 +140,8 @@ onDeactivated(() => {
 })
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onOverlayKeydown)
+  window.removeEventListener('resize', updateSearchPlacement)
+  window.visualViewport?.removeEventListener('resize', updateSearchPlacement)
   document.body.classList.remove('overlay-open')
 })
 watch(() => props.refreshKey, load)
@@ -358,11 +364,35 @@ function pickOwner(name) {
 function onSearchFocus() {
   searchOpen.value = true
   searchIndex.value = 0
+  nextTick(() => {
+    updateSearchPlacement()
+    const el = ownerSearchEl.value
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    if (rect.top < 82 || rect.bottom > window.innerHeight - 100) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  })
 }
 
 function onSearchInput() {
   searchOpen.value = true
   searchIndex.value = 0
+  nextTick(updateSearchPlacement)
+}
+
+function updateSearchPlacement() {
+  const el = ownerSearchEl.value
+  if (!el) {
+    searchDropUp.value = false
+    return
+  }
+  const rect = el.getBoundingClientRect()
+  const viewportHeight = window.visualViewport?.height || window.innerHeight
+  const below = viewportHeight - rect.bottom - 12
+  const above = rect.top - 12
+  const wanted = Math.min(360, viewportHeight * 0.58)
+  searchDropUp.value = below < Math.min(260, wanted) && above > below
 }
 
 function closeSearchSoon() {
@@ -666,7 +696,22 @@ async function delSettlement(row) {
           @click="switchTab(ledger.key)"
         >
           <span class="cs-ledger-copy">
-            <b>{{ ledger.title }}</b>
+            <span class="cs-ledger-title">
+              <span class="cs-ledger-icon" aria-hidden="true">
+                <svg v-if="ledger.key === 'sell'" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 12v8H4v-8" />
+                  <path d="M2 7h20v5H2z" />
+                  <path d="M12 22V7" />
+                  <path d="M12 7H7.5A2.5 2.5 0 1 1 10 4.5L12 7Zm0 0h4.5A2.5 2.5 0 1 0 14 4.5L12 7Z" />
+                </svg>
+                <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M6 8h12l-1 12H7L6 8Z" />
+                  <path d="M9 9V6a3 3 0 0 1 6 0v3" />
+                  <path d="M9 13h6" />
+                </svg>
+              </span>
+              <b>{{ ledger.title }}</b>
+            </span>
             <small>{{ ledger.desc }}</small>
           </span>
           <span class="cs-ledger-balance">
@@ -731,7 +776,7 @@ async function delSettlement(row) {
       </div>
       <!-- 搜索框常驻：筛选条件收起时，仍能直接搜寄卖人 / 委托人。 -->
       <div class="cs-filter-search-row">
-        <div class="search-wrap cs-search cs-owner-search" :class="{ 'is-open': searchOpen }">
+        <div ref="ownerSearchEl" class="search-wrap cs-search cs-owner-search" :class="{ 'is-open': searchOpen, 'drop-up': searchDropUp }">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input
             class="input"
@@ -847,6 +892,7 @@ async function delSettlement(row) {
               </span>
               <svg class="cs-chev" :class="{ up: active === owner.owner }" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
             </button>
+
             <div class="cs-owner-actions">
               <button v-if="owner.owner === '未指定归属'" class="btn btn-sm btn-quiet" @click="openAssign(owner)">补归属</button>
               <button class="btn btn-sm btn-primary" :disabled="!isPending(owner.pending)" @click="openSettle(owner)">
@@ -871,32 +917,34 @@ async function delSettlement(row) {
             </div>
           </div>
 
-          <div class="cs-progress">
-            <div class="cs-progress-copy">
-              <span>结算进度</span>
-              <b>{{ Math.round(settleProgress(owner)) }}%</b>
+          <div class="cs-owner-summary-row">
+            <div class="cs-progress">
+              <div class="cs-progress-copy">
+                <span>结算进度</span>
+                <b>{{ Math.round(settleProgress(owner)) }}%</b>
+              </div>
+              <div class="cs-progress-track"><i :style="{ width: settleProgress(owner) + '%' }"></i></div>
             </div>
-            <div class="cs-progress-track"><i :style="{ width: settleProgress(owner) + '%' }"></i></div>
-          </div>
 
-          <div class="cs-owner-preview">
-            <span class="cs-preview-label">最近商品</span>
-            <div class="cs-preview-list">
-              <button
-                v-for="item in previewItems(owner)"
-                :key="item.id"
-                type="button"
-                class="cs-preview-item"
-                :disabled="itemLoadingId === item.id"
-                :title="`查看「${item.product}」的完整信息`"
-                @click="openItemDetail(item)"
-              >
-                <span>{{ item.product }}</span>
-                <small v-if="itemLoadingId === item.id">读取中</small>
-                <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-              <span v-if="!previewItems(owner).length" class="cs-preview-empty">暂无商品明细</span>
-              <span v-else-if="owner.items.length > 2" class="cs-preview-more">等 {{ owner.items.length }} 件</span>
+            <div class="cs-owner-preview">
+              <span class="cs-preview-label">最近商品</span>
+              <div class="cs-preview-list">
+                <button
+                  v-for="item in previewItems(owner)"
+                  :key="item.id"
+                  type="button"
+                  class="cs-preview-item"
+                  :disabled="itemLoadingId === item.id"
+                  :title="`查看「${item.product}」的完整信息`"
+                  @click="openItemDetail(item)"
+                >
+                  <span>{{ item.product }}</span>
+                  <small v-if="itemLoadingId === item.id">读取中</small>
+                  <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+                <span v-if="!previewItems(owner).length" class="cs-preview-empty">暂无商品明细</span>
+                <span v-else-if="owner.items.length > 2" class="cs-preview-more">等 {{ owner.items.length }} 件</span>
+              </div>
             </div>
           </div>
 

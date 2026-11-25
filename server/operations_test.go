@@ -69,6 +69,57 @@ func TestOperationsHealthFindsActionableIssues(t *testing.T) {
 	}
 }
 
+func TestOperationsHealthExcludesCostedSaleFromUngrouped(t *testing.T) {
+	setupOperationsTest(t)
+	unitCostID, err := insertItem(&Item{
+		Product: "已填单件成本", SellPrice: 100, UnitCost: 40,
+		SellOrderNo: "COST-UNIT", SellTime: "2026-11-04 10:00:00",
+	}, defaultShopID, nowStr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	buyPriceID, err := insertItem(&Item{
+		Product: "已填买价成本", SellPrice: 90, BuyPrice: 35,
+		SellOrderNo: "COST-BUY", SellTime: "2026-11-05 10:00:00",
+	}, defaultShopID, nowStr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingID, err := insertItem(&Item{
+		Product: "确实未填成本", SellPrice: 80,
+		SellOrderNo: "COST-MISSING", SellTime: "2026-11-06 10:00:00",
+	}, defaultShopID, nowStr())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/operations/health", nil)
+	rr := httptest.NewRecorder()
+	handleOperationsHealth(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got opsHealth
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, issue := range got.Issues {
+		if issue.Key != "ungrouped_sale" {
+			continue
+		}
+		if issue.Count != 1 || len(issue.Items) != 1 || issue.Items[0].ID != missingID {
+			t.Fatalf("ungrouped issue includes costed order: %+v", issue)
+		}
+		for _, id := range []int64{unitCostID, buyPriceID} {
+			if opsContainsID([]int64{issue.Items[0].ID}, id) {
+				t.Fatalf("costed order %d should be excluded", id)
+			}
+		}
+		return
+	}
+	t.Fatal("ungrouped_sale issue missing")
+}
+
 func TestOperationsTransportMatchesOrderAndFillsShipping(t *testing.T) {
 	setupOperationsTest(t)
 	id, err := insertItem(&Item{

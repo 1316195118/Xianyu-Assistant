@@ -42,9 +42,11 @@ const (
 )
 
 type gfClient struct {
-	mu      sync.Mutex
-	cookies map[string]string
-	hc      *http.Client
+	mu          sync.Mutex
+	cookies     map[string]string
+	hc          *http.Client
+	historyMu   sync.Mutex
+	historyLast time.Time
 }
 
 func newGFClient(raw string) *gfClient {
@@ -228,6 +230,19 @@ func (c *gfClient) call(api string, payload interface{}, out interface{}) error 
 		lastErr = fmt.Errorf("接口调用失败")
 	}
 	return lastErr
+}
+
+func (c *gfClient) callHistory(api string, payload interface{}, out interface{}) error {
+	c.historyMu.Lock()
+	defer c.historyMu.Unlock()
+	if !c.historyLast.IsZero() {
+		if wait := 1200*time.Millisecond - time.Since(c.historyLast); wait > 0 {
+			time.Sleep(wait)
+		}
+	}
+	err := c.call(api, payload, out)
+	c.historyLast = time.Now()
+	return err
 }
 
 func (c *gfClient) callOnce(api string, payload interface{}) (map[string]interface{}, error) {
@@ -575,7 +590,7 @@ func (c *gfClient) incomeDetail(from, to string) (map[string]*gfBill, error) {
 	seen := map[string]bool{}
 	for page := 1; page <= 40; page++ {
 		var d map[string]interface{}
-		err := c.call("mtop.idle.finance.billdetail.income.query", map[string]interface{}{
+		err := c.callHistory("mtop.idle.finance.billdetail.income.query", map[string]interface{}{
 			"request": map[string]interface{}{
 				"billCode": "goods_income", "bizDateFrom": from, "bizDateTo": to,
 				"pageNo": page, "pageSize": 50,
@@ -631,7 +646,7 @@ func (c *gfClient) incomeOrders(from, to string) ([]gfBillOrder, error) {
 	seen := map[string]bool{}
 	for page := 1; page <= 60; page++ {
 		var d map[string]interface{}
-		err := c.call("mtop.idle.finance.billdetail.income.query", map[string]interface{}{
+		err := c.callHistory("mtop.idle.finance.billdetail.income.query", map[string]interface{}{
 			"request": map[string]interface{}{
 				"billCode": "goods_income", "bizDateFrom": from, "bizDateTo": to,
 				"pageNo": page, "pageSize": 50,
@@ -718,7 +733,7 @@ func (c *gfClient) expenseDetail(from, to string) (map[string]*gfBill, error) {
 	for _, biz := range gfExpenseBiz {
 		for page := 1; page <= 40; page++ {
 			var d map[string]interface{}
-			err := c.call("mtop.idle.finance.billdetail.expense.query", map[string]interface{}{
+			err := c.callHistory("mtop.idle.finance.billdetail.expense.query", map[string]interface{}{
 				"request": map[string]interface{}{
 					"billCode": "common_settle", "bizDateFrom": from, "bizDateTo": to,
 					"pageNo": page, "pageSize": 50, "bizCode": biz,
@@ -812,12 +827,20 @@ type gfPlanRow struct {
 }
 
 type gfPlan struct {
-	ID       string      `json:"plan_id"`
-	MadeAt   time.Time   `json:"made_at"`
-	Months   int         `json:"months"`
-	Rows     []gfPlanRow `json:"rows"`
-	Stat     gfPlanStat  `json:"stat"`
-	Warnings []string    `json:"warnings"`
+	ID                 string      `json:"plan_id"`
+	MadeAt             time.Time   `json:"made_at"`
+	Months             int         `json:"months"`
+	BackfillTarget     int         `json:"backfill_target"`
+	BackfillOffset     int         `json:"backfill_offset"`
+	BackfillNextOffset int         `json:"backfill_next_offset"`
+	BackfillRemaining  int         `json:"backfill_remaining"`
+	BackfillRangeFrom  string      `json:"backfill_range_from"`
+	BackfillRangeTo    string      `json:"backfill_range_to"`
+	BackfillFrom       string      `json:"backfill_from"`
+	BackfillTo         string      `json:"backfill_to"`
+	Rows               []gfPlanRow `json:"rows"`
+	Stat               gfPlanStat  `json:"stat"`
+	Warnings           []string    `json:"warnings"`
 }
 
 type gfPlanStat struct {
@@ -856,6 +879,100 @@ func gfBackfillRanges(months int) [][2]string {
 		out = append(out, [2]string{first.Format("2006-01-02"), end.Format("2006-01-02")})
 	}
 	return out
+}
+
+const (
+	gfBackfillMaxMonths       = 120 // “全部”最多检查 10 年；连续空批次会提前结束
+	gfBackfillCustomMaxMonths = 36  // 自定义范围最多 3 年
+	gfBackfillBatchSize       = 3
+	gfBackfillBatchPause      = 2500 * time.Millisecond
+)
+
+func gfClampBackfillMonths(months int) int {
+	if months < 0 {
+		return gfBackfillMaxMonths
+	}
+	if months > gfBackfillMaxMonths {
+		return gfBackfillMaxMonths
+	}
+	return months
+}
+
+// gfBackfillBatch 只生成一批历史月份，顺序由近到远。
+// 手动同步默认不会一次扫完多年：前端拿到 remaining 后，由用户决定是否继续下一批。
+func gfBackfillBatch(target, offset int) (ranges [][2]string, next, remaining int) {
+	target = gfClampBackfillMonths(target)
+	if target <= 0 {
+		return nil, 0, 0
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > target {
+		offset = target
+	}
+	end := offset + gfBackfillBatchSize
+	if end > target {
+		end = target
+	}
+	now := time.Now()
+	for i := offset + 1; i <= end; i++ {
+		first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local).AddDate(0, -i, 0)
+		last := first.AddDate(0, 1, -1)
+		ranges = append(ranges, [2]string{first.Format("2006-01-02"), last.Format("2006-01-02")})
+	}
+	return ranges, end, target - end
+}
+
+func gfParseMonth(v string) (time.Time, bool) {
+	t, err := time.ParseInLocation("2006-01", strings.TrimSpace(v), time.Local)
+	return t, err == nil
+}
+
+func gfMonthCount(start, end time.Time) int {
+	if start.After(end) {
+		return 0
+	}
+	return (end.Year()-start.Year())*12 + int(end.Month()-start.Month()) + 1
+}
+
+// gfBackfillBatchCustom 按用户选择的自然月范围分批，顺序由近到远。
+// offset 表示已经处理过多少个较近月份，因此继续下一批时不会重复查询。
+func gfBackfillBatchCustom(startMonth, endMonth string, offset int) (ranges [][2]string, next, remaining int, from, to string) {
+	start, okStart := gfParseMonth(startMonth)
+	end, okEnd := gfParseMonth(endMonth)
+	if !okStart || !okEnd || start.After(end) {
+		return nil, 0, 0, "", ""
+	}
+	// 账单至少延迟 3 天，手动选到当前月时也只处理到上一个月。
+	latest := time.Now().AddDate(0, -1, 0)
+	latest = time.Date(latest.Year(), latest.Month(), 1, 0, 0, 0, 0, time.Local)
+	if end.After(latest) {
+		end = latest
+	}
+	if start.After(end) {
+		return nil, 0, 0, "", ""
+	}
+	total := gfMonthCount(start, end)
+	if total > gfBackfillCustomMaxMonths {
+		return nil, 0, 0, "", ""
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	endPos := offset + gfBackfillBatchSize
+	if endPos > total {
+		endPos = total
+	}
+	for pos := offset; pos < endPos; pos++ {
+		month := end.AddDate(0, -pos, 0)
+		last := month.AddDate(0, 1, -1)
+		ranges = append(ranges, [2]string{month.Format("2006-01-02"), last.Format("2006-01-02")})
+	}
+	return ranges, endPos, total - endPos, start.Format("2006-01"), end.Format("2006-01")
 }
 
 func gfBillRanges(orderMonths []string) [][2]string {
@@ -953,7 +1070,43 @@ func gfProgress(shop int64, pct int, text string) {
 }
 
 func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan, error) {
+	return buildPlanWithBatch(c, months, backfillMonths, 0, "", "", shop)
+}
+
+func buildPlanWithBatch(c *gfClient, months, backfillMonths, backfillOffset int, startMonth, endMonth string, shop int64) (*gfPlan, error) {
 	gfProgress(shop, 10, "正在拉取订单列表…")
+	allHistory := false
+	var batchRanges [][2]string
+	var batchNext, batchRemaining int
+	var rangeFrom, rangeTo string
+	customRange := strings.TrimSpace(startMonth) != "" || strings.TrimSpace(endMonth) != ""
+	if customRange {
+		if strings.TrimSpace(startMonth) == "" || strings.TrimSpace(endMonth) == "" {
+			return nil, fmt.Errorf("自定义账单时间范围不完整")
+		}
+		start, okStart := gfParseMonth(startMonth)
+		end, okEnd := gfParseMonth(endMonth)
+		if !okStart || !okEnd || start.After(end) {
+			return nil, fmt.Errorf("自定义账单时间范围无效，请选择有效的起止月份")
+		}
+		if gfMonthCount(start, end) > gfBackfillCustomMaxMonths {
+			return nil, fmt.Errorf("自定义账单时间范围最多 3 年")
+		}
+		batchRanges, batchNext, batchRemaining, rangeFrom, rangeTo =
+			gfBackfillBatchCustom(startMonth, endMonth, backfillOffset)
+		if rangeFrom == "" {
+			return nil, fmt.Errorf("自定义账单时间范围无效，请选择有效的起止月份")
+		}
+		backfillMonths = batchNext + batchRemaining
+	} else {
+		allHistory = backfillMonths < 0
+		backfillMonths = gfClampBackfillMonths(backfillMonths)
+		if backfillMonths > 0 {
+			batchRanges, batchNext, batchRemaining = gfBackfillBatch(backfillMonths, backfillOffset)
+			rangeFrom = time.Now().AddDate(0, -backfillMonths, 0).Format("2006-01")
+			rangeTo = time.Now().AddDate(0, -1, 0).Format("2006-01")
+		}
+	}
 	buy, err := c.boughtOrders(60)
 	if err != nil && len(buy) == 0 {
 		return nil, fmt.Errorf("拉取「我买到的」失败：%v", err)
@@ -974,55 +1127,96 @@ func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan
 	// ---------- 历史补建：按账单期往前翻，补上列表接口 40 单以外的已成交订单 ----------
 	var backfillBills map[string]*gfBill
 	if backfillMonths > 0 {
-		if backfillMonths > 24 {
-			backfillMonths = 24
-		}
 		have := map[string]bool{}
 		for _, o := range sell {
 			have[o.OrderNo] = true
 		}
 		backfillBills = map[string]*gfBill{}
 		type monthNew struct{ from, to string }
-		needExp := []monthNew{}
-		for _, r := range gfBackfillRanges(backfillMonths) {
-			orders, e1 := c.incomeOrders(r[0], r[1])
-			added := 0
-			if e1 == nil {
+		processedOffset := backfillOffset
+		emptyChunks := 0
+		for processedOffset < backfillMonths {
+			if customRange {
+				batchRanges, batchNext, batchRemaining, _, _ =
+					gfBackfillBatchCustom(startMonth, endMonth, processedOffset)
+			} else {
+				batchRanges, batchNext, batchRemaining = gfBackfillBatch(backfillMonths, processedOffset)
+			}
+			if len(batchRanges) == 0 {
+				break
+			}
+			needExp := []monthNew{}
+			chunkNew := 0
+			chunkSucceeded := true
+			for i, r := range batchRanges {
+				pct := 28 + int(float64(processedOffset+i+1)/float64(backfillMonths)*20)
+				gfProgress(shop, pct, fmt.Sprintf(
+					"正在分批回溯账单 %s 至 %s（已处理 %d/%d 个月，串行请求中）…",
+					r[0][:7], r[1][:7], processedOffset+i+1, backfillMonths))
+				orders, e1 := c.incomeOrders(r[0], r[1])
+				if e1 != nil {
+					chunkSucceeded = false
+					continue
+				}
+				added := 0
 				for _, o := range orders {
 					if have[o.OrderNo] {
 						continue
 					}
 					have[o.OrderNo] = true
 					added++
+					chunkNew++
 					sell = append(sell, gfOrder{
 						OrderNo: o.OrderNo, Product: o.Title, Side: "sell",
 						Status: "交易成功", Time: o.Time, ListPrice: o.Auction, Backfill: true,
 					})
 					backfillBills[o.OrderNo] = &gfBill{Actual: o.Actual, Auction: o.Auction, HasInc: true}
 				}
-			}
-			// 支出账单要按 3 种 bizCode 各拉一次，代价比收入高得多。
-			// 只有这个月确实补出了新订单，才去拉它的服务费与无忧卖。
-			if added > 0 {
-				needExp = append(needExp, monthNew{r[0], r[1]})
-			}
-			time.Sleep(120 * time.Millisecond)
-		}
-		for _, m := range needExp {
-			if exp, e2 := c.expenseDetail(m.from, m.to); e2 == nil {
-				for k, v := range exp {
-					b := backfillBills[k]
-					if b == nil {
-						backfillBills[k] = v
-						continue
-					}
-					b.Tech += v.Tech
-					b.Basic += v.Basic
-					b.Wuyou += v.Wuyou
+				if added > 0 {
+					needExp = append(needExp, monthNew{r[0], r[1]})
 				}
 			}
-			time.Sleep(120 * time.Millisecond)
+			// 支出账单要按 3 种 bizCode 各拉一次，代价高；只为本批确实补出新订单的月份查。
+			for _, m := range needExp {
+				if exp, e2 := c.expenseDetail(m.from, m.to); e2 == nil {
+					for k, v := range exp {
+						b := backfillBills[k]
+						if b == nil {
+							backfillBills[k] = v
+							continue
+						}
+						b.Tech += v.Tech
+						b.Basic += v.Basic
+						b.Wuyou += v.Wuyou
+					}
+				} else {
+					chunkSucceeded = false
+				}
+			}
+			processedOffset = batchNext
+			rangeFrom = batchRanges[len(batchRanges)-1][0][:7]
+			if !chunkSucceeded {
+				batchRemaining = 0
+				break
+			}
+			if allHistory {
+				if chunkNew == 0 {
+					emptyChunks++
+					// 连续 3 批（约 9 个月）都没有新订单，认为已到账号可查历史末端。
+					if emptyChunks >= 3 {
+						batchRemaining = 0
+						break
+					}
+				} else {
+					emptyChunks = 0
+				}
+			}
+			if batchRemaining > 0 {
+				time.Sleep(gfBackfillBatchPause)
+			}
 		}
+		// 同一轮自动完成所有批次，不再要求用户逐批点“继续”。
+		batchNext, batchRemaining = 0, 0
 	}
 
 	gfProgress(shop, 50, "正在核对收入 / 支出账单…")
@@ -1132,7 +1326,21 @@ func buildPlanWith(c *gfClient, months, backfillMonths int, shop int64) (*gfPlan
 	bills = merged
 
 	gfProgress(shop, 82, "账单已核对，正在整理预览…")
-	plan := &gfPlan{ID: strconv.FormatInt(time.Now().UnixNano(), 36), MadeAt: time.Now(), Months: months}
+	plan := &gfPlan{
+		ID:                 strconv.FormatInt(time.Now().UnixNano(), 36),
+		MadeAt:             time.Now(),
+		Months:             months,
+		BackfillTarget:     backfillMonths,
+		BackfillOffset:     backfillOffset,
+		BackfillNextOffset: batchNext,
+		BackfillRemaining:  batchRemaining,
+		BackfillRangeFrom:  rangeFrom,
+		BackfillRangeTo:    rangeTo,
+	}
+	if len(batchRanges) > 0 {
+		plan.BackfillFrom = batchRanges[len(batchRanges)-1][0][:7]
+		plan.BackfillTo = batchRanges[0][1][:7]
+	}
 	plan.Warnings = warn
 	seen := map[string]bool{}
 

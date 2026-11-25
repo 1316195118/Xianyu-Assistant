@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -170,17 +171,26 @@ func handleOperationsHealth(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "方法不允许")
 		return
 	}
-	items, err := loadShopItems(shopID(r))
+	health, err := buildOperationsHealth(shopID(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "读取经营数据失败")
 		return
 	}
-	groupedWithBuy := loadGroupedWithBuy(shopID(r))
-	alloc := loadGroupAlloc(shopID(r))
+	saveQualitySnapshot(shopID(r), health)
+	writeJSON(w, health)
+}
+
+func buildOperationsHealth(sid int64) (opsHealth, error) {
+	items, err := loadShopItems(sid)
+	if err != nil {
+		return opsHealth{}, err
+	}
+	groupedWithBuy := loadGroupedWithBuy(sid)
+	alloc := loadGroupAlloc(sid)
 
 	groupItems := map[int64]bool{}
 	if rows, qerr := db.Query(`SELECT gi.item_id FROM group_items gi
-        JOIN link_groups g ON g.id=gi.group_id WHERE g.shop_id=?`, shopID(r)); qerr == nil {
+        JOIN link_groups g ON g.id=gi.group_id WHERE g.shop_id=?`, sid); qerr == nil {
 		for rows.Next() {
 			var id int64
 			if rows.Scan(&id) == nil {
@@ -256,7 +266,9 @@ func handleOperationsHealth(w http.ResponseWriter, r *http.Request) {
 				unlinkedAmount += it.SellPrice
 			}
 		}
-		if it.Kind == "sale" && it.ParentID == 0 && !groupItems[it.ID] && it.SellPrice > 0 {
+		// 已经填写过成本（单件成本/买价）或明确标记无成本的卖单，不再提示必须关联联单。
+		if it.Kind == "sale" && it.ParentID == 0 && !groupItems[it.ID] && it.SellPrice > 0 &&
+			it.UnitCost <= 0 && it.BuyPrice <= 0 && !it.CostFree {
 			ungroupedRefs = append(ungroupedRefs, itemRef(it, it.SellPrice))
 			ungroupedAmount += it.SellPrice
 		}
@@ -305,7 +317,7 @@ func handleOperationsHealth(w http.ResponseWriter, r *http.Request) {
 	}, badRefs)
 	addIssue(opsIssue{
 		Key: "ungrouped_sale", Title: "卖单未关联联单", Severity: "info",
-		Description: "不影响单笔结算；需要按批次复盘利润时，关联联单会更完整。",
+		Description: "只在卖单尚未填写成本时提示；已经填写单件成本、买价或标记无成本的订单不会计入。",
 		Count:       len(ungroupedRefs), Amount: ungroupedAmount, Action: "records", Filter: "",
 	}, ungroupedRefs)
 
@@ -355,11 +367,11 @@ func handleOperationsHealth(w http.ResponseWriter, r *http.Request) {
 	if score < 0 {
 		score = 0
 	}
-	writeJSON(w, opsHealth{
+	return opsHealth{
 		Score: score, IssueCount: len(issues), Affected: affected,
 		Impact: round2(impact), Issues: issues, CheckedCount: len(items),
 		GeneratedAt: nowStr(),
-	})
+	}, nil
 }
 
 type opsTransportRow struct {
@@ -1027,6 +1039,7 @@ type opsLot struct {
 	BatchNo       string  `json:"batch_no"`
 	Supplier      string  `json:"supplier"`
 	Note          string  `json:"note"`
+	UpdatedAt     string  `json:"updated_at"`
 }
 
 func opsAgeDays(s string) int {
@@ -1109,12 +1122,12 @@ func handleOperationsLots(w http.ResponseWriter, r *http.Request) {
 		remaining[lot.ID] = lot.Remaining
 	}
 	meta := map[int64]opsLot{}
-	if rows, qerr := db.Query(`SELECT item_id,batch_no,supplier,note FROM purchase_lot_meta WHERE shop_id=?`, sid); qerr == nil {
+	if rows, qerr := db.Query(`SELECT item_id,batch_no,supplier,note,updated_at FROM purchase_lot_meta WHERE shop_id=?`, sid); qerr == nil {
 		for rows.Next() {
 			var id int64
-			var batchNo, supplier, note string
-			if rows.Scan(&id, &batchNo, &supplier, &note) == nil {
-				meta[id] = opsLot{BatchNo: batchNo, Supplier: supplier, Note: note}
+			var batchNo, supplier, note, updatedAt string
+			if rows.Scan(&id, &batchNo, &supplier, &note, &updatedAt) == nil {
+				meta[id] = opsLot{BatchNo: batchNo, Supplier: supplier, Note: note, UpdatedAt: updatedAt}
 			}
 		}
 		rows.Close()
@@ -1147,7 +1160,7 @@ func handleOperationsLots(w http.ResponseWriter, r *http.Request) {
 			Quantity: qty, LandedCost: gross, UnitLanded: round2(gross / float64(qty)),
 			RemainingCost: round2(rem), RemainingQty: round2(remQty),
 			SoldOut: rem <= 0.005, Settled: it.SettledAt != "", BatchNo: m.BatchNo,
-			Supplier: m.Supplier, Note: m.Note,
+			Supplier: m.Supplier, Note: m.Note, UpdatedAt: m.UpdatedAt,
 		}
 		if row.SoldOut && it.SettledAt == "" {
 			row.Supplier = m.Supplier
@@ -1195,10 +1208,11 @@ func handleOperationsLotMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		ItemID   int64  `json:"item_id"`
-		BatchNo  string `json:"batch_no"`
-		Supplier string `json:"supplier"`
-		Note     string `json:"note"`
+		ItemID            int64  `json:"item_id"`
+		BatchNo           string `json:"batch_no"`
+		Supplier          string `json:"supplier"`
+		Note              string `json:"note"`
+		ExpectedUpdatedAt string `json:"expected_updated_at"`
 	}
 	if !decodeJSONBody(w, r, &in, maxSmallJSONBody) {
 		return
@@ -1214,8 +1228,30 @@ func handleOperationsLotMeta(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "采购批次不存在")
 		return
 	}
-	ts := nowStr()
-	if _, err := db.Exec(`INSERT INTO purchase_lot_meta
+	ts := versionStr()
+	tx, err := db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "开启事务失败")
+		return
+	}
+	defer tx.Rollback()
+	var currentUpdatedAt string
+	_ = tx.QueryRow(`SELECT updated_at FROM purchase_lot_meta WHERE shop_id=? AND item_id=?`, sid, in.ItemID).
+		Scan(&currentUpdatedAt)
+	if in.ExpectedUpdatedAt != "" && in.ExpectedUpdatedAt != currentUpdatedAt {
+		_ = tx.Rollback()
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "批次信息已被其他人修改，请刷新后再保存",
+			"code":  "conflict",
+			"current": map[string]interface{}{
+				"item_id": in.ItemID, "updated_at": currentUpdatedAt,
+			},
+		})
+		return
+	}
+	if _, err := tx.Exec(`INSERT INTO purchase_lot_meta
         (shop_id,item_id,batch_no,supplier,note,created_at,updated_at)
         VALUES(?,?,?,?,?,?,?)
         ON CONFLICT(shop_id,item_id) DO UPDATE SET
@@ -1226,7 +1262,13 @@ func handleOperationsLotMeta(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "保存批次信息失败")
 		return
 	}
-	writeJSON(w, map[string]interface{}{"ok": true})
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, "保存批次信息失败")
+		return
+	}
+	setAudit(r, "修改采购批次", "lot", in.ItemID, "更新批次资料："+strings.TrimSpace(in.BatchNo),
+		map[string]interface{}{"batch_no": in.BatchNo, "supplier": in.Supplier})
+	writeJSON(w, map[string]interface{}{"ok": true, "updated_at": ts})
 }
 
 type opsPricingRow struct {
