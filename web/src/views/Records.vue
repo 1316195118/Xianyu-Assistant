@@ -939,7 +939,7 @@ function onCardClick(r, e) {
               </div>
             </div>
             <span v-if="hasFilters" class="filter-active">
-              已筛选 {{ activeFilterCount }} 项 · <span class="link" @click="clearFilters">清除</span>
+              已筛选 {{ activeFilterCount }} 项 · <button type="button" class="link" @click="clearFilters">清除</button>
             </span>
           </div>
 
@@ -1263,12 +1263,12 @@ function onCardClick(r, e) {
                 </td>
                 <td class="col-group">
                   <div v-if="groupsOf(r.id).length" class="cell-groups">
-                    <span v-for="g in groupsOf(r.id).slice(0, 1)" :key="'g'+g.id" class="group-chip"
+                    <button v-for="g in groupsOf(r.id).slice(0, 1)" :key="'g'+g.id" type="button" class="group-chip"
                           @click.stop="emit('goto-group', g.id)"
                           :title="'查看联单：' + g.title + (groupsOf(r.id).length > 1 ? '（还有 ' + (groupsOf(r.id).length - 1) + ' 张）' : '')">
                       <span class="group-chip-t">{{ g.title }}</span>
                       <span v-if="groupsOf(r.id).length > 1" class="group-chip-n">+{{ groupsOf(r.id).length - 1 }}</span>
-                    </span>
+                    </button>
                   </div>
                   <button v-else type="button" class="group-add-mini"
                           :disabled="groupSettled(r) || !!r.discarded_at"
@@ -1461,10 +1461,10 @@ function onCardClick(r, e) {
             </span>
           </div>
           <div v-if="groupsOf(r.id).length" class="rc-groups">
-            <span v-for="g in groupsOf(r.id).slice(0, 2)" :key="'mg'+g.id" class="group-chip" @touchstart.stop @click="emit('goto-group', g.id)">
+            <button v-for="g in groupsOf(r.id).slice(0, 2)" :key="'mg'+g.id" type="button" class="group-chip" @touchstart.stop @click="emit('goto-group', g.id)">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
               {{ g.title }}
-            </span>
+            </button>
             <span v-if="groupsOf(r.id).length > 2" class="group-more">+{{ groupsOf(r.id).length - 2 }}</span>
           </div>
           <div class="rc-amounts">

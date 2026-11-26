@@ -376,7 +376,10 @@ tbody tr:hover { background: #fbfcfe; }
 
 /* ---------- 概览 最近列表 ---------- */
 .list-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px; border-bottom: 1px solid var(--border); }
-.link { color: var(--blue); cursor: pointer; font-weight: 600; font-size: 13px; }
+.link {
+  color: var(--blue); cursor: pointer; font-weight: 600; font-size: 13px;
+  padding: 0; border: 0; background: transparent; font-family: inherit; line-height: inherit;
+}
 .link:hover { text-decoration: underline; }
 
 /* ---------- 新增：状态徽章 ---------- */
@@ -1135,20 +1138,13 @@ html[data-theme="dark"] .group-card .gc-state {
   pointer-events: none;
 }
 .ov-onboarding-copy { position: relative; z-index: 1; }
-.ov-onboarding-eyebrow {
-  margin: 0 0 10px;
-  color: var(--brand-ink);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: .08em;
-}
 .ov-onboarding h2 {
   margin: 0;
   font-size: clamp(28px, 4vw, 44px);
   line-height: 1.14;
   letter-spacing: -.045em;
 }
-.ov-onboarding-copy > p:not(.ov-onboarding-eyebrow) {
+.ov-onboarding-copy > p {
   max-width: 650px;
   margin: 15px 0 0;
   color: var(--text-2);
@@ -1769,7 +1765,7 @@ html[data-theme="dark"] .gc-item-ext b { color: #eccb6b; }
 .linkbox-title { font-weight: 650; word-break: break-word; line-height: 1.4; }
 .linkbox-item b { flex: 0 0 auto; font-size: var(--fs-sm); }
 .linkbox-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
-.linkbox-chip { font-size: var(--fs-xs); padding: 3px 8px; border-radius: 999px; background: var(--brand-soft); border: 1px solid #f0e0a8; color: var(--brand-ink); cursor: pointer; }
+.linkbox-chip { font-size: var(--fs-xs); padding: 3px 8px; border-radius: 999px; background: var(--brand-soft); border: 1px solid #f0e0a8; color: var(--brand-ink); cursor: pointer; font-family: inherit; line-height: 1.4; }
 @media (max-width: 600px) { .linkbox-tools .btn { flex: 1; } }
 
 /* 明细 -> 联单 联动标签与高亮 */
@@ -1778,6 +1774,7 @@ html[data-theme="dark"] .gc-item-ext b { color: #eccb6b; }
   font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
   background: var(--blue-soft); border: 1px solid #c9d8ff; color: var(--blue);
   cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: inherit; line-height: inherit;
 }
 .group-chip:hover { background: #dfe8ff; }
 .rc-groups { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-top: 9px; }
@@ -3249,24 +3246,6 @@ html.theme-anim .select {
   100% { transform: scale(1); }
 }
 
-/* 空状态图标呼吸 */
-.empty-badge { animation: breathe 2.6s ease-in-out infinite; }
-@keyframes breathe {
-  0%, 100% { transform: scale(1); opacity: .85; }
-  50% { transform: scale(1.06); opacity: 1; }
-}
-
-/* 概览卡片 stagger 入场：按阅读顺序依次浮现 */
-.ov-page > * { animation: fadeUp var(--dur-3) var(--ease) both; }
-.ov-page > :nth-child(1) { animation-delay: .02s; }
-.ov-page > :nth-child(2) { animation-delay: .06s; }
-.ov-page > :nth-child(3) { animation-delay: .1s; }
-.ov-page > :nth-child(4) { animation-delay: .14s; }
-.ov-page > :nth-child(5) { animation-delay: .18s; }
-.ov-page > :nth-child(6) { animation-delay: .22s; }
-.ov-page > :nth-child(7) { animation-delay: .26s; }
-.ov-page > :nth-child(n+8) { animation-delay: .3s; }
-
 /* 移动端：确认框也改为底部 sheet（与录单抽屉一致的形态） */
 @media (max-width: 600px) {
   .confirm-mask { align-items: flex-end; padding: 0; }
@@ -3296,8 +3275,6 @@ html.theme-anim .select {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .empty-badge { animation: none; }
-  .ov-page > * { animation: none; }
   .chip.on { animation: none; }
 }
 
@@ -3310,7 +3287,6 @@ html.theme-anim .select {
   /* 时长：新增动画就近取用这 7 档，不再另写 .15s / .26s 这类散值 */
   --dur-0: .12s;       /* 按压 / hover 微反馈 */
   --dur-theme: .28s;   /* 主题切换；theme.js 的 THEME_ANIM_MS 与之对齐 */
-  --stagger: .04s;     /* 首屏卡片依次入场间隔 */
   /* 缓动：out=入场/展开，in=退场/收起，spring=确认/回弹 */
   --ease-out: cubic-bezier(.2,.8,.2,1);
   --ease-in: cubic-bezier(.4,0,1,1);
@@ -3335,7 +3311,7 @@ html.theme-anim .select {
 }
 /* 断点三档（1100 / 900 / 600）只负责切换栅格与留白，布局规则统一归位 */
 @media (max-width: 900px) { :root { --gutter: 16px; } }
-@media (max-width: 600px) { :root { --gutter: 12px; --stagger: .02s; } }
+@media (max-width: 600px) { :root { --gutter: 12px; } }
 
 /* 主题切换时长统一：与 theme.js 的 THEME_ANIM_MS 对齐 */
 html.theme-anim, html.theme-anim body, html.theme-anim .card,
@@ -3350,16 +3326,6 @@ html.theme-anim .input, html.theme-anim .select {
 .modal-head .x:focus-visible, .filter-toggle:focus-visible {
   outline: 2px solid var(--focus-border); outline-offset: 2px;
 }
-
-/* 首屏节奏：改为 token 驱动，窄屏自动加速（--stagger 减半） */
-.ov-page > :nth-child(1) { animation-delay: .02s; }
-.ov-page > :nth-child(2) { animation-delay: calc(.02s + var(--stagger) * 1); }
-.ov-page > :nth-child(3) { animation-delay: calc(.02s + var(--stagger) * 2); }
-.ov-page > :nth-child(4) { animation-delay: calc(.02s + var(--stagger) * 3); }
-.ov-page > :nth-child(5) { animation-delay: calc(.02s + var(--stagger) * 4); }
-.ov-page > :nth-child(6) { animation-delay: calc(.02s + var(--stagger) * 5); }
-.ov-page > :nth-child(7) { animation-delay: calc(.02s + var(--stagger) * 6); }
-.ov-page > :nth-child(n+8) { animation-delay: calc(.02s + var(--stagger) * 7); }
 
 /* 质感：浮层保留原外阴影，叠加一层极淡内高光（亮暗主题各一套） */
 .confirm-panel { box-shadow: var(--shadow-3), var(--surface-highlight); }
@@ -3386,7 +3352,6 @@ html.theme-anim .input, html.theme-anim .select {
    桌面 = Esc / 点遮罩 / 右上角 ×；移动 = 从手柄下拉 / 点遮罩 / ×。
    危险确认框默认焦点落在「取消」，误下滑亦等同取消。 */
 @media (prefers-reduced-motion: reduce) {
-  .ov-page > * { animation-delay: 0s !important; }
   .btn:active, .chip:active, .seg button:active { transform: none; }
 }
 
@@ -3464,10 +3429,8 @@ html[data-motion="reduce"] *::after {
   scroll-behavior: auto !important;
 }
 html[data-motion="reduce"] .skeleton,
-html[data-motion="reduce"] .empty-badge,
 html[data-motion="reduce"] .gc-stamp,
 html[data-motion="reduce"] .gc-stamp-inner,
-html[data-motion="reduce"] .ov-page > *,
 html[data-motion="reduce"] .chip.on { animation: none !important; }
 
 /* ============================================================
@@ -5628,16 +5591,7 @@ html[data-theme="dark"] .discard-dot { background: #4a1b0c; color: #f0997b; }
    prefers-reduced-motion 与 data-motion="reduce" 一键关掉。
    ============================================================ */
 
-/* 1) 明细 / 联单 / 设置首屏节奏：与概览页共用 fadeUp 与 --stagger */
-.page:not(.ov-page) > * { animation: fadeUp var(--dur-3) var(--ease) both; }
-.page:not(.ov-page) > :nth-child(1) { animation-delay: .02s; }
-.page:not(.ov-page) > :nth-child(2) { animation-delay: calc(.02s + var(--stagger) * 1); }
-.page:not(.ov-page) > :nth-child(3) { animation-delay: calc(.02s + var(--stagger) * 2); }
-.page:not(.ov-page) > :nth-child(4) { animation-delay: calc(.02s + var(--stagger) * 3); }
-.page:not(.ov-page) > :nth-child(5) { animation-delay: calc(.02s + var(--stagger) * 4); }
-.page:not(.ov-page) > :nth-child(n+6) { animation-delay: calc(.02s + var(--stagger) * 5); }
-
-/* 2) 内联圆章：落章时从大到正，像真的盖上去 */
+/* 1) 内联圆章：落章时从大到正，像真的盖上去 */
 @keyframes sealStamp {
   0%   { opacity: 0; transform: rotate(-26deg) scale(1.9); }
   55%  { opacity: .74; }
@@ -5648,19 +5602,19 @@ html[data-theme="dark"] .discard-dot { background: #4a1b0c; color: #f0997b; }
   55%  { opacity: .94; }
   100% { opacity: 1; transform: rotate(-10deg) scale(1); }
 }
-.seal-inline { animation: sealStamp .48s cubic-bezier(.2, .9, .3, 1.15) both; }
+.seal-inline { animation: sealStamp .48s var(--ease) both; }
 .seal-inline.seal-group {
   opacity: 1;
   animation-name: sealStampGroup;
 }
 
-/* 3) 占比条 / 目标进度条：从左往右长出来（只动 transform，不触发布局） */
+/* 2) 占比条 / 目标进度条：从左往右长出来（只动 transform，不触发布局） */
 @keyframes barGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .insight-bar-fill, .ht-bar i { transform-origin: left center; }
 .insight-bar-fill { animation: barGrow .5s var(--ease) both; }
 .ht-bar i { animation: barGrow .62s var(--ease) .08s both; }
 
-/* 4) 月度趋势：柱子从零线升起、折线自左向右描出、圆点最后落位 */
+/* 3) 月度趋势：柱子从零线升起、折线自左向右描出、圆点最后落位 */
 @keyframes barRise { from { transform: scaleY(.02); } to { transform: scaleY(1); } }
 @keyframes lineDraw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
 @keyframes dotIn { from { opacity: 0; transform: scale(.2); } to { opacity: 1; transform: none; } }
@@ -5675,28 +5629,27 @@ html[data-theme="dark"] .discard-dot { background: #4a1b0c; color: #f0997b; }
 .trend-svg.chart-in .chart-dot-pos,
 .trend-svg.chart-in .chart-dot-neg { transform-box: fill-box; transform-origin: center; animation: dotIn .26s var(--ease) .72s both; }
 
-/* 5) 手机端按压反馈：卡片整体轻微回落，点到哪一块心里有数 */
+/* 4) 手机端按压反馈：卡片整体轻微回落，点到哪一块心里有数 */
 @media (hover: none) {
   .rec-card:active, .group-card:active, .kpi-card:active, .sum-card:active, .settings-entry:active {
     transform: scale(.994); transition-duration: .1s;
   }
 }
 
-/* 6) 底部导航：选中项图标轻微放大，配合已有的上移形成「弹一下」 */
+/* 5) 底部导航：选中项图标轻微放大，配合已有的上移形成「弹一下」 */
 .tabbar > button.active:not(.tab-fab) svg { transform: translateY(-2px) scale(1.06); }
 
-/* 7) 回顶按钮：常态半透明，避免压住列表里的金额，按下再实心 */
+/* 6) 回顶按钮：常态半透明，避免压住列表里的金额，按下再实心 */
 .to-top { opacity: .86; }
 .to-top:hover, .to-top:active { opacity: 1; }
 @media (max-width: 600px) { .to-top { width: 36px; height: 36px; } }
 
-/* 8) 减少动效：新增的这几组全部关掉（图表的静态终态不受影响） */
+/* 7) 减少动效：新增的这几组全部关掉（图表的静态终态不受影响） */
 @media (prefers-reduced-motion: reduce) {
-  .page:not(.ov-page) > *, .seal-inline, .insight-bar-fill, .ht-bar i,
+  .seal-inline, .insight-bar-fill, .ht-bar i,
   .trend-svg.chart-in .chart-bar-sales, .trend-svg.chart-in .chart-bar-cost,
   .trend-svg.chart-in .chart-profit-line { animation: none !important; }
 }
-html[data-motion="reduce"] .page:not(.ov-page) > *,
 html[data-motion="reduce"] .seal-inline,
 html[data-motion="reduce"] .insight-bar-fill,
 html[data-motion="reduce"] .ht-bar i,

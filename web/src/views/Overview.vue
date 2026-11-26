@@ -392,7 +392,6 @@ const chart = computed(() => {
 
     <section v-if="firstUse" class="card ov-onboarding">
       <div class="ov-onboarding-copy">
-        <p class="ov-onboarding-eyebrow">自托管闲鱼经营账本</p>
         <h2>每一单到底赚多少，<br>打开就算清。</h2>
         <p>上传订单截图或配置闲鱼同步，把成交价、进货成本、运费和平台服务费放在一张账单里。默认 OCR 在浏览器本地运行，图片不上传。</p>
         <div class="ov-onboarding-actions">
@@ -661,7 +660,7 @@ const chart = computed(() => {
     <section class="card panel">
       <div class="panel-head">
         <h3>最近记录</h3>
-        <span class="link" @click="emit('goto-records')">查看全部明细 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+        <button type="button" class="link" @click="emit('goto-records')">查看全部明细 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
       </div>
       <div v-if="recent.length" class="recent-list">
         <div v-for="r in recent" :key="r.id" class="recent-row">

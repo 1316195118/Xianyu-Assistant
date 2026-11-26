@@ -936,7 +936,7 @@ function onHeadEnd() {
             <span class="muted" style="font-size:12px">
               {{ engine === 'local' ? '离线运行，无需 API Key，图片不上传' : '调用你配置的视觉大模型，识别更准' }}
             </span>
-            <span class="link" style="margin-left:auto;font-size:12px" @click="$emit('open-settings')">去设置切换</span>
+            <button type="button" class="link" style="margin-left:auto;font-size:12px" @click="$emit('open-settings')">去设置切换</button>
           </div>
 
           <!-- 识别诊断条：构建版本 + 各关键字段是否真的填进表单，便于核对加载的是不是最新版 -->
@@ -1002,7 +1002,7 @@ function onHeadEnd() {
               </div>
               <div v-else-if="mergedHint" class="tip">{{ mergedHint }}</div>
               <div v-if="ocrRaw" class="raw-toggle">
-                <span class="link" @click="showRaw = !showRaw">{{ showRaw ? '收起' : '查看' }} OCR 原文（核对用）</span>
+                <button type="button" class="link" :aria-expanded="showRaw" @click="showRaw = !showRaw">{{ showRaw ? '收起' : '查看' }} OCR 原文（核对用）</button>
                 <pre v-if="showRaw" class="raw-text">{{ ocrRaw }}</pre>
               </div>
             </div>
@@ -1063,9 +1063,11 @@ function onHeadEnd() {
               <div v-else-if="purchaseLoading" class="muted" style="padding:12px;font-size:12px">正在加载买进单…</div>
             </div>
             <div v-if="selectedPurchases.length && !purchasePickerOpen" class="linkbox-chips">
-              <span v-for="id in selectedPurchases" :key="id" class="linkbox-chip" @click="togglePurchase(id)">
+              <button v-for="id in selectedPurchases" :key="id" type="button" class="linkbox-chip"
+                      :aria-label="`移除已关联买进单 ${(purchasePool.find(p => p.id === id) || {}).product || id}`"
+                      @click="togglePurchase(id)">
                 {{ (purchasePool.find(p => p.id === id) || {}).product || id }} ×
-              </span>
+              </button>
             </div>
           </div>
 
@@ -1254,7 +1256,7 @@ function onHeadEnd() {
             <div class="field">
               <div class="label-row">
                 <label>卖出运费<HelpTip text="成本项，从利润里扣除" /></label>
-                <a class="link link-mini" @click="autoNet">按 成交价−服务费 算到手</a>
+                <button type="button" class="link link-mini" @click="autoNet">按 成交价−服务费 算到手</button>
               </div>
               <input class="input num" type="number" step="0.01" v-model.number="form.sell_shipping" placeholder="0.00" aria-label="卖出运费"
                      :disabled="form.sell_ship_tag === '自提'" :class="{ 'is-err': errors.sell_shipping }" @input="clearErr('sell_shipping'); recalcNet()" />
