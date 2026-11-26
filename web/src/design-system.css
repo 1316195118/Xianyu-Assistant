@@ -1,0 +1,400 @@
+/* ============================================================
+   鱼助手设计语言 v3
+   在既有视觉上收敛语义 Token；不改变业务布局、信息顺序或操作规则。
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* 色彩：组件只表达用途，具体色值由亮 / 暗主题提供。 */
+  --ds-canvas: var(--bg);
+  --ds-surface: var(--surface);
+  --ds-surface-sunken: var(--surface-2);
+  --ds-text-primary: var(--text);
+  --ds-text-secondary: var(--text-2);
+  --ds-text-tertiary: var(--text-3);
+  --ds-border-subtle: color-mix(in srgb, var(--border) 88%, transparent);
+  --ds-border-control: var(--border-strong);
+  --ds-brand: var(--brand);
+  --ds-brand-strong: var(--brand-deep);
+  --ds-brand-soft: var(--brand-soft);
+  --ds-on-brand: #4a3600;
+  --ds-info: var(--blue);
+  --ds-info-soft: var(--blue-soft);
+  --ds-success: var(--down);
+  --ds-success-soft: var(--down-soft);
+  --ds-danger: var(--up);
+  --ds-danger-soft: var(--up-soft);
+  --ds-profit-positive: var(--up); /* 中国账务习惯：盈利用红色 */
+  --ds-profit-negative: var(--down); /* 亏损用绿色 */
+  --ds-warning: #a46100;
+  --ds-warning-soft: #fff3d6;
+
+  /* 字体：保留现有密度，只把层级和用途固定下来。 */
+  --ds-type-caption: 11px;
+  --ds-type-meta: 12px;
+  --ds-type-body: 14px;
+  --ds-type-card-title: 15px;
+  --ds-type-section: 17px;
+  --ds-type-page: 20px;
+  --ds-type-metric: 22px;
+  --ds-type-display: 38px;
+  --ds-leading-tight: 1.25;
+  --ds-leading-body: 1.6;
+  --ds-leading-relaxed: 1.75;
+  --ds-weight-regular: 400;
+  --ds-weight-medium: 500;
+  --ds-weight-semibold: 600;
+  --ds-weight-bold: 700;
+
+  /* 圆角与阴影：控件、卡片、浮层各只用一档。 */
+  --ds-radius-control: 9px;
+  --ds-radius-card: 14px;
+  --ds-radius-panel: 16px;
+  --ds-radius-overlay: 20px;
+  --ds-radius-pill: 999px;
+  --ds-elevation-1: 0 1px 2px rgba(20, 26, 40, .035), 0 7px 20px rgba(20, 26, 40, .045);
+  --ds-elevation-2: 0 2px 8px rgba(20, 26, 40, .06), 0 14px 32px rgba(20, 26, 40, .09);
+  --ds-elevation-3: 0 16px 48px rgba(20, 26, 40, .16);
+
+  /* 微交互：100ms 按压、160ms 悬停、240ms 展开。 */
+  --ds-motion-press: 90ms;
+  --ds-motion-hover: 160ms;
+  --ds-motion-expand: 240ms;
+  --ds-ease-out: cubic-bezier(.2, .8, .2, 1);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ds-border-subtle: color-mix(in srgb, var(--border) 78%, rgba(255, 255, 255, .07));
+  --ds-border-control: color-mix(in srgb, var(--border-strong) 88%, rgba(255, 255, 255, .08));
+  --ds-on-brand: #2a1f00;
+  --ds-warning: #f0c95a;
+  --ds-warning-soft: var(--brand-soft);
+
+  /* 深色界面主要靠边框与表面亮度分层，黑色阴影只负责轻微分离。 */
+  --ds-elevation-1: 0 1px 0 rgba(255, 255, 255, .025), 0 8px 20px rgba(0, 0, 0, .14);
+  --ds-elevation-2: 0 2px 8px rgba(0, 0, 0, .18), 0 14px 30px rgba(0, 0, 0, .2);
+  --ds-elevation-3: 0 18px 44px rgba(0, 0, 0, .3);
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select,
+textarea {
+  color: inherit;
+}
+
+:where(h1, h2, h3, h4, .hero-value, .kpi-value, .gc-profit) {
+  text-wrap: balance;
+}
+
+.num,
+.an,
+.mono,
+.hero-value,
+.kpi-value,
+.gc-profit {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.topbar-titles h1 {
+  line-height: var(--ds-leading-tight);
+  letter-spacing: -.028em;
+}
+
+.panel-head h3,
+.section-title {
+  line-height: 1.35;
+  letter-spacing: -.012em;
+}
+
+.muted,
+.section-desc,
+.empty-sub,
+.panel-foot {
+  line-height: var(--ds-leading-relaxed);
+}
+
+/* ---------- 表面层级 ---------- */
+.card {
+  min-width: 0;
+  border-color: var(--ds-border-subtle);
+  box-shadow: var(--ds-elevation-1);
+}
+
+.panel,
+.hero-card,
+.groups-hero,
+.settings-hero,
+.ops-hero,
+.cs-hero,
+.settle-strip {
+  min-width: 0;
+  border-radius: var(--ds-radius-panel);
+}
+
+.kpi-card,
+.sum-card,
+.group-card,
+.rec-card,
+.engine-card,
+.settings-entry {
+  border-radius: var(--ds-radius-card);
+}
+
+.dg-item {
+  border-radius: calc(var(--ds-radius-card) - 5px);
+}
+
+.hero-value,
+.stat-card .stat-value,
+.gc-profit {
+  font-weight: var(--ds-weight-bold);
+  letter-spacing: -.03em;
+}
+
+.kpi-value,
+.sum-card .m-value {
+  font-weight: var(--ds-weight-bold);
+}
+
+.topbar-titles h1 {
+  font-weight: var(--ds-weight-bold);
+}
+
+.modal,
+.confirm-panel,
+.report-panel,
+.version-modal {
+  border-radius: var(--ds-radius-overlay);
+  box-shadow: var(--ds-elevation-3);
+}
+
+/* ---------- 控件与即时反馈 ---------- */
+.btn,
+.seg button,
+.chip,
+.filter-toggle,
+.side-toggle,
+.modal-head .x {
+  border-radius: var(--ds-radius-control);
+}
+
+.btn {
+  max-width: 100%;
+}
+
+.modal-body,
+.main-body,
+.page,
+.group-grid,
+.stat-grid,
+.kpi-grid,
+.sum-grid,
+.filter-main,
+.filter-row,
+.filter-foot {
+  min-width: 0;
+}
+
+.gc-title,
+.rc-product,
+.cell-product,
+.cs-owner-name b,
+.cs-item-main span,
+.rp-head-copy h3 {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.btn-primary {
+  color: var(--ds-on-brand);
+}
+
+:where(
+  .btn,
+  .chip,
+  .seg button,
+  .nav button,
+  .side-nav button,
+  .tabbar > button,
+  .group-chip,
+  .settings-entry,
+  .icon-btn,
+  .action-primary,
+  .filter-toggle,
+  .cs-filter-toggle,
+  .search-clear
+):not(:disabled):active {
+  transform: translateY(1px) scale(.98);
+  transition-duration: var(--ds-motion-press);
+}
+
+@media (hover: hover) {
+  .btn:not(:disabled),
+  .chip:not(:disabled),
+  .seg button:not(:disabled),
+  .group-chip,
+  .settings-entry,
+  .icon-btn:not(:disabled) {
+    transition-duration: var(--ds-motion-hover);
+    transition-timing-function: var(--ds-ease-out);
+  }
+
+  .btn:not(:disabled):hover,
+  .chip:not(:disabled):hover,
+  .seg button:not(:disabled):hover,
+  .group-chip:hover,
+  .settings-entry:hover {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28);
+  }
+}
+
+:where(button, a[href], input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline-color: var(--focus-border);
+}
+
+.input::placeholder,
+.select::placeholder,
+textarea::placeholder {
+  color: var(--placeholder);
+  opacity: 1;
+}
+
+/* ---------- 状态与空结果 ---------- */
+.empty {
+  color: var(--ds-text-tertiary);
+}
+
+.empty-title {
+  color: var(--ds-text-primary);
+  font-size: var(--ds-type-card-title);
+  line-height: 1.35;
+}
+
+.empty-sub {
+  max-width: 560px;
+  margin-inline: auto;
+  color: var(--ds-text-secondary);
+}
+
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.badge-ok,
+.badge-settled,
+.gc-state.done {
+  border-color: color-mix(in srgb, var(--ds-success) 24%, var(--ds-border-subtle));
+}
+
+.badge-pending,
+.kpi-tag,
+.ship-tag {
+  border-color: color-mix(in srgb, var(--ds-warning) 24%, var(--ds-border-subtle));
+}
+
+.pos {
+  color: var(--ds-profit-positive);
+}
+
+.neg {
+  color: var(--ds-profit-negative);
+}
+
+/* 报告和寄卖页的小号说明保持紧凑，但不低到难以辨认。 */
+.rp-brandline small,
+.rp-kpi > small,
+.rp-detail-grid small,
+.rp-sheet-foot,
+.cs-owner-metrics span,
+.cs-progress-copy,
+.cs-progress-copy b {
+  font-size: max(10.5px, .65rem);
+}
+
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .rec-card,
+html[data-theme="dark"] .group-card,
+html[data-theme="dark"] .kpi-card,
+html[data-theme="dark"] .sum-card,
+html[data-theme="dark"] .settings-entry,
+html[data-theme="dark"] .engine-card,
+html[data-theme="dark"] .dg-item {
+  border-color: var(--ds-border-subtle);
+  box-shadow: var(--ds-elevation-1);
+}
+
+html[data-theme="dark"] .modal,
+html[data-theme="dark"] .confirm-panel,
+html[data-theme="dark"] .report-panel,
+html[data-theme="dark"] .version-modal {
+  border-color: var(--ds-border-control);
+  box-shadow: var(--ds-elevation-3);
+}
+
+html[data-theme="dark"] .modal-head,
+html[data-theme="dark"] .modal-foot {
+  background: var(--surface);
+}
+
+html[data-theme="dark"] .rec-table tbody tr.expandable:hover {
+  background: color-mix(in srgb, var(--blue-soft) 34%, var(--surface));
+}
+
+@media (max-width: 600px) {
+  .modal,
+  .confirm-panel {
+    border-radius: var(--ds-radius-overlay) var(--ds-radius-overlay) 0 0;
+  }
+
+  .empty-actions .btn {
+    min-height: var(--touch-min);
+  }
+}
+
+@media (pointer: coarse), (max-width: 768px) {
+  /* 视觉尺寸保持紧凑，实际点击热区向上下扩展，避免卡片被撑高。 */
+  .group-card .gc-title.gc-open {
+    position: relative;
+    min-height: 44px;
+    margin-block: -6px;
+    align-items: center;
+  }
+
+  .cs-preview-item {
+    min-height: 44px;
+    margin-block: -10px;
+    align-items: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(
+    .btn,
+    .chip,
+    .seg button,
+    .side-nav button,
+    .tabbar > button,
+    .group-chip,
+    .icon-btn,
+    .action-primary
+  ):not(:disabled):active {
+    transform: none;
+  }
+}

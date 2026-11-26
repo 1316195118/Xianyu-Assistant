@@ -38,16 +38,19 @@ async function auditViewport(width, height, routes) {
       }
       const smallTargets = [...document.querySelectorAll('a[href], button, input:not([type="hidden"]), select, textarea, [role="button"]')]
         .filter(visible)
-        // HelpTip 的视觉图标保持紧凑，但 ::after 已把实际点击区域扩展到 44×44。
-        .filter((el) => !el.classList.contains('help-tip'))
         .map((el) => {
           const rect = el.getBoundingClientRect()
+          const pseudo = getComputedStyle(el, '::after')
+          const expanded = el.matches('.help-tip, .hero-calc, .kpi-seg button, .recent-title, .group-add-mini, .cs-preview-item, .gc-title.gc-open') &&
+            pseudo.content !== 'none' && pseudo.position === 'absolute'
+          const insetY = expanded ? Math.max(0, -(parseFloat(pseudo.top) || 0)) + Math.max(0, -(parseFloat(pseudo.bottom) || 0)) : 0
+          const insetX = expanded ? Math.max(0, -(parseFloat(pseudo.left) || 0)) + Math.max(0, -(parseFloat(pseudo.right) || 0)) : 0
           return {
             tag: el.tagName.toLowerCase(),
             className: typeof el.className === 'string' ? el.className : '',
             text: (el.getAttribute('aria-label') || el.textContent || el.getAttribute('placeholder') || '').trim().slice(0, 60),
-            width: Math.round(rect.width),
-            height: Math.round(rect.height)
+            width: Math.round(rect.width + insetX),
+            height: Math.round(rect.height + insetY)
           }
         })
         .filter((item) => item.width < 44 || item.height < 44)

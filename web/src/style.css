@@ -387,15 +387,14 @@ tbody tr:hover { background: #fbfcfe; }
 .modal-wide { max-width: 760px; }
 .side-box {
   margin-top: 14px; border: 1px solid var(--border); border-radius: 12px;
-  border-left: 3px solid transparent;
   background: var(--surface-2); padding: 14px 16px 16px;
 }
 .side-box.buy {
-  border-left-color: var(--blue);
+  border-color: color-mix(in srgb, var(--blue) 30%, var(--border));
   background: linear-gradient(90deg, #f4f8ff 0%, var(--surface-2) 42%, var(--surface-2) 100%);
 }
 .side-box.sell {
-  border-left-color: var(--up);
+  border-color: color-mix(in srgb, var(--up) 26%, var(--border));
   background: linear-gradient(90deg, #fff5f2 0%, var(--surface-2) 42%, var(--surface-2) 100%);
 }
 .side-title { display: flex; align-items: center; gap: var(--sp-2); font-weight: 700; font-size: 13.5px; margin-bottom: 12px; }
@@ -478,7 +477,8 @@ tbody tr:hover { background: #fbfcfe; }
 .adv-head { cursor: pointer; user-select: none; }
 .adv-arrow { margin-left: 8px; color: var(--blue); font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
 .notice-box {
-  background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--brand-deep);
+  background: color-mix(in srgb, var(--brand-soft) 42%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--brand-deep) 24%, var(--border));
   border-radius: 8px; padding: 12px 14px; font-size: var(--fs-sm); color: var(--text-2); line-height: 1.7;
 }
 .lic-table { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
@@ -1760,7 +1760,7 @@ html[data-theme="dark"] .gc-item-ext b { color: #eccb6b; }
 .linkbox-item:hover { border-color: #b9ccff; background: var(--blue-soft); }
 .linkbox-item.on {
   border-color: var(--blue); background: var(--blue-soft);
-  box-shadow: inset 3px 0 0 var(--blue);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 18%, transparent);
 }
 .linkbox-item.on .linkbox-title { color: var(--blue); }
 .linkbox-check { color: var(--blue); font-weight: 800; flex: 0 0 auto; }
@@ -1868,7 +1868,7 @@ html[data-theme="dark"] .gc-item-ext b { color: #eccb6b; }
   transition: background var(--dur-1) ease, box-shadow var(--dur-1) ease;
 }
 .recent-row:hover { background: var(--surface-2); border-radius: 8px; }
-.cand-item.on { box-shadow: inset 3px 0 0 var(--blue); }
+.cand-item.on { border-color: var(--blue); background: var(--blue-soft); }
 .hero-value, .kpi-value, .gc-profit { transition: color var(--dur-3) ease; }
 .cost-fill { transition: width var(--dur-3) var(--ease); }
 
@@ -2096,12 +2096,17 @@ input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
 .date-range svg { flex: 0 0 auto; color: var(--text-3); }
 .sort-group .btn-ghost, .sort-group .btn-quiet { color: var(--text-2); }
 
-/* 汇总：6 张卡 + 语义色条 + 主次数字 */
+/* 汇总：6 张卡 + 完整语义描边 + 主次数字 */
 .sum-grid { gap: var(--sp-3); }
 .sum-card { position: relative; padding: 14px 14px 13px; overflow: hidden; }
-.sum-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--border-strong); }
-.sum-card.sum-total::before { background: var(--brand-deep); }
-.sum-card.sum-profit::before { background: var(--up); }
+.sum-card.sum-total {
+  border-color: color-mix(in srgb, var(--brand-deep) 26%, var(--border));
+  background-color: color-mix(in srgb, var(--brand-soft) 26%, var(--surface));
+}
+.sum-card.sum-profit {
+  border-color: color-mix(in srgb, var(--up) 22%, var(--border));
+  background-color: color-mix(in srgb, var(--up-soft) 24%, var(--surface));
+}
 .sum-card .m-label { font-size: var(--fs-xs); letter-spacing: .01em; }
 .sum-card .m-value { font-size: 18px; margin-top: 6px; letter-spacing: -.4px; }
 .sum-card .m-value small { display: block; font-size: 11px; font-weight: 500; color: var(--text-3); margin-top: 2px; }
@@ -2137,8 +2142,8 @@ input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
   padding: 12px 14px; border-bottom: 1px solid var(--border-strong);
 }
 .rec-table tbody td { padding: 12px 14px; font-size: 13px; }
-.rec-table tbody tr.expandable:hover { background: #f7f9fd; box-shadow: inset 3px 0 0 var(--blue); }
-.rec-table tbody tr.selected { background: var(--blue-soft); box-shadow: inset 3px 0 0 var(--blue); }
+.rec-table tbody tr.expandable:hover { background: #f7f9fd; }
+.rec-table tbody tr.selected { background: var(--blue-soft); }
 .badge-stack { flex-direction: row; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
 .badge.mini { margin-top: 0; }
 .cell-main { min-width: 220px; }
@@ -2284,8 +2289,10 @@ input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
 .hero-metric { flex-direction: column; align-items: flex-start; gap: 2px; }
 .hero-metric b { font-size: 15px; }
 .kpi-card { position: relative; overflow: hidden; }
-.kpi-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--border-strong); }
-.kpi-card.kpi-hl::before { background: var(--up); }
+.kpi-card.kpi-hl {
+  border-color: color-mix(in srgb, var(--up) 22%, var(--border));
+  background-color: color-mix(in srgb, var(--up-soft) 20%, var(--surface));
+}
 .kpi-card.kpi-hl .kpi-value { font-size: 24px; }
 .chart-empty { padding: 32px 20px; }
 .link { display: inline-flex; align-items: center; gap: 3px; }
@@ -2294,7 +2301,7 @@ input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
 .lic-row, .back-row { transition: background var(--dur-1) ease; }
 .lic-row:hover, .back-row:hover { background: var(--surface-2); }
 .gc-item { padding: 3px 5px; border-radius: 6px; }
-.gc-item:hover { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--blue); }
+.gc-item:hover { background: var(--surface-2); }
 .gc-settled { display: inline-flex; align-items: center; gap: 5px; }
 .confirm-mask:hover .confirm-icon { transform: none; }
 .confirm-panel:hover .confirm-icon { transform: scale(1.04); }
@@ -2770,15 +2777,15 @@ html[data-theme="dark"] .undo-badge.used { background: var(--surface); }
 .group-card { position: relative; overflow: hidden; }
 .gc-profit-box {
   margin-top: 12px; padding: 12px 14px 13px;
-  border: 1px solid var(--border); border-left: 3px solid var(--up);
+  border: 1px solid var(--border);
   border-radius: 12px; background: var(--surface-2);
 }
 .gc-profit-box.pos {
-  border-left-color: var(--up);
+  border-color: color-mix(in srgb, var(--up) 24%, var(--border));
   background: linear-gradient(100deg, #fff5f2 0%, var(--surface-2) 62%, var(--surface-2) 100%);
 }
 .gc-profit-box.neg {
-  border-left-color: var(--down);
+  border-color: color-mix(in srgb, var(--down) 24%, var(--border));
   background: linear-gradient(100deg, #f0fbf6 0%, var(--surface-2) 62%, var(--surface-2) 100%);
 }
 .gc-profit-label {
@@ -4088,7 +4095,7 @@ html[data-theme="dark"] .upd-progress.bad {
 @media (prefers-reduced-motion: reduce) {
   .filter-card .filter-body { transition: none; }
   .table-wrap tbody tr.row-leaving, .rec-card.row-leaving { transition: none; }
-  .table-wrap tbody tr.row-flash { animation: none; box-shadow: inset 3px 0 0 var(--blue); }
+  .table-wrap tbody tr.row-flash { animation: none; background: var(--blue-soft); }
   .rec-card.row-flash { animation: none; border-color: var(--blue); }
 }
 
@@ -4630,12 +4637,14 @@ html[data-theme="dark"] .upd-progress.bad {
   border: 1px solid var(--border); border-radius: 11px;
   background: var(--surface-2); position: relative; overflow: hidden;
 }
-.gf-health > div::before {
-  content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
-  background: var(--border-strong);
+.gf-health > div.ok {
+  border-color: color-mix(in srgb, var(--down) 24%, var(--border));
+  background: color-mix(in srgb, var(--down-soft) 36%, var(--surface-2));
 }
-.gf-health > div.ok::before { background: var(--down); }
-.gf-health > div.warn::before { background: var(--up); }
+.gf-health > div.warn {
+  border-color: color-mix(in srgb, var(--up) 24%, var(--border));
+  background: color-mix(in srgb, var(--up-soft) 36%, var(--surface-2));
+}
 .gf-health span { font-size: 11px; color: var(--text-3); }
 .gf-health b { font-size: 12.5px; color: var(--text); }
 .gf-health > div.ok b { color: var(--down); }
@@ -8993,12 +9002,8 @@ html[data-motion="reduce"] .cs-chev { animation: none !important; transition: no
       linear-gradient(105deg, color-mix(in srgb, var(--brand-soft) 64%, var(--surface)) 0, var(--surface) 42%),
       var(--surface);
   }
-  .ov-page .settle-strip::after {
-    content: "";
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 3px;
-    background: linear-gradient(180deg, var(--brand), color-mix(in srgb, var(--brand) 28%, transparent));
+  .ov-page .settle-strip {
+    border-color: color-mix(in srgb, var(--brand-deep) 20%, var(--border));
   }
   .ov-page .settle-strip .ss-title { min-width: 0; }
   .ov-page .settle-strip .ss-toggle {
@@ -9209,9 +9214,6 @@ html[data-theme="dark"] .icon-btn.is-locked {
     box-shadow: 0 4px 14px rgba(19, 29, 48, .035);
     transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
   }
-  .sum-card::before {
-    width: 4px;
-  }
   .sum-card::after {
     content: "";
     position: absolute;
@@ -9255,18 +9257,8 @@ html[data-theme="dark"] .icon-btn.is-locked {
 
   .records-card {
     position: relative;
-    border-color: color-mix(in srgb, var(--border-strong) 74%, transparent);
+    border-color: color-mix(in srgb, var(--brand-deep) 18%, var(--border-strong));
     box-shadow: 0 8px 28px rgba(19, 29, 48, .05);
-  }
-  .records-card::before {
-    content: "";
-    position: absolute;
-    inset: 0 0 auto;
-    height: 3px;
-    border-radius: 12px 12px 0 0;
-    background: linear-gradient(90deg, var(--brand), var(--brand-deep) 35%, var(--blue) 110%);
-    pointer-events: none;
-    z-index: 2;
   }
   .rc-headbar {
     min-height: 54px;
@@ -9319,20 +9311,6 @@ html[data-theme="dark"] .icon-btn.is-locked {
   }
   .rec-table tbody tr:not(.detail-row) > td.cell-main {
     position: relative;
-  }
-  .rec-table tbody tr:not(.detail-row) > td.cell-main::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 10px;
-    bottom: 10px;
-    width: 3px;
-    border-radius: 0 4px 4px 0;
-    background: var(--blue);
-    opacity: .68;
-  }
-  .rec-table tbody tr:has(.kind-text.is-sell) > td.cell-main::before {
-    background: #d89a16;
   }
   .rec-table tbody tr.expandable:hover {
     background: color-mix(in srgb, var(--blue-soft) 62%, var(--surface));

@@ -1583,10 +1583,14 @@ function onCardClick(r, e) {
 
       <div v-if="!items.length && !loading" class="empty">
         <div class="empty-badge"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
-        <div class="empty-title">没有匹配的记录</div>
-        <div class="empty-sub">换个关键词或重置筛选，也可以直接录入一笔</div>
-        <div style="display:flex;gap:8px;justify-content:center;margin-top:16px;flex-wrap:wrap">
-          <button class="btn btn-primary" @click="emit('add')">上传截图录入</button>
+        <div class="empty-title">{{ hasFilters ? '没有匹配的记录' : '还没有记录' }}</div>
+        <div class="empty-sub">
+          <template v-if="hasFilters">没有找到符合当前搜索或筛选条件的记录。可以清除条件查看全部，也可以直接补录一笔。</template>
+          <template v-else>上传截图即可识别订单信息；如果手头没有截图，也可以手动录入。</template>
+        </div>
+        <div class="empty-actions">
+          <button v-if="hasFilters" class="btn btn-primary" @click="clearFilters">清除筛选，显示全部</button>
+          <button :class="hasFilters ? 'btn btn-quiet' : 'btn btn-primary'" @click="emit('add')">上传截图录入</button>
           <button class="btn btn-quiet" @click="emit('batch')">批量导入截图</button>
         </div>
       </div>
