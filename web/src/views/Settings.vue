@@ -40,6 +40,11 @@ function openFocusedPanel() {
     gfOpen.value = true
   } else if (props.focusPanel === 'backup') {
     backupOpen.value = true
+  } else if (props.focusPanel === 'version') {
+    // 「查看更新」提示跳转到设置后直接打开版本信息窗口，
+    // 否则只切到设置页、用户还得自己找版本入口，看起来像没跳转。
+    preloadPanel('version')
+    versionOpen.value = true
   }
 }
 

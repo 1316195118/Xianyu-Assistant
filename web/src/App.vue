@@ -366,7 +366,7 @@ async function runDailyUpdateCheck() {
     notify(
       `发现新版本 v${result.latest}，可前往设置查看更新`,
       false,
-      { label: '查看更新', ttl: 12000, run: () => switchView('settings') },
+      { label: '查看更新', ttl: 12000, run: () => gotoSettings('version') },
       { tone: 'info', ttl: 12000 }
     )
   } catch (e) {
