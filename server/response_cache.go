@@ -153,8 +153,23 @@ func cachedGET(ttl time.Duration, next http.HandlerFunc) http.HandlerFunc {
 		cacheEpoch := apiReadCache.epoch
 		apiReadCache.mu.Unlock()
 
+		// 若 next 内部 panic，缺少清理会让 done 永不关闭、flights 中的 key 永久残留，
+		// 后续同 key 请求全部卡在等待 done，接口彻底挂起。这里在 panic 时兜底清理并
+		// 原样重新抛出（交给 net/http 的 recover 处理当前连接）；正常路径不受影响，
+		// 仍保持「先写缓存、再关闭 flight」的顺序，避免等待者醒来后缓存未命中而重复计算。
 		capture := newResponseCapture()
-		next(capture, r)
+		func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					apiReadCache.mu.Lock()
+					delete(apiReadCache.flights, key)
+					close(flight.done)
+					apiReadCache.mu.Unlock()
+					panic(recovered)
+				}
+			}()
+			next(capture, r)
+		}()
 		copyHeaders(w.Header(), capture.header)
 		w.Header().Set("X-Response-Cache", "MISS")
 		w.WriteHeader(capture.status)
@@ -171,6 +186,8 @@ func cachedGET(ttl time.Duration, next http.HandlerFunc) http.HandlerFunc {
 				status: capture.status, header: header, body: body, expires: now.Add(ttl),
 			})
 		}
+		// 正常路径同样必须释放 flight：与写缓存在同一把锁内完成，保证等待者
+		// 醒来时缓存已就位，既能命中缓存，也不会永久卡在等待 done。
 		delete(apiReadCache.flights, key)
 		close(flight.done)
 		apiReadCache.mu.Unlock()

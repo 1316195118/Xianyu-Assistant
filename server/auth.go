@@ -81,7 +81,9 @@ func verifyPassword(pw, stored, legacySalt string) bool {
 			return false
 		}
 		// 限制参数范围，避免被篡改的超大 N 拖垮 CPU
-		if n < 1<<12 || n > 1<<20 || r < 1 || r > 32 || p < 1 || p > 8 {
+		// N 上限收紧到 1<<18（约 256MB）：正常哈希用 1<<15，留足兼容空间，
+		// 同时避免被篡改的哈希记录借超大 N 触发内存型 DoS。
+		if n < 1<<12 || n > 1<<18 || r < 1 || r > 32 || p < 1 || p > 8 {
 			return false
 		}
 		want, err := hex.DecodeString(parts[5])

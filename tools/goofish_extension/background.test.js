@@ -5,6 +5,7 @@ const test = require('node:test')
 const vm = require('node:vm')
 
 const source = fs.readFileSync(path.join(__dirname, 'background.js'), 'utf8')
+const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'manifest.json'), 'utf8'))
 
 function makeBackground({ cookies, fetchImpl, config = {}, scripting = null }) {
   const store = {
@@ -78,7 +79,7 @@ function makeBackground({ cookies, fetchImpl, config = {}, scripting = null }) {
       onStartup: { addListener: noop },
       onMessage: { addListener: noop },
       async openOptionsPage() {},
-      getManifest() { return { version: '1.2.4' } }
+      getManifest() { return { version: manifest.version } }
     }
   }
   const context = vm.createContext({
@@ -343,7 +344,7 @@ test('从鱼助手服务器检查扩展新版并设置更新角标', async () =>
   })
   const result = await context.checkExtensionUpdate(true)
   assert.equal(result.ok, true)
-  assert.equal(result.currentVersion, '1.2.4')
+  assert.equal(result.currentVersion, manifest.version)
   assert.equal(result.latestVersion, '1.3.0')
   assert.equal(result.updateAvailable, true)
   assert.equal(result.downloadUrl, 'http://10.10.10.251:18083/downloads/goofish-extension.zip')
@@ -482,7 +483,7 @@ test('扩展版本改变后会忽略当天旧缓存，重新检查服务器', as
   const result = await context.checkExtensionUpdate(false)
   assert.equal(checks, 1)
   assert.equal(result.updateAvailable, false)
-  assert.equal(store.extensionCheckedVersion, '1.2.4')
+  assert.equal(store.extensionCheckedVersion, manifest.version)
 })
 
 test('版本号按数字段比较，不会把 1.1.10 误判低于 1.1.9', () => {
@@ -589,4 +590,83 @@ test('未授权服务器访问时连接检查给出快捷面板指引', async ()
   assert.equal(result.reachable, false)
   assert.equal(result.usable, false)
   assert.match(result.message, /快捷面板/)
+})
+
+test('实时连接检查会同步工具栏角标：可用为 ✓，不可用为 !', async () => {
+  const okCase = makeBackground({
+    cookies: { goofish: [] },
+    config: { bridgeToken: 'pair-token' },
+    fetchImpl: async (url) => {
+      if (url.endsWith('/api/goofish/status')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            logged_in: true,
+            session_valid: true,
+            order_api_valid: true,
+            expired: false,
+            sync_error: '',
+            nick: '测试账号'
+          })
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) }
+    }
+  })
+  const okResult = await okCase.context.checkConnection()
+  assert.equal(okResult.usable, true)
+  assert.equal(okCase.badgeTexts.at(-1), '✓', '面板显示当前可用时角标必须显示 ✓')
+
+  const badCase = makeBackground({
+    cookies: { goofish: [] },
+    config: { bridgeToken: 'invalid' },
+    fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({ error: '未登录' }) })
+  })
+  const badResult = await badCase.context.checkConnection()
+  assert.equal(badResult.usable, false)
+  assert.equal(badCase.badgeTexts.at(-1), '!', '连接不可用时角标显示 !')
+})
+
+test('有扩展更新时角标优先显示 ↑，不被连接状态覆盖', async () => {
+  const { context, badgeTexts } = makeBackground({
+    cookies: { goofish: [] },
+    config: { extensionUpdateAvailable: true, extensionLatestVersion: '9.9.9' },
+    fetchImpl: async (url) => {
+      if (url.endsWith('/api/goofish/status')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            logged_in: true, session_valid: true, order_api_valid: true, expired: false
+          })
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) }
+    }
+  })
+  await context.checkConnection()
+  assert.equal(badgeTexts.at(-1), '↑', '更新提示角标优先级高于连接状态')
+})
+
+test('扫码登录进行中不会被连接检查覆盖临时角标', async () => {
+  const { context, badgeTexts } = makeBackground({
+    cookies: { goofish: [] },
+    config: { interactiveLoginStartedAt: Date.now(), interactiveLoginState: 'waiting' },
+    fetchImpl: async (url) => {
+      if (url.endsWith('/api/goofish/status')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            logged_in: true, session_valid: true, order_api_valid: true, expired: false
+          })
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) }
+    }
+  })
+  const result = await context.checkConnection()
+  assert.equal(result.usable, true)
+  assert.equal(badgeTexts.length, 0, '扫码进行中不应改写角标')
 })

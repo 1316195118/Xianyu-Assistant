@@ -12,7 +12,12 @@ python tools/package_goofish_extension.py
 
 echo "[3/8] 安装前端依赖并打包 Vue ..."
 cd "$ROOT/web"
-npm ci --no-audit --no-fund
+# CI(Ubuntu) 走标准 npm ci。本机 WorkBuddy 的 safe-delete 钩子会拦截 npm ci
+# 对 node_modules 的批量删除；失败时回退到增量 npm install，保证构建可完成。
+if ! npm ci --no-audit --no-fund; then
+  echo "      npm ci 被环境安全策略拦截，回退到增量 npm install ..."
+  npm install --no-audit --no-fund
+fi
 # 逐文件清空 dist，避免批量删除触发安全策略；Vite 只产出少量文件
 python "$ROOT/tools/sync_webroot.py" prepare
 npm run build
@@ -22,8 +27,8 @@ cd "$ROOT/server"
 go run ./cmd/precompress "$ROOT/web/dist/assets"
 
 echo "[5/8] 合并前端产物 + licenses/OCR/扩展包静态资源到 Go 嵌入目录 ..."
-echo "      同时递增版本号并归档 version/NEXT.md 的更新说明（编译前请先填写）"
-echo "      只想重跑同步、不升版本：XY_SKIP_VERSION=1 python tools/sync_webroot.py sync"
+echo "      本地构建默认不升版本号；只有发布脚本（tools/release.sh）才会归档 NEXT.md 并递增版本"
+echo "      发布时递增：XY_BUMP_VERSION=1 python tools/sync_webroot.py sync"
 cd "$ROOT"
 python tools/sync_webroot.py sync
 

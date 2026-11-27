@@ -112,7 +112,12 @@ func pruneBackups() {
 func backupLoop() {
 	ticker := time.NewTicker(30 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
+	for {
+		select {
+		case <-shutdownCh:
+			return
+		case <-ticker.C:
+		}
 		if !backupEnabled() {
 			continue
 		}

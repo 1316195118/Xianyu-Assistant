@@ -420,7 +420,12 @@ async function checkConnection() {
     }
   })()
   try {
-    return await connectionChecking
+    const result = await connectionChecking
+    // 面板状态与工具栏角标共用同一份实时连接结果：面板显示「当前可用」时，
+    // 角标必须同步为 ✓。此前角标只在 syncNow 的旁路逻辑里更新，服务端状态
+    // 已恢复（或面板刚打开）时角标仍是空白/旧值，出现「状态正常但不显示」。
+    await syncBadgeFromConnection(result)
+    return result
   } finally {
     connectionChecking = null
   }
@@ -443,6 +448,19 @@ async function setBadge(ok, detail) {
   await chrome.action.setBadgeText({ text: ok ? '✓' : '!' })
   await chrome.action.setBadgeBackgroundColor({ color: ok ? '#2e7d32' : '#c62828' })
   await chrome.action.setTitle({ title: '鱼助手 · 闲鱼登录同步\n' + detail })
+}
+
+// 工具栏角标与快捷面板统一以实时连接结果为准。
+// 后台续期（↻）和扫码登录进行中时保留各自的临时角标，不被一次状态查询覆盖。
+async function syncBadgeFromConnection(result) {
+  if (!result) return
+  if (refreshing) return
+  const saved = await chrome.storage.local.get({
+    interactiveLoginStartedAt: 0,
+    interactiveLoginState: ''
+  })
+  if (interactiveLoginActive(saved)) return
+  await setBadge(!!result.usable, result.message || '鱼助手状态检查完成')
 }
 
 function waitForTabComplete(tabId, timeoutMs) {
@@ -873,7 +891,12 @@ chrome.runtime.onInstalled.addListener(async () => {
 chrome.runtime.onStartup.addListener(setup)
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM_NAME) syncNow(false)
+  if (alarm.name === ALARM_NAME) {
+    // syncNow 负责上报/续期，它的角标只反映「本次是否成功提交 Cookie」；
+    // 完成后再用实时连接状态校正角标，使其与快捷面板的「当前可用」一致，
+    // 避免凭证仍有效却因冷却期/重复校验显示成 ! 或空白。
+    syncNow(false).finally(() => { checkConnection().catch(() => {}) })
+  }
   if (alarm.name === UPDATE_ALARM_NAME) checkExtensionUpdate(true)
 })
 

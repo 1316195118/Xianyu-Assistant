@@ -10,12 +10,17 @@ import (
 )
 
 func TestServeIndexHTMLUsesRequestOriginForSocialImage(t *testing.T) {
+	// X-Forwarded-Proto 只在可信代理下采信（防止伪造协议污染规范链接）。
+	t.Setenv("TRUSTED_PROXY_CIDRS", "192.0.2.1/32")
+	resetTrustedProxyCacheForTest()
+	t.Cleanup(resetTrustedProxyCacheForTest)
 	sub := fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte(`<meta property="og:image" content="__SITE_ORIGIN__/og-image.png">`)},
 	}
 	handler := spaHandler(sub, http.FileServer(http.FS(sub)))
 	req := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
 	req.Host = "example.test"
+	// httptest 默认 RemoteAddr 即 192.0.2.1:1234，落在上面的可信段内。
 	req.Header.Set("X-Forwarded-Proto", "https")
 	rec := httptest.NewRecorder()
 

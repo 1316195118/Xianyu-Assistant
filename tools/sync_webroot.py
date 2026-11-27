@@ -5,8 +5,9 @@ Vite 只产出 index.html + assets；licenses 与 OCR WASM 等大批量静态资
 由此脚本合并。全程逐文件操作，不用 `rm -rf`，规避环境的安全删除策略。
 
 用法：
-  python tools/sync_webroot.py prepare   # Vite 构建前：逐文件清空 dist
+  python tools/sync_webroot.py prepare   # Vite 构建前：确保 dist 存在（清理交由 Vite 插件）
   python tools/sync_webroot.py sync      # Vite 构建后：合并 dist + static -> server/webroot
+                                         # 默认不升版本；XY_BUMP_VERSION=1 才递增并归档说明
 """
 import os, shutil, sys, stat, hashlib, re
 
@@ -34,10 +35,11 @@ def clear_contents(path):
 
 
 def prepare():
-    # 零删除构建：不再清理 dist。Vite 输出固定文件名（app.js/app.css），
-    # 每次覆盖同名文件即可，不会产生旧 hash 堆积。
+    # dist/assets 的清理由 vite.config.js 的 cleanAssets 插件在 buildStart 阶段完成
+    # （Vite 输出的是内容哈希文件名，必须清空避免旧哈希堆积）。这里只保证目录存在，
+    # 不再重复清理，避免同一轮构建里两处删除逻辑互相触发批量删除保护。
     os.makedirs(DIST, exist_ok=True)
-    print('零删除构建：跳过 dist 清理')
+    print('dist 清理交由 Vite cleanAssets 插件，prepare 仅确保目录存在')
 
 
 def overwrite(src, dst):
@@ -179,13 +181,14 @@ def sync():
     if os.path.isdir(PUBLIC):
         count = copy_tree(PUBLIC, count)  # sw.js 等 public 资源
 
-    # 每次完整构建都经过这里：递增语义版本号、归档 version/NEXT.md 的更新说明，
-    # 并生成 server/version_gen.go 供后端编译进二进制。
-    # 只想重跑同步、不想升版本时设 XY_SKIP_VERSION=1（例如本地调试/测试）。
+    # 只有真正发布时才递增语义版本号、归档 version/NEXT.md 的更新说明。
+    # 本地构建默认不升版本（安全默认）：设 XY_BUMP_VERSION=1 才 bump，由
+    # tools/release.sh 统一负责；这样「版本号只在推送/发布时才算」。
+    # 非 bump 构建仍同步当前版本号与前端构建号，避免设置页显示新旧构建号错配。
     _, clean_html = clean_index_html()
     build = hashlib.md5(clean_html.encode('utf-8')).hexdigest()[:10]
     version = ''
-    if os.environ.get('XY_SKIP_VERSION') != '1':
+    if os.environ.get('XY_BUMP_VERSION') == '1':
         try:
             import importlib.util
             spec = importlib.util.spec_from_file_location(
@@ -198,8 +201,6 @@ def sync():
         except Exception as e:  # noqa: BLE001  版本失败不应阻断构建
             print(f'  警告：版本号递增失败（不影响构建）：{e}')
     else:
-        # 跳过递增时，同步当前版本号与最新的前端构建号，避免设置页显示
-        # 新前端搭配旧后端构建号。
         version = sync_build_metadata(build)
     inject_meta(build, version)
     print(f'前端产物同步完成：{count} 个文件（清理旧 assets {removed} 个）-> {DEST}（构建 {build} / 版本 {version or "跳过"}）')

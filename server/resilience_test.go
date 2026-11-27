@@ -86,6 +86,41 @@ func TestReadCacheDoesNotPersistResponseAcrossWrite(t *testing.T) {
 	}
 }
 
+func TestReadCacheRecoversFlightAfterHandlerPanic(t *testing.T) {
+	apiReadCache.clearAll()
+	shouldPanic := true
+	next := cachedGET(time.Minute, func(w http.ResponseWriter, _ *http.Request) {
+		if shouldPanic {
+			shouldPanic = false
+			panic("boom")
+		}
+		writeJSON(w, map[string]int{"value": 42})
+	})
+
+	// 第一次请求触发 panic，由测试自行 recover（模拟 net/http 的recover）。
+	func() {
+		defer func() { _ = recover() }()
+		rr := httptest.NewRecorder()
+		next(rr, httptest.NewRequest(http.MethodGet, "/api/cache-panic", nil))
+	}()
+
+	// 若 flight 未清理，这里会永久卡在等待 done；用超时保护并断言能正常返回。
+	result := make(chan string, 1)
+	go func() {
+		rr := httptest.NewRecorder()
+		next(rr, httptest.NewRequest(http.MethodGet, "/api/cache-panic", nil))
+		result <- rr.Header().Get("X-Response-Cache")
+	}()
+	select {
+	case status := <-result:
+		if status != "MISS" {
+			t.Fatalf("recovered request status=%q want MISS", status)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("request hung after handler panic: cache flight was not released")
+	}
+}
+
 func TestGroupUpdateRejectsStaleVersion(t *testing.T) {
 	setupOperationsTest(t)
 	itemID, err := insertItem(&Item{Product: "并发联单测试", BuyPrice: 100, Quantity: 1}, defaultShopID, nowStr())

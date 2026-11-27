@@ -1141,8 +1141,10 @@ func handleGoofishAuto(w http.ResponseWriter, r *http.Request) {
 // goofishAutoSyncLoop 按店铺设置的间隔自动跑一次「拉取 + 导入」。
 // 只在服务端做，不依赖有没有人打开页面；每次 tick 只判断是否到期，不做额外请求。
 func goofishAutoSyncLoop() {
-	time.Sleep(90 * time.Second) // 让启动期的其他任务先跑完
-	for {
+	if interruptibleSleep(90 * time.Second) { // 让启动期的其他任务先跑完
+		return
+	}
+	for !shutdownRequested() {
 		rows, err := db.Query("SELECT key FROM settings WHERE key LIKE 'goofish_auto_days@%' AND value<>'' AND value<>'0'")
 		if err == nil {
 			shops := make([]int64, 0, 4)
@@ -1161,7 +1163,9 @@ func goofishAutoSyncLoop() {
 				gfAutoSyncOne(shop)
 			}
 		}
-		time.Sleep(gfAutoTickPeriod)
+		if interruptibleSleep(gfAutoTickPeriod) {
+			return
+		}
 	}
 }
 
@@ -1170,10 +1174,14 @@ const gfSessionMaintainPeriod = 6 * time.Hour
 // goofishSessionMaintainLoop 独立于订单同步维护登录态。
 // 即使自动同步设为 7 天一次，也会每 6 小时检查一次短期会话和同源订单接口。
 func goofishSessionMaintainLoop() {
-	time.Sleep(2 * time.Minute)
-	for {
+	if interruptibleSleep(2 * time.Minute) {
+		return
+	}
+	for !shutdownRequested() {
 		gfMaintainAllSessions()
-		time.Sleep(gfSessionMaintainPeriod)
+		if interruptibleSleep(gfSessionMaintainPeriod) {
+			return
+		}
 	}
 }
 

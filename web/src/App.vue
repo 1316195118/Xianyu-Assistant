@@ -271,9 +271,10 @@ function bumpCoalesced() {
     bump()
   }, 300)
 }
-document.addEventListener('visibilitychange', () => {
+function onVisibilityChange() {
   if (!document.hidden && bumpPending) { bumpPending = false; bump() }
-})
+}
+document.addEventListener('visibilitychange', onVisibilityChange)
 // 顶栏闲鱼状态点：在任意页面都能看到绑定是否失效，点一下直达绑定弹窗
 async function loadGfStatus() {
   try {
@@ -401,6 +402,9 @@ onMounted(() => {
   onScroll()
 })
 onUnmounted(() => {
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  if (bumpTimer) clearTimeout(bumpTimer)
+  bumpTimer = null
   if (dailyUpdateTimer) clearTimeout(dailyUpdateTimer)
   dailyUpdateTimer = 0
   if (inputBlurTimer) clearTimeout(inputBlurTimer)

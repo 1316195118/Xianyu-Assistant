@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"html"
 	"io/fs"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -38,6 +40,7 @@ func main() {
 		return
 	}
 
+	initShutdownSignal()
 	go backupLoop()
 	// 闲鱼同步：把旧版全局绑定搬到默认店铺，再起后台保活
 	gfMigrateGlobal()
@@ -92,7 +95,18 @@ func main() {
 		ReadTimeout:       120 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
-	log.Fatal(srv.ListenAndServe())
+	// 收到退出信号时限时优雅关闭：给在途请求（导出、正在提交的事务）收尾时间，
+	// 而不是被 SIGTERM 直接杀死导致半写状态。WriteTimeout 仍刻意不设。
+	go func() {
+		<-shutdownCh
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("服务启动失败: %v", err)
+	}
+	log.Println("服务已优雅退出")
 }
 
 // securityHeaders 全局安全响应头，在 main.go 包住整个 mux。
@@ -189,10 +203,77 @@ func requestOrigin(r *http.Request) string {
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); forwarded == "http" || forwarded == "https" {
-		scheme = forwarded
+	// 代理头只在可信来源下采信，避免客户端伪造 https 破坏规范链接。
+	if requestFromTrustedProxy(r) {
+		if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); forwarded == "http" || forwarded == "https" {
+			scheme = forwarded
+		}
 	}
-	return scheme + "://" + r.Host
+	// r.Host 客户端可控，直接拼进 og:url/canonical/Sitemap 会被 Host 头注入。
+	// 只放行合法 host[:port]（域名或 IP），拒绝空值、scheme、路径、空白与控制字符；
+	// 非法时回退到本机监听地址，保证规范链接始终是一个安全可控的绝对 URL。
+	host := safeRequestHost(r.Host)
+	if host == "" {
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = "8080"
+		}
+		host = "localhost:" + port
+	}
+	return scheme + "://" + host
+}
+
+// safeRequestHost 校验 Host 头是否为合法的 host[:port]，非法返回空字符串。
+func safeRequestHost(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) > 253 {
+		return ""
+	}
+
+	host, port := raw, ""
+	if h, p, err := net.SplitHostPort(raw); err == nil {
+		// host:port 或 [ipv6]:port
+		host, port = h, p
+		if port == "" || len(port) > 5 {
+			return ""
+		}
+		for _, ch := range port {
+			if ch < '0' || ch > '9' {
+				return ""
+			}
+		}
+	} else if strings.Contains(raw, ":") {
+		// 无端口的 IPv6 字面量（如 [::1]）：net.SplitHostPort 会报错，单独处理。
+		if !strings.HasPrefix(raw, "[") || !strings.HasSuffix(raw, "]") {
+			return ""
+		}
+		host = strings.TrimSuffix(strings.TrimPrefix(raw, "["), "]")
+		ip := net.ParseIP(host)
+		if ip == nil || ip.To4() != nil {
+			return ""
+		}
+		return raw
+	}
+
+	if host == "" {
+		return ""
+	}
+	// 纯 IPv6 字面量：交给 net.ParseIP 精确校验。
+	if strings.Contains(host, ":") {
+		if net.ParseIP(host) == nil {
+			return ""
+		}
+		return raw
+	}
+	// 域名或 IPv4：仅允许字母数字、点、连字符（禁止空白/斜杠/@/控制字符注入）。
+	for _, ch := range host {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') || ch == '.' || ch == '-' {
+			continue
+		}
+		return ""
+	}
+	return raw
 }
 
 func serveIndexHTML(w http.ResponseWriter, r *http.Request, sub fs.FS) {
